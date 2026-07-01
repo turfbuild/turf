@@ -1,0 +1,38 @@
+# Turf
+
+A drop-in replacement for Terraform with agentic superpowers: full support for
+Terraform HCL and the module registry, driven by an AI agent over the Model
+Context Protocol.
+
+This repository hosts the **alpha binary releases** of Turf — the `turf` CLI and
+the `turf-mcp-server` — for early testers on macOS.
+
+> **Alpha / pre-release.** This is early evaluation software. Expect rough edges,
+> and please don't redistribute the binaries.
+
+## Install (Homebrew, macOS)
+
+```sh
+brew install turfbuild/tap/turf
+```
+
+This installs both `turf` and `turf-mcp-server`. Verify:
+
+```sh
+turf --version
+which turf-mcp-server
+```
+
+The CLI drives an LLM via [cagent](https://github.com/docker/cagent), so set the
+API key for your provider (e.g. `ANTHROPIC_API_KEY`) before running `turf chat`.
+See the README inside the release archive for a quick start.
+
+## Licensing
+
+`turf-mcp-server` and Turf as a whole are provided for evaluation under the
+[PolyForm Free Trial License 1.0.0](./LICENSE). The `turf` CLI is open source
+under the Mozilla Public License 2.0; source is available on request
+(eronwright@gmail.com). Turf builds on the OpenTofu provider ecosystem (MPL-2.0);
+the downstream forks Turf maintains are published under
+[github.com/turfbuild](https://github.com/turfbuild). Bundled third-party
+components are credited in the `NOTICE` file inside each release archive.
