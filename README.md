@@ -10,7 +10,7 @@ the `turf-mcp-server` — for early testers on macOS.
 > **Alpha / pre-release.** This is early evaluation software. Expect rough edges,
 > and please don't redistribute the binaries.
 
-## Install (Homebrew, macOS)
+## Install (Homebrew, macOS and Linux)
 
 ```sh
 brew install turfbuild/tap/turf
