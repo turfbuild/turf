@@ -27,6 +27,14 @@ The CLI drives an LLM via [cagent](https://github.com/docker/cagent), so set the
 API key for your provider (e.g. `ANTHROPIC_API_KEY`) before running `turf chat`.
 See the README inside the release archive for a quick start.
 
+## Feedback & Support
+
+Have a question, idea, or want to share how you're using Turf? Join the
+conversation in
+[GitHub Discussions](https://github.com/turfbuild/turf/discussions). Found a bug
+or have a feature request? Open an
+[issue](https://github.com/turfbuild/turf/issues).
+
 ## Licensing
 
 `turf-mcp-server` and Turf as a whole are provided for evaluation under the
