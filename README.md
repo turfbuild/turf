@@ -27,6 +27,23 @@ The CLI drives an LLM via [cagent](https://github.com/docker/cagent), so set the
 API key for your provider (e.g. `ANTHROPIC_API_KEY`) before running `turf chat`.
 See the README inside the release archive for a quick start.
 
+## Examples
+
+Runnable examples live in
+[turfbuild/turf-examples](https://github.com/turfbuild/turf-examples) (private —
+access shared with early testers). Each is an ordinary HCL configuration you drive
+with `turf -C <dir>`:
+
+- **Kubernetes** — a local kind cluster with a CRD + custom resource, or a Helm
+  release (credential-free, Docker only).
+- **Azure / GCP** — a multi-instance Azure resource-group module, and a GKE
+  Autopilot cluster with custom VPC networking.
+- **Language & features** — Terraform Actions, Turf-native actions
+  (`turf_confirm` human gates + `turf_action` agent steps), and a
+  staged-then-commit pattern.
+
+The repo also carries kagent manifests for deploying `turf-mcp-server` in-cluster.
+
 ## Feedback & Support
 
 Have a question, idea, or want to share how you're using Turf? Join the
