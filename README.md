@@ -1,7 +1,7 @@
 # turf
 
-A reference AI-powered infrastructure management CLI built on the [turf MCP
-server](https://github.com/turfbuild/turf-mcp-server) — a drop-in replacement for
+A reference AI-powered infrastructure management CLI built on the **turf MCP
+server** — a drop-in replacement for
 Terraform with agentic superpowers: full support for Terraform HCL and the
 module registry, driven by an AI agent. `turf` drives the server through
 [cagent](https://github.com/docker/docker-agent) to plan and apply changes against
