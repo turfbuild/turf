@@ -30,9 +30,8 @@ See the README inside the release archive for a quick start.
 ## Examples
 
 Runnable examples live in
-[turfbuild/turf-examples](https://github.com/turfbuild/turf-examples) (private —
-access shared with early testers). Each is an ordinary HCL configuration you drive
-with `turf -C <dir>`:
+[turfbuild/turf-examples](https://github.com/turfbuild/turf-examples). Each is an
+ordinary HCL configuration you drive with `turf -C <dir>`:
 
 - **Kubernetes** — a local kind cluster with a CRD + custom resource, or a Helm
   release (credential-free, Docker only).
