@@ -78,6 +78,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flagTheme, "theme", os.Getenv("TURF_THEME"), "TUI theme name; overrides the saved /theme choice for this run (default: calm-roots; env: TURF_THEME)")
 	cmd.PersistentFlags().BoolVar(&flagDebug, "debug", os.Getenv("TURF_DEBUG") != "", "Log at debug level to <TURF_HOME>/turf.debug.log (default: warnings and errors only; env: TURF_DEBUG)")
 	cmd.PersistentFlags().BoolVar(&flagLean, "lean", os.Getenv("TURF_LEAN") != "", "Use the simplified lean TUI (no sidebar/tabs/overlays; renders to scrollback; env: TURF_LEAN)")
+	addWorktreeFlags(cmd)
 
 	cmd.AddCommand(newUpCmd())
 	cmd.AddCommand(newDestroyCmd())

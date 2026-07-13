@@ -15,7 +15,7 @@ import (
 	tuiinput "github.com/docker/docker-agent/pkg/tui/input"
 )
 
-func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string, lean bool) error {
+func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string, lean bool, worktreeBranch string) error {
 	// Apply turf's theme before constructing either TUI. cagent's tui.New /
 	// leantui.Run do not auto-apply the persisted/default theme, so turf does it
 	// here; leantui reads the same styles package the theme configures.
@@ -24,7 +24,7 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firs
 	// Callers decide lean vs full: chat honors --lean, while up/destroy always
 	// pass true (the sidebar/tabs are noise for a one-shot deploy/teardown).
 	if lean {
-		return runLeanTUI(ctx, rt, sess, firstMessage)
+		return runLeanTUI(ctx, rt, sess, firstMessage, worktreeBranch)
 	}
 
 	var opts []app.Opt
@@ -42,7 +42,10 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firs
 	// status bar / window title as turf with turf's own version, not cagent's.
 	model := tui.New(ctx, nil, a, wd, cleanup,
 		tui.WithAppName(appName),
-		tui.WithVersion(Version),
+		// The status-bar title renders as "<appName> <version>"; fold the active
+		// worktree branch into the version slot so the user sees they're working
+		// on a throwaway branch (e.g. "turf 1.2.3 · worktree-focused_turing").
+		tui.WithVersion(versionWithBranch(worktreeBranch)),
 		// Paint turf's tools as compact, theme-colored conversation lines instead
 		// of raw JSON. Keys are the "turf_"-prefixed exposed names (see
 		// mcptoolset.go / agent.go). Detail level follows Ctrl+O (HideToolResults).
@@ -100,7 +103,7 @@ var turfBanner = []string{
 	`   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═╝     `,
 }
 
-func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string) error {
+func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string, worktreeBranch string) error {
 	registerTurfToolRenderers()
 
 	var opts []app.Opt
@@ -115,8 +118,10 @@ func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, 
 		App:        a,
 		WorkingDir: wd,
 		Cleanup:    func() {},
-		AppName:    appName,
-		Banner:     turfBanner,
+		// Lean mode's status footer has no version slot, so fold the active
+		// worktree branch into the app name instead (e.g. "turf · worktree-...").
+		AppName: appNameWithBranch(worktreeBranch),
+		Banner:  turfBanner,
 	}
 	if firstMessage != "" {
 		cfg.FirstMessage = &firstMessage // leantui reads this, not app.WithFirstMessage
