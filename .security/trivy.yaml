@@ -1,0 +1,34 @@
+# Trivy configuration for the Turf CLI (filesystem scan).
+# Consumed by the shared scan action (turfbuild/.github/actions/scan) when it
+# finds this file; otherwise the action's bundled default applies.
+scan:
+  scanners:
+    - vuln
+    - misconfig
+    - secret
+  # Skip the docker-agent fork submodule (it carries its own upstream scanning
+  # and is dispositioned via the fork-rebase flow, never re-scanned here), plus
+  # build output.
+  skip-dirs:
+    - docker-agent
+    - dist
+    - bin
+    - .cache
+
+vulnerability:
+  ignore-unfixed: false
+
+severity:
+  - LOW
+  - MEDIUM
+  - HIGH
+  - CRITICAL
+
+misconfiguration:
+  # The CLI ships as a Go binary (Homebrew / release archives), not a container
+  # or IaC. Scan only Dockerfiles for misconfig — there are none today, so this
+  # is a no-op guard that keeps the terraform/IaC evaluator from walking any
+  # test fixtures.
+  scanners:
+    - dockerfile
+  include-non-failures: false
