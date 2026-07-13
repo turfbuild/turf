@@ -18,15 +18,18 @@ jobs:
     name: build & test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive # materialize ./docker-agent for the replace directive
           fetch-depth: 0 # tags for `git describe` version injection (main.Version)
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod # single source of truth for the Go version
+          # Caches the Go module cache (~/go/pkg/mod) and build cache
+          # (~/.cache/go-build), keyed on go.sum — shared across jobs/runs.
           cache: true
+          cache-dependency-path: go.sum
 
       - name: build
         run: make build
@@ -50,14 +53,15 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive # golangci-lint compiles the package; needs ./docker-agent
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - uses: golangci/golangci-lint-action@v9
         with:
