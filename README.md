@@ -1,6 +1,7 @@
 # turf
 
 [![CI](https://github.com/turfbuild/turf/actions/workflows/ci.yml/badge.svg)](https://github.com/turfbuild/turf/actions/workflows/ci.yml)
+[![Security](https://github.com/turfbuild/turf/actions/workflows/security.yml/badge.svg)](https://github.com/turfbuild/turf/actions/workflows/security.yml)
 
 A reference AI-powered infrastructure management CLI built on the **turf MCP
 server** — a drop-in replacement for
