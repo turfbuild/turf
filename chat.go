@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +21,14 @@ func newChatCmd() *cobra.Command {
 // so running turf with no subcommand is equivalent to `turf chat`.
 func runChat(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
+
+	// chat is always an interactive TUI session, so the worktree (when --worktree
+	// is set) is created here and cleaned up when the session ends.
+	wt, err := setupRunWorktree(ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanupRunWorktree(context.WithoutCancel(ctx), wt, true)
 
 	rt, cleanup, err := createAgentRuntime(ctx, agentOpts{
 		model:          flagModel,
@@ -39,5 +49,5 @@ func runChat(cmd *cobra.Command, args []string) error {
 	defer cleanup()
 
 	sess := newSession("", false)
-	return runTUI(ctx, rt, sess, "", flagLean)
+	return runTUI(ctx, rt, sess, "", flagLean, worktreeBranch(wt))
 }

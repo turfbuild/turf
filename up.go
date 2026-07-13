@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -25,6 +26,12 @@ func newUpCmd() *cobra.Command {
 			}
 
 			interactive := isatty.IsTerminal(os.Stdout.Fd())
+
+			wt, err := setupRunWorktree(ctx)
+			if err != nil {
+				return err
+			}
+			defer cleanupRunWorktree(context.WithoutCancel(ctx), wt, interactive)
 
 			rt, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
@@ -51,7 +58,7 @@ func newUpCmd() *cobra.Command {
 			// path does need the seed (cli.Run replays it as history).
 			if interactive {
 				sess := newSession("", autoApprove)
-				return runTUI(ctx, rt, sess, prompt, true)
+				return runTUI(ctx, rt, sess, prompt, true, worktreeBranch(wt))
 			}
 			sess := newSession(prompt, autoApprove)
 			return runExec(ctx, rt, sess, autoApprove)
