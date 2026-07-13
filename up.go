@@ -12,18 +12,14 @@ func newUpCmd() *cobra.Command {
 	var autoApprove bool
 
 	cmd := &cobra.Command{
-		Use:   "up [path]",
+		Use:   "up",
 		Short: "Deploy infrastructure from HCL configuration",
-		Long:  "Deploy or reconcile infrastructure by running an AI agent that plans and applies changes from HCL configuration files.",
-		Args:  cobra.MaximumNArgs(1),
+		Long:  "Deploy or reconcile infrastructure by running an AI agent that plans and applies changes from HCL configuration files in the current directory. Use -C/--chdir to target another directory.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			configPath := "."
-			if len(args) > 0 {
-				configPath = args[0]
-			}
-			absPath, err := filepath.Abs(configPath)
+			absPath, err := filepath.Abs(".")
 			if err != nil {
 				return err
 			}

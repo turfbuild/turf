@@ -57,11 +57,14 @@ turf chat
 # Start the guided product demo (type inside the session)
 turf chat  # then: /demo
 
-# Deploy from HCL configuration
-turf up ./examples/azure-storage-container
+# Deploy from HCL configuration in the current directory
+turf up
+
+# ...or target another directory (like `tofu -chdir=DIR`)
+turf -C ./examples/azure-storage-container up
 
 # Destroy everything in a configuration
-turf destroy ./examples/azure-storage-container
+turf -C ./examples/azure-storage-container destroy
 
 # Use a different model
 turf --model anthropic/claude-sonnet-4-6 chat

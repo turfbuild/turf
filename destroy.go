@@ -12,18 +12,14 @@ func newDestroyCmd() *cobra.Command {
 	var autoApprove bool
 
 	cmd := &cobra.Command{
-		Use:   "destroy [path]",
+		Use:   "destroy",
 		Short: "Destroy all managed infrastructure",
-		Long:  "Destroy all infrastructure resources managed by the HCL configuration at the given path.",
-		Args:  cobra.MaximumNArgs(1),
+		Long:  "Destroy all infrastructure resources managed by the HCL configuration in the current directory. Use -C/--chdir to target another directory.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			configPath := "."
-			if len(args) > 0 {
-				configPath = args[0]
-			}
-			absPath, err := filepath.Abs(configPath)
+			absPath, err := filepath.Abs(".")
 			if err != nil {
 				return err
 			}
