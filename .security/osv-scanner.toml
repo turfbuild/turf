@@ -1,0 +1,27 @@
+# osv-scanner suppression config.
+#
+# This file IS the vulnerability baseline for lockfile findings: an accepted or
+# not-yet-actionable CVE is listed here with a REQUIRED reason and an expiry, so
+# nothing is silenced permanently and every suppression is reviewed like code.
+#
+# HARD RULE — fork findings are never suppressed here. A CVE in the docker-agent
+# fork (github.com/docker/docker-agent) is fixed by rebasing the fork on upstream
+# and re-pinning the submodule, not suppressed. Suppressing a fork CVE here hides
+# work that must actually be done.
+#
+# Format:
+# [[IgnoredVulns]]
+# id = "GO-2026-XXXX"           # or "CVE-…", "GHSA-…"
+# ignoreUntil = 2026-10-01      # re-review date; osv-scanner warns once passed
+# reason = "why this is accepted — reachability, no fix yet, false positive, etc."
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2026-10-01
+# golang.org/x/crypto/openpgp — the advisory flags the openpgp subpackage as
+# unmaintained/unsafe-by-design; it has NO fixed version (affected from 0). It
+# reaches the module graph transitively (not a direct dependency). Both
+# govulncheck and osv-scanner call-analysis report no path from the turf CLI to
+# the vulnerable code, so this is dispositioned not_affected in
+# .security/vex/openvex.json. Re-review if a caller ever imports x/crypto/openpgp.
+reason = "no fix (openpgp unmaintained); unreachable (govulncheck + osv call-analysis); see OpenVEX not_affected (vulnerable_code_not_in_execute_path)"

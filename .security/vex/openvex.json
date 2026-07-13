@@ -1,0 +1,25 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://openvex.dev/docs/turf/openvex",
+  "author": "Turf Security <security@turf.build>",
+  "role": "Project Security Team",
+  "timestamp": "2026-07-13T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": { "name": "GO-2026-5932" },
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/turfbuild/turf",
+          "subcomponents": [
+            { "@id": "pkg:golang/golang.org/x/crypto@0.53.0" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The advisory flags golang.org/x/crypto/openpgp as unmaintained and unsafe by design; it has no fixed version. x/crypto is an indirect dependency of the turf CLI and only the openpgp subpackage is affected. Both govulncheck and osv-scanner call-analysis report no call path from any turf entrypoint to x/crypto/openpgp — it is imported-but-not-called. Re-review if a dependency (or first-party code) ever calls into x/crypto/openpgp.",
+      "timestamp": "2026-07-13T00:00:00Z"
+    }
+  ]
+}
