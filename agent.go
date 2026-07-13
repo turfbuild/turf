@@ -154,7 +154,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		mcpToolset.Stop(ctx)
+		_ = mcpToolset.Stop(ctx)
 		return nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
 	// Sandbox the agent's own file access to the directories turf legitimately
@@ -218,7 +218,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 		}
 		memDB, err := sqlite.NewMemoryDatabase(memPath)
 		if err != nil {
-			mcpToolset.Stop(ctx)
+			_ = mcpToolset.Stop(ctx)
 			return nil, nil, fmt.Errorf("opening memory database: %w", err)
 		}
 		toolsets = append(toolsets, memory.New(memDB))
@@ -257,12 +257,12 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 	// OpenAI/DMR providers honor — Gemini, turf's default, ignores it).
 	rt, err := runtime.New(ctx, t, runtime.WithSequentialToolCalls(true))
 	if err != nil {
-		mcpToolset.Stop(ctx)
+		_ = mcpToolset.Stop(ctx)
 		return nil, nil, fmt.Errorf("creating runtime: %w", err)
 	}
 
 	cleanup := func() {
-		mcpToolset.Stop(context.WithoutCancel(ctx))
+		_ = mcpToolset.Stop(context.WithoutCancel(ctx))
 	}
 
 	return rt, cleanup, nil

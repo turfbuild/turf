@@ -1,0 +1,10 @@
+# golangci-lint configuration (schema v2).
+#
+# Conservative starting point: the "standard" linter set that golangci-lint
+# enables by default — errcheck, govet, ineffassign, staticcheck, unused. This
+# is a realistic gate for an already-written codebase without drowning it in
+# style noise; widen `default` or enable individual linters as the code matures.
+version: "2"
+
+linters:
+  default: standard
