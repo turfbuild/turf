@@ -90,6 +90,7 @@ jobs:
             bin="dist/turf-mcp-server-${p}"
             test -f "$bin"
             cosign verify-blob-attestation \
+              --type slsaprovenance1 \
               --bundle "dist/turf-mcp-server-${p}.provenance.sigstore.json" \
               --certificate-identity-regexp "$SERVER_ID" \
               --certificate-oidc-issuer "$OIDC_ISSUER" \

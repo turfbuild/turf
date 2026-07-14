@@ -70,7 +70,7 @@ gh attestation verify turf --repo turfbuild/turf
 # The turf-mcp-server binary — cosign, using the bundle shipped on the release:
 ID='^https://github.com/turfbuild/turf-mcp-server/'
 ISS=https://token.actions.githubusercontent.com
-cosign verify-blob-attestation \
+cosign verify-blob-attestation --type slsaprovenance1 \
   --bundle turf-mcp-server-<os>_<arch>.provenance.sigstore.json \
   --certificate-identity-regexp "$ID" --certificate-oidc-issuer "$ISS" \
   turf-mcp-server-<os>_<arch>
