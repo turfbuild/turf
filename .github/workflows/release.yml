@@ -1,0 +1,182 @@
+name: Release
+
+# Public assembly + attestation half of the Turf release pipeline (Phase 4 / M3).
+# The private turf-mcp-server repo (M1/M2) builds the obfuscated server binaries +
+# ghcr image, cosign-attests them, and attaches the server binaries + SBOM #2 +
+# OpenVEX + cosign bundles to a DRAFT prerelease on this repo. This workflow then:
+#   * builds the open turf CLI (CGO off, no voice) for all four arches,
+#   * pulls those server binaries and VERIFIES their cosign attestations before
+#     bundling (the assembler verifies its inputs),
+#   * assembles the installable-unit tarballs,
+#   * generates SBOM #1 (the CLI) + an assembly BOM-of-BOMs, and
+#   * attests the CLI binaries + tarballs with GitHub-native `gh attestation`
+#     (public repo -> public Sigstore -> `gh attestation verify turf --repo
+#     turfbuild/turf` works for anyone),
+# leaving the release a DRAFT for a human to publish (see the /release ritual).
+#
+# Ordering: M1 must have run for the tag first (this job pulls the server binaries
+# it attached to the draft). Enforced by the /release ritual sequence.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to assemble (e.g. v0.7.0). Must exist; M1 must have run for it first.
+        required: true
+
+permissions:
+  contents: write # upload to / read the draft release on this repo
+  id-token: write # keyless signing for gh attestation (public Sigstore)
+  attestations: write # write the provenance + SBOM attestations
+
+concurrency:
+  group: release-cli-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    name: assemble + attest CLI
+    runs-on: ubuntu-latest
+    if: github.repository == 'turfbuild/turf'
+    env:
+      TAG: ${{ github.event.inputs.tag }}
+      # os_arch tokens; split on "_" for GOOS/GOARCH.
+      PLATFORMS: darwin_arm64 darwin_amd64 linux_amd64 linux_arm64
+      # cosign identity of the server binaries built by the turf-mcp-server repo.
+      SERVER_ID: ^https://github.com/turfbuild/turf-mcp-server/
+      OIDC_ISSUER: https://token.actions.githubusercontent.com
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag }} # build the tagged source, not the branch head
+          submodules: recursive # materialize ./docker-agent for the replace directive
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build CLI binaries (CGO off, no voice)
+        # -tags no_audio drops the docker-agent CoreAudio cgo path so every arch
+        # (incl. darwin) cross-compiles cleanly from ubuntu with CGO_ENABLED=0.
+        # The released macOS turf therefore has no voice capture; dev `make build`
+        # (native, CGO on) keeps it.
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          for p in $PLATFORMS; do
+            os="${p%_*}"; arch="${p#*_}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -tags no_audio -trimpath \
+                -ldflags "-s -w -X main.Version=${TAG}" \
+                -o "dist/turf-${p}" .
+          done
+          ls -l dist
+
+      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: anchore/sbom-action/download-syft@v0
+
+      - name: Download + verify the server binaries (M1 draft assets)
+        # The assembler verifies its inputs: each server binary must carry a valid
+        # cosign provenance attestation from the turf-mcp-server repo before we
+        # bundle it. Any failure fails the release.
+        run: |
+          set -euxo pipefail
+          gh release download "$TAG" --repo turfbuild/turf --dir dist \
+            --pattern 'turf-mcp-server-*' \
+            --pattern 'turf-mcp-server.*'
+          for p in $PLATFORMS; do
+            bin="dist/turf-mcp-server-${p}"
+            test -f "$bin"
+            cosign verify-blob-attestation \
+              --bundle "dist/turf-mcp-server-${p}.provenance.sigstore.json" \
+              --certificate-identity-regexp "$SERVER_ID" \
+              --certificate-oidc-issuer "$OIDC_ISSUER" \
+              "$bin"
+          done
+
+      - name: Assemble tarballs
+        # Each installable unit = turf + turf-mcp-server + LICENSE/NOTICE/README.
+        # The doc is staged as README.md to match the Homebrew formula's
+        # `doc.install "README.md"`.
+        run: |
+          set -euxo pipefail
+          for p in $PLATFORMS; do
+            stage="$(mktemp -d)"
+            install -m 0755 "dist/turf-${p}" "$stage/turf"
+            install -m 0755 "dist/turf-mcp-server-${p}" "$stage/turf-mcp-server"
+            cp release/LICENSE release/NOTICE "$stage/"
+            cp release/README-alpha.md "$stage/README.md"
+            tar -C "$stage" -czf "dist/turf_${TAG}_${p}.tar.gz" \
+              turf turf-mcp-server LICENSE NOTICE README.md
+            rm -rf "$stage"
+          done
+          ls -l dist/*.tar.gz
+
+      - name: SBOM #1 (turf CLI) + assembly BOM-of-BOMs
+        # The CLI binary is NOT obfuscated, so syft reads its Go buildinfo directly
+        # (arch-independent module graph -> the linux/amd64 build is representative).
+        # The assembly SBOM references SBOM #1 + SBOM #2 (pulled above) by BOM-Link
+        # + resolvable URL + sha256.
+        run: |
+          set -euxo pipefail
+          syft scan "file:dist/turf-linux_amd64" \
+            -o cyclonedx-json=dist/turf.cdx.json \
+            -o spdx-json=dist/turf.spdx.json
+          scripts/assembly-sbom.sh \
+            dist/turf.cdx.json dist/turf-mcp-server.cdx.json \
+            "$TAG" "https://github.com/turfbuild/turf/releases/download/${TAG}" \
+            dist/turf-assembly.cdx.json
+
+      - name: Attest CLI build provenance (binaries + tarballs)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/turf-darwin_arm64
+            dist/turf-darwin_amd64
+            dist/turf-linux_amd64
+            dist/turf-linux_arm64
+            dist/turf_*.tar.gz
+
+      - name: Attest CLI SBOM (SBOM #1)
+        uses: actions/attest-sbom@v4
+        with:
+          subject-path: |
+            dist/turf-darwin_arm64
+            dist/turf-darwin_amd64
+            dist/turf-linux_amd64
+            dist/turf-linux_arm64
+          sbom-path: dist/turf.cdx.json
+
+      - name: Attest assembly SBOM (BOM-of-BOMs)
+        uses: actions/attest-sbom@v4
+        with:
+          subject-path: dist/turf_*.tar.gz
+          sbom-path: dist/turf-assembly.cdx.json
+
+      - name: Unified checksums + upload to the draft release
+        # One checksums.txt covering the user-facing artifacts: tarballs, both
+        # binaries' standalone copies, and every SBOM. Clobbers M1's partial
+        # checksums.txt (this one is a superset). Cosign bundles are self-verifying
+        # signatures and are intentionally not checksummed.
+        run: |
+          set -euxo pipefail
+          ( cd dist
+            files=()
+            for p in $PLATFORMS; do
+              files+=( "turf_${TAG}_${p}.tar.gz" "turf-mcp-server-${p}" )
+            done
+            files+=( turf.cdx.json turf.spdx.json \
+                     turf-mcp-server.cdx.json turf-mcp-server.spdx.json \
+                     turf-assembly.cdx.json )
+            shasum -a 256 "${files[@]}" > checksums.txt )
+          cat dist/checksums.txt
+          gh release upload "$TAG" --repo turfbuild/turf --clobber \
+            dist/turf_${TAG}_*.tar.gz \
+            dist/turf.cdx.json dist/turf.spdx.json \
+            dist/turf-assembly.cdx.json \
+            dist/checksums.txt
+          # Intentionally NOT `gh release edit --draft=false`: a human publishes
+          # after reviewing the draft (see the /release ritual).
+          echo "M3 assembly complete; release left as a draft for manual publish."
