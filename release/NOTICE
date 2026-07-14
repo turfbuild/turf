@@ -1,0 +1,63 @@
+Turf — Third-Party Notices
+==========================
+
+This archive distributes two binaries:
+
+  * turf-mcp-server — the Turf infrastructure MCP server. Made available for
+    evaluation under the PolyForm Free Trial License 1.0.0 (see LICENSE).
+  * turf            — the reference Turf CLI. Open source under the Mozilla
+    Public License 2.0 (MPL-2.0).
+
+On Linux, the turf CLI is built without CGO, so its voice/audio capture is
+inactive; text chat and all MCP tooling are unaffected. Voice capture is
+available in the macOS build.
+
+Source for the MPL-2.0 turf CLI is available on request: contact
+eronwright@gmail.com.
+
+Both binaries incorporate third-party open-source software. The principal
+redistributed components and their licenses are listed below. The complete set
+of dependencies corresponds to those declared in each component's Go module
+(go.mod). Where a component is licensed under MPL-2.0, its source is available
+at the URL given (or on request); the binaries themselves contain no
+modifications to those components beyond what is published at those sources.
+
+Mozilla Public License 2.0 (MPL-2.0)
+------------------------------------
+
+  * OpenTofu (downstream fork)
+      https://github.com/turfbuild/opentofu  (tag v1.12.3-turf.3)
+      Upstream: https://github.com/opentofu/opentofu
+      Copyright (c) The OpenTofu Authors; Copyright (c) 2014 HashiCorp, Inc.
+      The fork additionally carries x/ ("OpenTofu extensions"), a library
+      facade over OpenTofu internals — original downstream code, MPL-2.0,
+      Copyright (c) The Turf Authors.
+
+  * provider-client (downstream fork)
+      https://github.com/turfbuild/provider-client  (tag v1.12.3-turf.1)
+      Upstream: https://github.com/opentofu/provider-client
+      Copyright (c) The OpenTofu Authors
+
+  * HCL (OpenTofu fork of hashicorp/hcl), and other HashiCorp libraries
+    (e.g. go-hclog, go-version, go-getter) consumed as Go modules.
+
+  * turf CLI (this product's reference client) — see above; source on request.
+
+Permissive licenses (MIT, Apache-2.0, BSD)
+------------------------------------------
+
+  * Docker Agent (formerly cagent), downstream fork — the LLM runtime embedded
+    by the turf CLI
+      github.com/docker/docker-agent  (Apache License 2.0)
+      https://github.com/turfbuild/docker-agent  (tag v1.99.0-turf.2)
+      Upstream: https://github.com/docker/docker-agent
+      Copyright (c) Docker Inc. and the Docker Agent authors
+
+  The binaries also include other components under permissive licenses, including
+  but not limited to: github.com/mark3labs/mcp-go (MIT), github.com/zclconf/go-cty,
+  and the cloud-provider and Kubernetes SDKs pulled in transitively. Each retains
+  its own copyright and license notice in its respective source repository.
+
+A full, authoritative dependency manifest is the set of modules listed in the
+go.mod files of turf-mcp-server and the turf CLI. For source of any component
+not linked above, contact eronwright@gmail.com.
