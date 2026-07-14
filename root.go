@@ -19,6 +19,7 @@ var (
 	flagChdir          string
 	flagMemoryPath     string
 	flagNoMemory       bool
+	flagNoTelemetry    bool
 	flagMCPServer      string
 	flagLogFile        string
 	flagLogLevel       string
@@ -53,6 +54,17 @@ func newRootCmd() *cobra.Command {
 			if err := setupLogging(); err != nil {
 				return err
 			}
+			if flagNoTelemetry {
+				// cagent's runtime and the turf-mcp-server subprocess both read
+				// this env var at startup (pkg/telemetry/utils.go). Setting it
+				// here, before any subcommand builds the runtime or launches the
+				// subprocess, disables telemetry uniformly for chat/up/destroy.
+				// We only ever force-disable: leaving the flag unset preserves
+				// whatever TELEMETRY_ENABLED the user set in their environment.
+				if err := os.Setenv("TELEMETRY_ENABLED", "false"); err != nil {
+					return err
+				}
+			}
 			if flagChdir != "" {
 				return os.Chdir(flagChdir)
 			}
@@ -71,6 +83,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flagPluginCacheDir, "plugin-cache-dir", os.Getenv("TURF_PLUGIN_CACHE_DIR"), "Shared provider plugin cache, persisted across runs (env: TURF_PLUGIN_CACHE_DIR; default: <user cache>/turf/plugins; 'off' disables)")
 	cmd.PersistentFlags().StringVar(&flagMemoryPath, "memory-path", "", "Path to SQLite memory database (default: .turf-memory.db in working dir)")
 	cmd.PersistentFlags().BoolVar(&flagNoMemory, "no-memory", false, "Disable persistent agent memory")
+	cmd.PersistentFlags().BoolVar(&flagNoTelemetry, "no-telemetry", os.Getenv("TURF_NO_TELEMETRY") != "", "Disable anonymous usage telemetry sent by the underlying agent runtime (env: TURF_NO_TELEMETRY)")
 	cmd.PersistentFlags().StringVar(&flagMCPServer, "mcp-server", os.Getenv("TURF_MCP_SERVER"), "Path to turf-mcp-server binary (default: looked up on PATH; env: TURF_MCP_SERVER)")
 	cmd.PersistentFlags().StringVar(&flagLogFile, "log-file", "", "Write turf-mcp-server logs to this file (default: stderr; env passthrough: TF_LOG_PATH)")
 	cmd.PersistentFlags().StringVar(&flagLogLevel, "log-level", "", "turf-mcp-server log level: trace|debug|info|warn|error|off (env passthrough: TF_LOG_CORE / TF_LOG)")
