@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -90,18 +92,28 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firs
 // the first message from Config.FirstMessage rather than app.WithFirstMessage, so
 // the prompt is threaded in explicitly. Mirrors cagent's own runLeanTUI, minus
 // the worktree/attachment/queued-message plumbing turf doesn't use.
-// turfBanner is turf's ASCII-art welcome banner for the lean TUI, in the same
-// figlet "ANSI Shadow" style as cagent's default. Passed via leantui.Config.Banner
-// so lean mode reads "TURF" instead of cagent's built-in "docker agent" art (the
-// banner is hardcoded art, not derived from AppName).
-var turfBanner = []string{
-	`████████╗██╗   ██╗██████╗ ███████╗`,
-	`╚══██╔══╝██║   ██║██╔══██╗██╔════╝`,
-	`   ██║   ██║   ██║██████╔╝█████╗  `,
-	`   ██║   ██║   ██║██╔══██╗██╔══╝  `,
-	`   ██║   ╚██████╔╝██║  ██║██║     `,
-	`   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═╝     `,
-}
+
+// turfBannerArt is a hand-built pixel-font "TURF" wordmark (brand greens, dark
+// outline, transparent background) drawn in Unicode upper-half-block cells —
+// each character's foreground is the top pixel and background the bottom pixel,
+// so one text row carries two pixel rows. It is authored from scratch (crisp
+// 8-bit letterforms), NOT a downscale of the logo raster. assets/gen_banner.py
+// defines the glyph bitmaps and emits this file; edit that script to change it.
+//
+//go:embed assets/turf-banner.ansi
+var turfBannerArt string
+
+// turfBanner is turf's welcome banner for the lean TUI, passed via
+// leantui.Config.Banner so lean mode shows the turf logo instead of cagent's
+// built-in "docker agent" art (the banner is art, not derived from AppName).
+//
+// leantui renders each line through lipgloss's Foreground style. lipgloss only
+// re-applies its own color after an SGR *reset*, and turfBannerArt's cells are
+// switch-only (no mid-line reset), so the logo's real truecolor survives the
+// wrapper — the accent color only paints leantui's leading pad. Requires a
+// truecolor terminal; on 256-color terminals the embedded 24-bit sequences may
+// be ignored or approximated by the terminal.
+var turfBanner = strings.Split(strings.TrimRight(turfBannerArt, "\n"), "\n")
 
 func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string, worktreeBranch string) error {
 	registerTurfToolRenderers()
