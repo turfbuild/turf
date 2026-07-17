@@ -90,17 +90,20 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_plan_cancel":        builder(renderPlanCancel),
 		"turf_plan_approve":       builder(renderPlanApprove),
 		"turf_config_init":        builder(renderConfigInit),
-		"turf_config_plan":        builder(renderConfigPlan),
+		"turf_config_show":        builder(renderConfigShow),
+		"turf_declare_backend":    builder(renderDeclareBackend),
+		"turf_declare_provider":   builder(renderDeclareProvider),
+		"turf_declare_var":        builder(renderDeclareVar),
+		"turf_replan":             builder(renderReplan),
 		"turf_module_init":        builder(renderModuleInit),
-		"turf_module_plan":        builder(renderModulePlan),
+		"turf_declare_module":     builder(renderDeclareModule),
 		"turf_module_outputs":     builder(renderModuleOutputs),
-		"turf_resource_plan":      builder(renderResourcePlan),
+		"turf_declare_resource":   builder(renderDeclareResource),
 		"turf_resource_import":    builder(renderResourceImport),
 		"turf_resource_refresh":   builder(renderResourceRefresh),
-		"turf_action_plan":        builder(renderActionPlan),
-		"turf_action_unplan":      builder(renderActionUnplan),
+		"turf_declare_action":     builder(renderDeclareAction),
 		"turf_action_invoke":      builder(renderActionInvoke),
-		"turf_outputs_plan":       builder(renderOutputsPlan),
+		"turf_declare_outputs":    builder(renderDeclareOutputs),
 		"turf_outputs":            builder(renderOutputs),
 		"turf_effect_apply":       builder(renderEffectApply),
 		"turf_effect_cancel":      builder(renderEffectCancel),
@@ -255,21 +258,23 @@ func argString(msg *types.Message, key string) string {
 // fall back to the workspace alias (or nothing, for zero-arg skills). Arg names track the
 // server tool structs in turf-mcp-server's internal/tools package.
 var turfToolTargetArgs = map[string][]string{
-	"resource_plan":      {"resource_addr"},
+	"declare_resource":   {"resource_addr"},
 	"resource_import":    {"resource_addr"},
 	"resource_refresh":   {"resource_addr"},
 	"datasource_read":    {"resource_addr"},
 	"config_init":        {"path"},
-	"config_plan":        {"path"},
+	"config_show":        {"address"},
+	"declare_backend":    {"type"},
+	"declare_provider":   {"name"},
+	"declare_var":        {"name"},
 	"module_init":        {"source"},
-	"module_plan":        {"address"},
+	"declare_module":     {"address"},
 	"module_outputs":     {"address"},
 	"provider_search":    {"query"},
 	"provider_load":      {"source", "name"},
 	"provider_describe":  {"resource_type", "datasource_type", "action_type"},
 	"provider_configure": {"name"},
-	"action_plan":        {"action_type"},
-	"action_unplan":      {"name"},
+	"declare_action":     {"action_type"},
 	"action_invoke":      {"action_type"},
 	"effect_apply":       {"effect_id"},
 	"effect_cancel":      {"effect_id"},
@@ -314,7 +319,7 @@ func section(label string) string { return muted(label + ":") }
 // --- attribute diff ---------------------------------------------------------
 //
 // The heart of the expanded view: a colored before→after diff, mirroring how
-// `tofu plan` reads. Used by resource_plan and by each resource in a module/config
+// `tofu plan` reads. Used by declare_resource and by each resource in a walk-summary
 // plan. before==nil (a create) renders every attr as an addition; after==nil (a
 // destroy) renders every attr as a removal.
 
@@ -594,7 +599,7 @@ func truncateStr(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// --- turf_resource_plan -----------------------------------------------------
+// --- turf_declare_resource ----------------------------------------------------
 
 type resourcePlanView struct {
 	ResourceAddr        string         `json:"resource_addr"`
@@ -611,7 +616,7 @@ type resourcePlanView struct {
 	} `json:"deferred,omitempty"`
 }
 
-func renderResourcePlan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
 		return line(msg, s, addr(argString(msg, "resource_addr")), width)
 	}
@@ -701,7 +706,7 @@ func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.Session
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_module_plan / turf_config_plan ------------------------------------
+// --- turf_declare_module / turf_replan / turf_plan_new ------------------------
 
 type resourcePlanEntry struct {
 	Address             string         `json:"address"`
@@ -715,8 +720,8 @@ type resourcePlanEntry struct {
 }
 
 type planSummaryView struct {
-	Address          string              `json:"address"` // module_plan
-	Path             string              `json:"path"`    // config_plan
+	Address          string              `json:"address"` // declare_module
+	Path             string              `json:"path"`    // replan / plan_new (the bound configuration dir)
 	PhaseID          string              `json:"phase_id"`
 	Resources        []resourcePlanEntry `json:"resources"`
 	TopologicalOrder []string            `json:"topological_order"`
@@ -725,12 +730,15 @@ type planSummaryView struct {
 	Warnings         []string            `json:"warnings,omitempty"`
 }
 
-func renderModulePlan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderDeclareModule(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	return renderPlanSummary(msg, s, ss, width, argString(msg, "address"))
 }
 
-func renderConfigPlan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	return renderPlanSummary(msg, s, ss, width, argString(msg, "path"))
+// renderReplan renders the zero-arg re-projection of the bound configuration;
+// the walk mode (destroy/refresh/vars) comes from the phase, so there is no
+// request arg to lead with — the summary itself is the story.
+func renderReplan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	return renderPlanSummary(msg, s, ss, width, "")
 }
 
 func renderPlanSummary(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, target string) string {
@@ -741,10 +749,20 @@ func renderPlanSummary(msg *types.Message, s spinner.Spinner, ss service.Session
 	if !parseContent(msg, &p) {
 		return fallbackLine(msg, s, ss, width)
 	}
-
-	summary := planTally(p.Resources)
+	head := ""
 	if target != "" {
-		summary = addr(target) + dot() + summary
+		head = addr(target)
+	}
+	return planSummaryLine(msg, s, ss, width, head, p)
+}
+
+// planSummaryLine renders a parsed walk summary (shared by declare_module,
+// replan, and plan_new): the action tally headline plus the per-resource diff
+// expansion, evaluated outputs, and warnings.
+func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, head string, p planSummaryView) string {
+	summary := planTally(p.Resources)
+	if head != "" {
+		summary = head + dot() + summary
 	}
 	if n := len(p.Deferred); n > 0 {
 		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", n))
@@ -821,15 +839,16 @@ func renderModuleOutputs(msg *types.Message, s spinner.Spinner, ss service.Sessi
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_outputs_plan ------------------------------------------------------
+// --- turf_declare_outputs -----------------------------------------------------
 
 type outputsPlanView struct {
 	PhaseID string         `json:"phase_id"`
 	Outputs map[string]any `json:"outputs"`
 	Unknown []string       `json:"unknown"`
+	Removed []string       `json:"removed"`
 }
 
-func renderOutputsPlan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderDeclareOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
 		return line(msg, s, "", width)
 	}
@@ -842,6 +861,9 @@ func renderOutputsPlan(msg *types.Message, s spinner.Spinner, ss service.Session
 	summary := muted(fmt.Sprintf("%d declared", len(p.Outputs)))
 	if len(p.Outputs) == 0 {
 		summary = muted("none declared")
+	}
+	if n := len(p.Removed); n > 0 {
+		summary += dot() + muted(fmt.Sprintf("%d removed", n))
 	}
 	if n := len(p.Unknown); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d known after apply", n))
@@ -1110,19 +1132,20 @@ func workspaceName(alias, name string) string {
 
 // --- turf_plan_new / turf_plan_approve --------------------------------------
 
-type planNewView struct {
-	PhaseID string `json:"phase_id"`
-}
-
+// renderPlanNew shows the opened Draft plus the initial full-configuration
+// walk plan_new now performs (the result carries the same walk summary as
+// replan: resources, deferred, outputs). On a fresh empty configuration the
+// tally is "no changes"; on a reopen it shows NoOps/drift/orphans immediately.
 func renderPlanNew(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
 		return line(msg, s, "", width)
 	}
-	var p planNewView
+	var p planSummaryView
 	if !parseContent(msg, &p) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	return line(msg, s, addr(p.PhaseID)+dot()+muted("opened"), width)
+	head := addr(p.PhaseID) + dot() + muted("opened")
+	return planSummaryLine(msg, s, ss, width, head, p)
 }
 
 type planApproveView struct {
@@ -1728,20 +1751,25 @@ func initDetail(providers map[string]initProviderView, vars []initVariableView, 
 	return detail
 }
 
-// --- turf_action_plan / turf_action_unplan ----------------------------------
+// --- turf_declare_action ------------------------------------------------------
+//
+// declare_action both declares (writes the action block into the bound
+// configuration) and, with remove=true, un-declares; the result reports which
+// via the declared/removed booleans.
 
-type actionPlanView struct {
+type declareActionView struct {
 	ActionAddr string `json:"action_addr"`
 	ActionType string `json:"action_type"`
 	Name       string `json:"name"`
 	Declared   bool   `json:"declared"`
+	Removed    bool   `json:"removed"`
 }
 
-func renderActionPlan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderDeclareAction(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
 		return line(msg, s, targetBody(argString(msg, "action_type")), width)
 	}
-	var a actionPlanView
+	var a declareActionView
 	if !parseContent(msg, &a) {
 		return fallbackLine(msg, s, ss, width)
 	}
@@ -1750,34 +1778,160 @@ func renderActionPlan(msg *types.Message, s spinner.Spinner, ss service.SessionS
 		target = a.ActionType
 	}
 	summary := addr(target)
-	if a.Declared {
+	switch {
+	case a.Removed:
+		summary += dot() + bold("removed", styles.Success)
+	case a.Declared:
 		summary += dot() + bold("declared", styles.Success)
 	}
 	return line(msg, s, summary, width)
 }
 
-type actionUnplanView struct {
-	Name    string `json:"name"`
-	Removed bool   `json:"removed"`
+// --- turf_declare_var ---------------------------------------------------------
+
+type declareVarView struct {
+	Address  string `json:"address"`
+	Name     string `json:"name"`
+	Declared bool   `json:"declared"`
+	Removed  bool   `json:"removed"`
+	Message  string `json:"message"`
 }
 
-func renderActionUnplan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderDeclareVar(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
 		return line(msg, s, targetBody(argString(msg, "name")), width)
 	}
-	var a actionUnplanView
-	if !parseContent(msg, &a) {
+	var v declareVarView
+	if !parseContent(msg, &v) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	name := a.Name
-	if name == "" {
-		name = argString(msg, "name")
+	target := v.Address
+	if target == "" {
+		target = v.Name
 	}
-	status := bold("removed", styles.Success)
-	if !a.Removed {
-		status = muted("not found")
+	summary := addr(target)
+	switch {
+	case v.Removed:
+		summary += dot() + bold("removed", styles.Success)
+	case v.Declared:
+		summary += dot() + bold("declared", styles.Success)
 	}
-	return line(msg, s, addr(name)+dot()+status, width)
+	var detail []string
+	if v.Message != "" {
+		detail = append(detail, muted(v.Message))
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_declare_backend -----------------------------------------------------
+
+type declareBackendView struct {
+	Type   string         `json:"type"`
+	File   string         `json:"file"`
+	Config map[string]any `json:"config"`
+}
+
+func renderDeclareBackend(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, targetBody(argString(msg, "type")), width)
+	}
+	var b declareBackendView
+	if !parseContent(msg, &b) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	summary := addr(b.Type) + dot() + bold("declared", styles.Success)
+	if b.File != "" {
+		summary += dot() + muted(b.File)
+	}
+	detail := kvLines(b.Config, "  ", 20)
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_declare_provider ------------------------------------------------------
+
+type declareProviderView struct {
+	Address         string   `json:"address"`
+	Name            string   `json:"name"`
+	RequirementFile string   `json:"requirement_file"`
+	BlockFile       string   `json:"block_file"`
+	Declared        bool     `json:"declared"`
+	Removed         []string `json:"removed"`
+	Message         string   `json:"message"`
+}
+
+func renderDeclareProvider(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, targetBody(argString(msg, "name")), width)
+	}
+	var p declareProviderView
+	if !parseContent(msg, &p) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	target := p.Address
+	if target == "" {
+		target = p.Name
+	}
+	summary := addr(target)
+	switch {
+	case len(p.Removed) > 0:
+		summary += dot() + bold("removed", styles.Success)
+	case p.Declared:
+		summary += dot() + bold("declared", styles.Success)
+	}
+	var detail []string
+	if p.RequirementFile != "" {
+		detail = append(detail, muted("requirement: ")+p.RequirementFile)
+	}
+	if p.BlockFile != "" {
+		detail = append(detail, muted("block: ")+p.BlockFile)
+	}
+	for _, r := range p.Removed {
+		detail = append(detail, muted("removed: ")+r)
+	}
+	if p.Message != "" {
+		detail = append(detail, muted(p.Message))
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_config_show ------------------------------------------------------------
+
+type configShowView struct {
+	Path    string `json:"path"`
+	Entries []struct {
+		Address string `json:"address"`
+		Kind    string `json:"kind"`
+		File    string `json:"file"`
+		Origin  string `json:"origin"`
+		Note    string `json:"note,omitempty"`
+	} `json:"entries"`
+}
+
+func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, targetBody(argString(msg, "address")), width)
+	}
+	var c configShowView
+	if !parseContent(msg, &c) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	summary := muted(fmt.Sprintf("%d declared address(es)", len(c.Entries)))
+	if len(c.Entries) == 1 {
+		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].Origin)
+	}
+	var detail []string
+	const maxRows = 30
+	for i, e := range c.Entries {
+		if i == maxRows {
+			detail = append(detail, muted(fmt.Sprintf("…(+%d more)", len(c.Entries)-maxRows)))
+			break
+		}
+		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.Origin))
+		if e.Note != "" {
+			detail = append(detail, muted("  "+e.Note))
+		}
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
 // --- turf_action_invoke -----------------------------------------------------

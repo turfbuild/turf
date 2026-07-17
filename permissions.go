@@ -52,7 +52,7 @@ var preApprovedTurfTools = []string{
 	// State / outputs: read-only.
 	"turf_state_list",
 	"turf_outputs",
-	"turf_outputs_plan",
+	"turf_declare_outputs",
 	"turf_module_outputs",
 	// Data source: read-only.
 	"turf_datasource_read",
@@ -68,15 +68,22 @@ var preApprovedTurfTools = []string{
 	// approved. Pre-approve it to keep user_prompt the single checkpoint.
 	// (Future: have plan_approve elicit via MCP directly, then take it back off.)
 	"turf_plan_approve",
-	// Config / module authoring — accumulates into the Draft only.
+	// Config / module authoring. The declare family writes through into the
+	// user's configuration directory as .tf.json files — a checkout mutation,
+	// not a live-infra one: the files are git-recoverable, plan_cancel reports
+	// touched_files, and no infrastructure changes until an approved effect
+	// applies. Prompting on every declare would gate the whole planning loop.
 	"turf_config_init",
-	"turf_config_plan",
+	"turf_config_show",
+	"turf_declare_backend",
+	"turf_declare_provider",
+	"turf_replan",
 	"turf_module_init",
-	"turf_module_plan",
+	"turf_declare_module",
 	// Resource / action planning — accumulates into the Draft only.
-	"turf_resource_plan",
-	"turf_action_plan",
-	"turf_action_unplan",
+	"turf_declare_resource",
+	"turf_declare_var",
+	"turf_declare_action",
 	// Skills / docs.
 	"turf_skill_core",
 	"turf_skill_adhoc",
