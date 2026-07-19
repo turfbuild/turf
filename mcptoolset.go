@@ -92,6 +92,7 @@ var turfToolInfo = map[string]struct {
 	// config — the durable configuration directory
 	"config_init":      {"config", "Init Config"},
 	"config_show":      {"config", "Show Config"},
+	"config_promote":   {"config", "Promote Config"},
 	"declare_backend":  {"config", "Declare Backend"},
 	"declare_provider": {"config", "Declare Provider"},
 	// plan — building & approving the Draft

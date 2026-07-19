@@ -101,4 +101,9 @@ var alwaysConfirmTurfTools = []string{
 	"turf_workspace_delete", // irreversible state deletion
 	"turf_resource_import",  // adopts existing infra into state
 	"turf_resource_refresh", // writes reconciled state
+	// config_promote graduates a plot into a plain tofu configuration: it
+	// retires the dialect in place — renames every unit to .tf and deletes the
+	// settings unit — a one-way directory transformation the server annotates
+	// destructive. Confirm it (unlike the reversible, per-file declare writes).
+	"turf_config_promote",
 }

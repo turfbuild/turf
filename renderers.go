@@ -91,6 +91,7 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_plan_approve":       builder(renderPlanApprove),
 		"turf_config_init":        builder(renderConfigInit),
 		"turf_config_show":        builder(renderConfigShow),
+		"turf_config_promote":     builder(renderConfigPromote),
 		"turf_declare_backend":    builder(renderDeclareBackend),
 		"turf_declare_provider":   builder(renderDeclareProvider),
 		"turf_declare_var":        builder(renderDeclareVar),
@@ -1938,6 +1939,41 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 		if e.Note != "" {
 			detail = append(detail, muted("  "+e.Note))
 		}
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_config_promote ---------------------------------------------------
+//
+// config_promote graduates a plot into a plain tofu configuration (a
+// strip-fold-rename), reporting the resulting dialect, the .tf files written,
+// and the units removed.
+
+type configPromoteView struct {
+	Dialect string   `json:"dialect"`
+	Path    string   `json:"path"`
+	Files   []string `json:"files"`
+	Removed []string `json:"removed"`
+	Message string   `json:"message"`
+}
+
+func renderConfigPromote(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, "promoting plot", width)
+	}
+	var c configPromoteView
+	if !parseContent(msg, &c) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	summary := muted(fmt.Sprintf("promoted to %s · %d file(s), %d removed", c.Dialect, len(c.Files), len(c.Removed)))
+	var detail []string
+	const maxRows = 30
+	for i, f := range c.Files {
+		if i == maxRows {
+			detail = append(detail, muted(fmt.Sprintf("…(+%d more)", len(c.Files)-maxRows)))
+			break
+		}
+		detail = append(detail, muted(f))
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
