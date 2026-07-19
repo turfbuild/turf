@@ -48,6 +48,6 @@ func runChat(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	sess := newSession("", false)
+	sess := newSession(false)
 	return runTUI(ctx, rt, sess, "", flagLean, worktreeBranch(wt))
 }

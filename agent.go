@@ -314,11 +314,12 @@ turf needs an LLM to run. Either:
 Choosing a provider: https://docs.docker.com/ai/docker-agent/providers/overview/`, modelRef, err)
 }
 
-func newSession(userMessage string, autoApprove bool) *session.Session {
+// newSession builds an empty session with turf's permission policy. The active
+// user turn is not seeded here; it is delivered by the caller — the TUI via its
+// first-message mechanism, the headless path via cli.Run's user messages (see
+// runExecWith) — so the prompt is sent exactly once.
+func newSession(autoApprove bool) *session.Session {
 	opts := []session.Opt{}
-	if userMessage != "" {
-		opts = append(opts, session.WithUserMessage(userMessage))
-	}
 	opts = append(opts, session.WithToolsApproved(autoApprove))
 	// Pre-approve turf's safe tools (reads + Draft-only planning) so they run
 	// without a confirmation prompt, while the mutation gate (effect_apply,

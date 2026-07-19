@@ -96,6 +96,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUpCmd())
 	cmd.AddCommand(newDestroyCmd())
 	cmd.AddCommand(newChatCmd())
+	cmd.AddCommand(newExecCmd())
 	cmd.AddCommand(newVersionCmd())
 
 	return cmd
