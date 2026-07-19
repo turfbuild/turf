@@ -73,7 +73,7 @@ func newExecCmd() *cobra.Command {
 
 			// The session carries no seeded message — the prompt IS the user
 			// turn (see execMessages), so it is not double-sent.
-			sess := newSession("", autoApprove)
+			sess := newSession(autoApprove)
 			return runExecWith(ctx, rt, sess, execConfig{
 				autoApprove:   autoApprove,
 				outputJSON:    outputJSON,
