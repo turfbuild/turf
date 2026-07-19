@@ -147,15 +147,17 @@ type execConfig struct {
 	autoApprove   bool
 	outputJSON    bool // stream every runtime event as one JSON object per line
 	hideToolCalls bool // suppress tool-call / tool-result lines (prose only)
-	// messages are the user turns to run. up/destroy seed the real instruction
-	// into the session and pass a fixed proceed nudge here; `exec` passes the
-	// caller's prompt (or "-" to read stdin, or nothing to read piped stdin /
-	// start a plain readline loop on a TTY — cli.Run decides).
+	// messages are the user turns cli.Run runs. Every caller passes its real
+	// instruction here as the active user turn: up/destroy pass their generated
+	// prompt, and `exec` passes the caller's message ("-" to read stdin, or
+	// nothing to read piped stdin / start a plain readline loop on a TTY —
+	// cli.Run decides). The session is not seeded with the prompt, so cli.Run
+	// sends it exactly once.
 	messages []string
 }
 
 // runExecWith drives cagent's non-TUI runner with an explicit config. It is the
-// single headless entry point; runExec is the up/destroy convenience wrapper.
+// single headless entry point behind up/destroy and the `exec` subcommand.
 func runExecWith(ctx context.Context, rt runtime.Runtime, sess *session.Session, cfg execConfig) error {
 	out := cli.NewPrinter(os.Stdout)
 	return cli.Run(ctx, out, cli.Config{
@@ -164,11 +166,4 @@ func runExecWith(ctx context.Context, rt runtime.Runtime, sess *session.Session,
 		OutputJSON:    cfg.outputJSON,
 		HideToolCalls: cfg.hideToolCalls,
 	}, rt, sess, cfg.messages)
-}
-
-func runExec(ctx context.Context, rt runtime.Runtime, sess *session.Session, autoApprove bool) error {
-	return runExecWith(ctx, rt, sess, execConfig{
-		autoApprove: autoApprove,
-		messages:    []string{"exec", "Please proceed."},
-	})
 }
