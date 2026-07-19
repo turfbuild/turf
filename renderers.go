@@ -1897,13 +1897,18 @@ func renderDeclareProvider(msg *types.Message, s spinner.Spinner, ss service.Ses
 // --- turf_config_show ------------------------------------------------------------
 
 type configShowView struct {
+	// Dialect is the configuration directory's dialect: "plot" (turf-authored)
+	// or "tofu" (a plain root module).
+	Dialect string `json:"dialect"`
 	Path    string `json:"path"`
 	Entries []struct {
 		Address string `json:"address"`
-		Kind    string `json:"kind"`
-		File    string `json:"file"`
-		Origin  string `json:"origin"`
-		Note    string `json:"note,omitempty"`
+		// Kind is the entry's block type (resource/data/module/variable/output/
+		// provider/backend/action).
+		Kind   string `json:"kind"`
+		File   string `json:"file"`
+		Intent string `json:"intent,omitempty"`
+		Note   string `json:"note,omitempty"`
 	} `json:"entries"`
 }
 
@@ -1915,9 +1920,9 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	if !parseContent(msg, &c) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	summary := muted(fmt.Sprintf("%d declared address(es)", len(c.Entries)))
+	summary := muted(fmt.Sprintf("%s · %d declared address(es)", c.Dialect, len(c.Entries)))
 	if len(c.Entries) == 1 {
-		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].Origin)
+		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].Kind)
 	}
 	var detail []string
 	const maxRows = 30
@@ -1926,7 +1931,10 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 			detail = append(detail, muted(fmt.Sprintf("…(+%d more)", len(c.Entries)-maxRows)))
 			break
 		}
-		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.Origin))
+		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.Kind))
+		if e.Intent != "" {
+			detail = append(detail, muted("  "+e.Intent))
+		}
 		if e.Note != "" {
 			detail = append(detail, muted("  "+e.Note))
 		}
