@@ -2,20 +2,49 @@ package main
 
 import "testing"
 
-// exec accepts at most one positional message (a prompt or "-" for stdin);
-// additional positionals are a mistake (usually an unquoted multi-word prompt),
-// so guard the arg contract.
+// exec accepts any number of positionals (including zero, and everything after
+// a "--" terminator); the words are joined into one message, so quoting is
+// optional and `exec -- <prompt>` works. Guard that the arg validator stays
+// permissive.
 func TestExecArgs(t *testing.T) {
 	cmd := newExecCmd()
 
-	if err := cmd.Args(cmd, nil); err != nil {
-		t.Fatalf("exec should accept zero args, got: %v", err)
+	for _, args := range [][]string{
+		nil,
+		{"create a bucket"},
+		{"create", "a", "bucket"},    // unquoted multi-word
+		{"--dry-run", "the", "plan"}, // as delivered after `exec -- ...`
+		{"-"},
+	} {
+		if err := cmd.Args(cmd, args); err != nil {
+			t.Errorf("exec should accept args %q, got: %v", args, err)
+		}
 	}
-	if err := cmd.Args(cmd, []string{"create a bucket"}); err != nil {
-		t.Fatalf("exec should accept a single message arg, got: %v", err)
-	}
-	if err := cmd.Args(cmd, []string{"create", "a", "bucket"}); err == nil {
-		t.Fatal("exec should reject multiple positional args (unquoted prompt)")
+}
+
+func TestExecMessageJoining(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"none", nil, nil},
+		{"single quoted", []string{"create a bucket"}, []string{"create a bucket"}},
+		{"unquoted words", []string{"create", "a", "bucket"}, []string{"create a bucket"}},
+		{"dash-prefixed after --", []string{"--dry-run", "plan"}, []string{"--dry-run plan"}},
+		{"stdin sentinel", []string{"-"}, []string{"-"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := execMessages(tc.args)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %q, want %q", got, tc.want)
+				}
+			}
+		})
 	}
 }
 
