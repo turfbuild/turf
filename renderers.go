@@ -1355,9 +1355,10 @@ func attrSchemaLine(name string, prop any, required bool) string {
 // differs from what resolved.
 
 type providerLoadView struct {
-	Name            string `json:"name"`
-	Source          string `json:"source"`
-	ResolvedVersion string `json:"resolved_version"`
+	Name            string   `json:"name"`
+	Source          string   `json:"source"`
+	ResolvedVersion string   `json:"resolved_version"`
+	Warnings        []string `json:"warnings,omitempty"`
 }
 
 func renderProviderLoad(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1387,6 +1388,9 @@ func renderProviderLoad(msg *types.Message, s spinner.Spinner, ss service.Sessio
 	var detail []string
 	if c := argString(msg, "version"); c != "" && c != p.ResolvedVersion {
 		detail = append(detail, muted("requested  ")+c)
+	}
+	for _, w := range p.Warnings {
+		detail = append(detail, styles.WarningStyle.Render("⚠ "+w))
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
