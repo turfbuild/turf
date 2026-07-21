@@ -1145,7 +1145,13 @@ func renderPlanNew(msg *types.Message, s spinner.Spinner, ss service.SessionStat
 	if !parseContent(msg, &p) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	head := addr(p.PhaseID) + dot() + muted("opened")
+	opened := "opened"
+	if p.Path != "" {
+		// The bound configuration dir, as the caller passed it (relative under
+		// the CLI). Shows which configuration this phase is a projection of.
+		opened = "opened " + p.Path
+	}
+	head := addr(p.PhaseID) + dot() + muted(opened)
 	return planSummaryLine(msg, s, ss, width, head, p)
 }
 
@@ -1624,6 +1630,7 @@ type initOutputView struct {
 }
 
 type configInitView struct {
+	Path    string `json:"path"` // the configuration dir, as the caller passed it (often relative)
 	Backend *struct {
 		Type string `json:"type"`
 	} `json:"backend"`
@@ -1648,6 +1655,12 @@ func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionS
 		target = argString(msg, "path")
 	}
 	summary := targetBody(target)
+	// Surface the configuration directory — the workflow's durable identity —
+	// as the caller passed it (relative under the CLI, where the cwd is the
+	// config dir). Skip when it's already the target (an empty workspace name).
+	if c.Path != "" && c.Path != target {
+		summary = appendDot(summary, muted(c.Path))
+	}
 	if c.Backend != nil && c.Backend.Type != "" {
 		summary = appendDot(summary, muted("backend "+c.Backend.Type))
 	}
