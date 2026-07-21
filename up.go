@@ -56,16 +56,18 @@ func newUpCmd() *cobra.Command {
 
 			prompt := generateUpPrompt(absPath)
 
-			// Interactive up/destroy always use the lean TUI. Seed nothing on
-			// this path: the first-message mechanism echoes and sends the prompt,
-			// so also seeding it into the session would render it twice. The exec
-			// path does need the seed (cli.Run replays it as history).
+			// Both paths start from an empty session and deliver the prompt as
+			// the active user turn — the TUI via its first-message mechanism
+			// (which echoes and sends it), the exec path via cli.Run's user
+			// messages. Seeding the prompt into the session too would double it.
+			sess := newSession(autoApprove)
 			if interactive {
-				sess := newSession("", autoApprove)
 				return runTUI(ctx, rt, sess, prompt, true, worktreeBranch(wt))
 			}
-			sess := newSession(prompt, autoApprove)
-			return runExec(ctx, rt, sess, autoApprove)
+			return runExecWith(ctx, rt, sess, execConfig{
+				autoApprove: autoApprove,
+				messages:    []string{prompt},
+			})
 		},
 	}
 

@@ -74,6 +74,9 @@ turf --model anthropic/claude-sonnet-4-6 chat
 
 # Run a local model — no API key, no cost (see Model providers)
 turf --model dmr/ai/qwen3 chat
+
+# Run a one-shot request without the TUI (see Scripting with exec)
+turf exec "what workspaces exist?"
 ```
 
 Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers workspaces, remote backends, registry modules, Terraform Actions, and a live Kubernetes stack converged via deferrals. **Showcase** is the recommended starting point — a fast, cross-cutting grand tour — but you can jump straight to any deep-dive topic (`/demo actions`, `/demo deferrals`, etc.).
@@ -95,6 +98,54 @@ Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers work
 | `--theme`             | `TURF_THEME`       | `calm-roots`                  | TUI theme name; overrides the saved choice for this run |
 
 The three `--log-*` flags are pass-throughs to the `turf-mcp-server` subprocess. When unset, the `TF_LOG_*` env vars (matching OpenTofu's convention) reach the server through environment inheritance. Provider plugins also inherit these vars, so `TF_LOG_PROVIDER=DEBUG` enables plugin-side debug logging into the same sink as the server.
+
+### Scripting with `exec`
+
+`turf exec` runs a **single** natural-language request against the model (set
+with `--model`) without launching the TUI, streaming the run to stdout. It is
+the entry point for driving turf from a script, a CI job, or another agent — the
+same real model and tools as `chat`, just headless.
+
+```sh
+# A message argument — quoting is optional; words are joined into one request
+turf exec create a random_pet named demo
+turf exec "create a random_pet named demo"
+
+# Use -- to pass a message that begins with a dash
+turf exec -- --dry-run first, then apply
+
+# Read the request from stdin
+echo "what workspaces exist?" | turf exec
+turf exec - < request.txt
+```
+
+The process **exits non-zero if the run fails**, so `exec` composes with normal
+shell error handling (`set -e`, `&&`, CI steps).
+
+**`--json` — machine-readable event stream.** With `--json`, turf emits one JSON
+object per line for every runtime event (agent text, tool calls, tool results,
+warnings, errors) instead of formatted text. This is the reliable way to assert
+on a run from a script even though model prose is non-deterministic — you match
+on structure (which tools ran, whether an error occurred), not wording:
+
+```sh
+# Which turf tools did the run invoke?
+turf exec --json "create a random_pet" | jq -r 'select(.type=="tool_call") | .tool_call.function.name'
+
+# Fail if any error event was emitted
+turf exec --json "reconcile the stack" | jq -e 'select(.type=="error")' && echo "run had errors" >&2
+```
+
+**`--yes` / `--auto-approve` — unattended runs.** `exec` is non-interactive, so
+plan-approval questions are auto-confirmed, but the mutation gate (apply,
+imports, refresh) still asks on stdin by default. Pass `--yes` to auto-approve
+those so a run proceeds with no human at the keyboard. Use `--hide-tool-calls`
+to print only the agent's prose.
+
+> `exec` still launches `turf-mcp-server`, so it must be on `PATH` (see
+> [Install](#install)). For repeatable runs with no cloud credentials or cost,
+> point it at HCL using OpenTofu's credential-free providers (`null`, `local`,
+> `random`, `tls`).
 
 ## Model providers
 
