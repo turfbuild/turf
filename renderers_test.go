@@ -71,7 +71,7 @@ func TestResourcePlan_CompactVsDetailed(t *testing.T) {
 		"after": {"id": "x", "length": 2, "separator": "-"}
 	}`
 
-	compact := renderFor("turf_resource_plan", content, hiddenState{})
+	compact := renderFor("turf_declare_resource", content, hiddenState{})
 	if !strings.Contains(compact, "random_pet.this") || !strings.Contains(compact, "create") {
 		t.Fatalf("compact missing addr/action: %q", compact)
 	}
@@ -82,7 +82,7 @@ func TestResourcePlan_CompactVsDetailed(t *testing.T) {
 		t.Fatalf("compact should be a single line: %q", compact)
 	}
 
-	detailed := renderFor("turf_resource_plan", content, service.StaticSessionState{})
+	detailed := renderFor("turf_declare_resource", content, service.StaticSessionState{})
 	if !strings.Contains(detailed, "provider") || !strings.Contains(detailed, "reason:") {
 		t.Fatalf("detailed missing detail block: %q", detailed)
 	}
@@ -104,7 +104,7 @@ func TestResourcePlan_ReplaceDiff(t *testing.T) {
 		"before": {"prefix": "alpha", "length": 2},
 		"after": {"prefix": "gamma", "length": 2}
 	}`
-	out := renderFor("turf_resource_plan", content, service.StaticSessionState{})
+	out := renderFor("turf_declare_resource", content, service.StaticSessionState{})
 	for _, want := range []string{"prefix", `"alpha"`, "→", `"gamma"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("replace diff missing %q: %q", want, out)
@@ -118,9 +118,9 @@ func TestResourcePlan_ReplaceDiff(t *testing.T) {
 
 func TestResourcePlan_TitleAndAction(t *testing.T) {
 	const content = `{"resource_addr": "random_pet.my_pet", "action": "+", "after": {"length": 2}}`
-	out := renderFor("turf_resource_plan", content, hiddenState{})
-	if !strings.Contains(out, "Plan Resource") || !strings.Contains(out, "create") {
-		t.Fatalf("expected 'Plan Resource … create' wording: %q", out)
+	out := renderFor("turf_declare_resource", content, hiddenState{})
+	if !strings.Contains(out, "Declare Resource") || !strings.Contains(out, "create") {
+		t.Fatalf("expected 'Declare Resource … create' wording: %q", out)
 	}
 }
 
@@ -268,14 +268,14 @@ func TestResourcePlan_ReplaceCBDvsDTC(t *testing.T) {
 	// create_before_destroy=true → ± ; false → ∓.
 	cbd := `{"resource_addr": "a.b", "action": "replace", "create_before_destroy": true, "before": {"x": 1}, "after": {"x": 2}}`
 	dtc := `{"resource_addr": "a.b", "action": "replace", "create_before_destroy": false, "before": {"x": 1}, "after": {"x": 2}}`
-	out := renderFor("turf_resource_plan", cbd, hiddenState{})
+	out := renderFor("turf_declare_resource", cbd, hiddenState{})
 	if !strings.Contains(out, "replace") || !strings.Contains(out, "±") {
 		t.Fatalf("CBD replace should show ±: %q", out)
 	}
 	if strings.Contains(out, "∓") {
 		t.Fatalf("CBD replace should not show ∓: %q", out)
 	}
-	out = renderFor("turf_resource_plan", dtc, hiddenState{})
+	out = renderFor("turf_declare_resource", dtc, hiddenState{})
 	if !strings.Contains(out, "∓") || strings.Contains(out, "±") {
 		t.Fatalf("DTC replace should show ∓ not ±: %q", out)
 	}
@@ -287,7 +287,7 @@ func TestModulePlan_TallySplitsReplace(t *testing.T) {
 		{"address": "a.y", "action": "replace", "create_before_destroy": false},
 		{"address": "a.z", "action": "create"}
 	]}`
-	out := renderFor("turf_module_plan", content, hiddenState{})
+	out := renderFor("turf_declare_module", content, hiddenState{})
 	for _, want := range []string{"+1", "±1", "∓1"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tally should split CBD/DTC, missing %q: %q", want, out)
@@ -305,7 +305,7 @@ func TestModulePlan_Tally(t *testing.T) {
 		],
 		"outputs": {"url": "v"}
 	}`
-	out := renderFor("turf_module_plan", content, hiddenState{})
+	out := renderFor("turf_declare_module", content, hiddenState{})
 	if !strings.Contains(out, "+2") || !strings.Contains(out, "~1") {
 		t.Fatalf("tally wrong: %q", out)
 	}
@@ -321,8 +321,8 @@ func TestOutputsPlan_UnknownAndSensitive(t *testing.T) {
 		"unknown": ["pet_name"]
 	}`
 
-	compact := renderFor("turf_outputs_plan", content, hiddenState{})
-	for _, want := range []string{"Plan Outputs", "3 declared", "1 known after apply", "1 sensitive"} {
+	compact := renderFor("turf_declare_outputs", content, hiddenState{})
+	for _, want := range []string{"Declare Outputs", "3 declared", "1 known after apply", "1 sensitive"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact missing %q: %q", want, compact)
 		}
@@ -334,7 +334,7 @@ func TestOutputsPlan_UnknownAndSensitive(t *testing.T) {
 		t.Fatalf("compact should not dump output values: %q", compact)
 	}
 
-	detailed := renderFor("turf_outputs_plan", content, service.StaticSessionState{})
+	detailed := renderFor("turf_declare_outputs", content, service.StaticSessionState{})
 	for _, want := range []string{"pet_name", "known after apply", "region", `"us-east-1"`, "token", "(sensitive)"} {
 		if !strings.Contains(detailed, want) {
 			t.Fatalf("detailed missing %q: %q", want, detailed)
@@ -538,12 +538,12 @@ func TestErrorLine_ShowsRequestTarget(t *testing.T) {
 	errText := "Failed to evaluate config: metadata: namespace: unresolved references"
 	args := `{"resource_addr":"` + addr + `","workspace_alias":"k8s"}`
 
-	shown := renderErrArgs("turf_resource_plan", errText, args, service.StaticSessionState{})
+	shown := renderErrArgs("turf_declare_resource", errText, args, service.StaticSessionState{})
 	if !strings.Contains(plainNorm(shown), addr) {
 		t.Fatalf("expanded error should lead with the request target %q: %q", addr, shown)
 	}
 
-	compact := renderErrArgs("turf_resource_plan", errText, args, hiddenState{})
+	compact := renderErrArgs("turf_declare_resource", errText, args, hiddenState{})
 	if !strings.Contains(plainNorm(compact), addr) {
 		t.Fatalf("compact error should keep the request target %q visible: %q", addr, compact)
 	}
@@ -588,18 +588,21 @@ func TestNewRenderers_Smoke(t *testing.T) {
 			[]string{"Delete Workspace", "staging", "deleted"}},
 		{"turf_plan_cancel", `{"phase_id":"ph_003","status":"cancelled","message":"Draft discarded."}`,
 			[]string{"Cancel Draft", "ph_003", "cancelled", "Draft discarded."}},
-		{"turf_config_init", `{"backend":{"type":"s3"},"workspace":{"name":"main"},
+		{"turf_config_init", `{"path":"infra/prod","backend":{"type":"s3"},"workspace":{"name":"main"},
 			"required_providers":{"aws":{"source":"hashicorp/aws","version":"5.1.0"}},
 			"variables":[{"name":"region","required":true}],"outputs":[{"name":"url"}]}`,
-			[]string{"Init Config", "main", "1 provider(s)", "1 variable(s)", "1 output(s)", "region", "url"}},
+			[]string{"Init Config", "main", "infra/prod", "1 provider(s)", "1 variable(s)", "1 output(s)", "region", "url"}},
+		{"turf_plan_new", `{"phase_id":"ph_001","config_dir":"infra/prod","path":"infra/prod","resources":[]}`,
+			[]string{"ph_001", "opened", "infra/prod"}},
 		{"turf_module_init", `{"source":"Azure/x/azurerm","version":"0.4.0",
 			"required_providers":{"azurerm":{"source":"hashicorp/azurerm"}}}`,
 			[]string{"Init Module", "Azure/x/azurerm", "v0.4.0", "1 provider(s)"}},
-		{"turf_action_plan", `{"action_addr":"action.aws_lambda_invoke.warm",
+		{"turf_declare_action", `{"action_addr":"action.aws_lambda_invoke.warm",
 			"action_type":"aws_lambda_invoke","name":"warm","declared":true}`,
-			[]string{"Plan Action", "action.aws_lambda_invoke.warm", "declared"}},
-		{"turf_action_unplan", `{"name":"warm","removed":true}`,
-			[]string{"Unplan Action", "warm", "removed"}},
+			[]string{"Declare Action", "action.aws_lambda_invoke.warm", "declared"}},
+		{"turf_declare_action", `{"action_addr":"action.aws_lambda_invoke.warm",
+			"action_type":"aws_lambda_invoke","name":"warm","removed":true}`,
+			[]string{"Declare Action", "action.aws_lambda_invoke.warm", "removed"}},
 		{"turf_action_invoke", `{"action_type":"aws_lambda_invoke","provider":"aws",
 			"status":"completed","progress":["invoked"]}`,
 			[]string{"Invoke Action", "aws_lambda_invoke", "completed", "invoked"}},
@@ -689,7 +692,7 @@ func TestActionInvoke_ResolvedConfigExpandsNested(t *testing.T) {
 func TestResourcePlan_CollectionAttrExpands(t *testing.T) {
 	const content = `{"resource_addr":"aws_s3_bucket.b","action":"+","before":null,
 		"after":{"bucket":"b","tags":{"env":"prod"}}}`
-	out := plainNorm(renderFor("turf_resource_plan", content, service.StaticSessionState{}))
+	out := plainNorm(renderFor("turf_declare_resource", content, service.StaticSessionState{}))
 	for _, want := range []string{"tags = {", `env = "prod"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("collection attr not expanded, missing %q: %q", want, out)

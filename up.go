@@ -20,11 +20,6 @@ func newUpCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			absPath, err := filepath.Abs(".")
-			if err != nil {
-				return err
-			}
-
 			interactive := isatty.IsTerminal(os.Stdout.Fd())
 
 			wt, err := setupRunWorktree(ctx)
@@ -32,6 +27,15 @@ func newUpCmd() *cobra.Command {
 				return err
 			}
 			defer cleanupRunWorktree(context.WithoutCancel(ctx), wt, interactive)
+
+			// Resolve the configuration path AFTER any --worktree chdir so the
+			// explicit path handed to the server's /up prompt (and from there to
+			// config_init) lands inside the worktree — the server never relies
+			// on its inherited cwd for the configuration.
+			absPath, err := filepath.Abs(".")
+			if err != nil {
+				return err
+			}
 
 			rt, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
