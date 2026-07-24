@@ -26,44 +26,56 @@ func isDestructive(t tools.Tool) bool {
 	return t.Annotations.DestructiveHint != nil && *t.Annotations.DestructiveHint
 }
 
-// destructiveButPreApproved names the tools that are server-annotated destructive
-// yet deliberately pre-approved, because they authorize no new change — they only
-// persist/finalize the result of already-approved effects. Kept as an explicit,
-// reviewable exception so the "no destructive tool is auto-approved" guard still
-// holds for every other tool.
-var destructiveButPreApproved = map[string]struct{}{
+// destructiveNoConfirm names the tools that are server-annotated destructive yet
+// deliberately neither permission-gated nor persona-confirmed, because they
+// authorize no new change — they only persist/finalize the result of
+// already-approved effects. Kept as an explicit, reviewable exception so the
+// "every destructive tool is accounted for" guard still holds for every other
+// destructive tool.
+var destructiveNoConfirm = map[string]struct{}{
 	"turf_workspace_close": {}, // flush state + release lock; bookend of workspace_open
 }
 
-// TestPermissionListsConsistent checks the curated pre-approval lists are
-// internally coherent, independent of whether turf-mcp-server is present: every
-// entry carries the turf_ prefix and no tool is listed twice (a tool must be
-// classified exactly once, as pre-approved or always-confirm).
+// TestPermissionListsConsistent checks the curated lists are internally coherent,
+// independent of whether turf-mcp-server is present: every entry carries the
+// turf_ prefix, preApprovedTurfTools has no duplicates, and agentConfirmTurfTools
+// (a documentation/drift subset — all turf tools are pre-approved) is fully
+// contained in preApprovedTurfTools.
 func TestPermissionListsConsistent(t *testing.T) {
-	seen := map[string]string{}
-	check := func(list []string, label string) {
-		for _, n := range list {
-			if !strings.HasPrefix(n, "turf_") {
-				t.Errorf("%s entry %q is missing the turf_ prefix", label, n)
-			}
-			if prev, ok := seen[n]; ok {
-				t.Errorf("%q is listed more than once (%s and %s); classify it exactly once", n, prev, label)
-			}
-			seen[n] = label
+	allow := toolSet(preApprovedTurfTools)
+
+	seen := map[string]struct{}{}
+	for _, n := range preApprovedTurfTools {
+		if !strings.HasPrefix(n, "turf_") {
+			t.Errorf("pre-approved entry %q is missing the turf_ prefix", n)
+		}
+		if _, dup := seen[n]; dup {
+			t.Errorf("pre-approved %q is listed more than once", n)
+		}
+		seen[n] = struct{}{}
+	}
+
+	for _, n := range agentConfirmTurfTools {
+		if !strings.HasPrefix(n, "turf_") {
+			t.Errorf("agent-confirm entry %q is missing the turf_ prefix", n)
+		}
+		if _, ok := allow[n]; !ok {
+			t.Errorf("agent-confirm %q must also be pre-approved (all turf tools are)", n)
 		}
 	}
-	check(preApprovedTurfTools, "Allow")
-	check(alwaysConfirmTurfTools, "Ask")
 }
 
 // TestPermissionListsMatchServerAnnotations is an integration drift guard: when
 // turf-mcp-server is resolvable, it starts the server, reads the real tool
 // annotations, and asserts the policy matches reality. It skips (does not fail)
 // when the binary is absent, mirroring examples_test.go. It enforces:
-//   - the safety-critical direction: no pre-approved tool is annotated destructive;
-//   - every listed tool actually exists on the server (no stale entries); and
-//   - every server tool is classified in exactly one list (catches drift when the
-//     server adds a tool).
+//   - every server tool is pre-approved (fail-safe completeness: a new tool would
+//     otherwise be unclassified — it must be consciously added to Allow);
+//   - every pre-approved / agent-confirm tool actually exists on the server (no
+//     stale entries); and
+//   - every server-destructive tool is accounted for — either the persona confirms
+//     it (agentConfirmTurfTools) or it is an explicit destructiveNoConfirm carve-out
+//     — so a newly-destructive server tool forces a confirmation decision.
 func TestPermissionListsMatchServerAnnotations(t *testing.T) {
 	path, err := resolveMCPServer()
 	if err != nil {
@@ -89,43 +101,42 @@ func TestPermissionListsMatchServerAnnotations(t *testing.T) {
 		byName[tl.Name] = tl
 	}
 	allow := toolSet(preApprovedTurfTools)
-	ask := toolSet(alwaysConfirmTurfTools)
+	confirm := toolSet(agentConfirmTurfTools)
 
+	// No stale entries: everything the CLI lists must be a real server tool.
 	for _, n := range preApprovedTurfTools {
-		tl, ok := byName[n]
-		if !ok {
+		if _, ok := byName[n]; !ok {
 			t.Errorf("pre-approved %q is not a server tool (stale entry)", n)
-			continue
-		}
-		if _, exempt := destructiveButPreApproved[n]; !exempt && isDestructive(tl) {
-			t.Errorf("pre-approved %q is annotated destructive — it must not be auto-approved", n)
 		}
 	}
-	for _, n := range alwaysConfirmTurfTools {
+	for _, n := range agentConfirmTurfTools {
 		if _, ok := byName[n]; !ok {
-			t.Errorf("always-confirm %q is not a server tool (stale entry)", n)
+			t.Errorf("agent-confirm %q is not a server tool (stale entry)", n)
 		}
 	}
 
 	// Keep the exception set honest: each entry must be pre-approved and still
 	// actually destructive on the server (else the exception is stale — drop it).
-	for n := range destructiveButPreApproved {
+	for n := range destructiveNoConfirm {
 		if _, ok := allow[n]; !ok {
-			t.Errorf("%q is in destructiveButPreApproved but not in preApprovedTurfTools", n)
+			t.Errorf("%q is in destructiveNoConfirm but not in preApprovedTurfTools", n)
 		}
 		if tl, ok := byName[n]; ok && !isDestructive(tl) {
-			t.Errorf("%q is exempted as destructive-but-pre-approved, but the server no longer marks it destructive — drop the exception", n)
+			t.Errorf("%q is exempted as destructive-but-no-confirm, but the server no longer marks it destructive — drop the exception", n)
 		}
 	}
 
-	for name := range byName {
-		_, inAllow := allow[name]
-		_, inAsk := ask[name]
-		switch {
-		case inAllow && inAsk:
-			t.Errorf("server tool %q is in both lists", name)
-		case !inAllow && !inAsk:
-			t.Errorf("server tool %q is unclassified — add it to preApprovedTurfTools or alwaysConfirmTurfTools", name)
+	// Fail-safe completeness + destructive coverage, iterating every server tool.
+	for name, tl := range byName {
+		if _, ok := allow[name]; !ok {
+			t.Errorf("server tool %q is not pre-approved — add it to preApprovedTurfTools (and turfToolInfo)", name)
+		}
+		if isDestructive(tl) {
+			_, confirmed := confirm[name]
+			_, exempt := destructiveNoConfirm[name]
+			if !confirmed && !exempt {
+				t.Errorf("server tool %q is destructive but not accounted for — add it to agentConfirmTurfTools (persona confirms it) or destructiveNoConfirm", name)
+			}
 		}
 	}
 }

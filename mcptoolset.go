@@ -72,8 +72,8 @@ func decorateTurfTool(t *tools.Tool) {
 // in the /tools dialog: its functional sub-group (the dialog groups by Category,
 // which turfCategory renders as "turf · <group>", sorted alphabetically) and a
 // friendly, verb-first display title. The tool set here is kept in lock-step with
-// preApprovedTurfTools + alwaysConfirmTurfTools in permissions.go — enforced by
-// TestTurfToolInfoMatchesPermissionLists in mcptoolset_test.go.
+// preApprovedTurfTools in permissions.go (which lists every turf tool) — enforced
+// by TestTurfToolInfoMatchesPermissionLists in mcptoolset_test.go.
 var turfToolInfo = map[string]struct {
 	group string
 	title string

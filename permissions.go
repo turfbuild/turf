@@ -2,88 +2,103 @@ package main
 
 // Tool pre-approval policy.
 //
-// turf's real safety boundary is the plan-then-approve gate: nothing mutates
-// live infrastructure until the user approves a plan and an effect is applied.
-// Everything upstream of that — reading state, searching providers, and building
-// up the in-memory *Draft* via the *_plan / *_init tools — has no effect on real
-// infra or persisted state and is safe to run without a confirmation prompt.
+// The turf-mcp-server is the structural source of truth for tool risk: it
+// faithfully annotates every tool with MCP hints (readOnlyHint, destructiveHint).
+// The turf CLI is a showcase for a first-class, reliable UX, and that raw "MCP"
+// layer is an implementation detail the user should not feel. So the CLI
+// pre-approves ALL of turf's own tools — the permission layer never fires a
+// prompt for a turf tool — and moves confirmation of consequential actions into
+// the agent, which seeks a user_prompt yes/no per the persona (see
+// workflowInstructions in agent.go): once before plan_approve for a whole phase,
+// and per-call for standalone destructive ops (workspace_delete, resource_import,
+// config_promote, a directly-invoked action_invoke). This trades the deterministic
+// per-tool permission gate for agent-driven confirmation, on purpose — the old
+// gate double-prompted right after the user had already approved a plan, which is
+// friction on the tools that are the heart of the UX.
 //
-// These two lists encode that as an explicit, per-tool session permission policy
-// (wired in newSession via session.WithPermissions). Names are the LLM-facing,
-// turf_-prefixed tool names (the MCP toolset is registered under the "turf" name,
-// so cagent prefixes every server tool with "turf_"; see agent.go / mcptoolset.go).
+// Why this stays safe:
+//   - Names are the LLM-facing, turf_-prefixed tool names (the MCP toolset is
+//     registered under the "turf" name, so cagent prefixes every server tool with
+//     "turf_"; see agent.go / mcptoolset.go). preApprovedTurfTools is an explicit,
+//     static, turf_-only enumeration — so any unknown or third-party MCP tool the
+//     CLI may load in future is absent from it and still prompts. Pre-approval is
+//     scoped to turf's own tools; it is NOT a blanket "approve anything turf_*".
+//   - Because the list is an explicit enumeration and not a prefix match, a NEW
+//     turf server tool is absent from it and therefore prompts at runtime
+//     (fail-safe), and the drift test fails CI until it is consciously classified.
+//     Worst case is over-prompting, never under-prompting.
+//   - The server's destructiveHint annotations remain the strong core; the drift
+//     test ties them to agentConfirmTurfTools so a newly-destructive server tool
+//     forces a persona-confirmation decision rather than sliding through silently.
 //
 // Precedence in cagent's approval pipeline (see runtime/toolexec): yolo
-// (--auto-approve) > session Allow/Ask > ReadOnlyHint > default Ask. So:
-//   - --auto-approve still approves everything, unchanged.
-//   - Otherwise, preApprovedTurfTools run without a prompt.
-//   - alwaysConfirmTurfTools fall to Ask (prompt). Listing them in Ask is
-//     belt-and-suspenders: Ask (ForceAsk) also overrides ReadOnlyHint, so a gate
-//     tool can never be silently auto-approved even if the server later marks it
-//     read-only by mistake.
-//
-// This is the CLI's own policy, deliberately a static curated list rather than
-// derived from the server's MCP annotations: a new/unknown server tool is absent
-// from Allow and therefore prompts (fail-safe — the worst case is over-prompting,
-// never under-prompting).
+// (--auto-approve) > session Allow/Ask > ReadOnlyHint > default Ask. turf leaves
+// Ask empty (newSession passes Allow: preApprovedTurfTools, Ask: nil), so no turf
+// tool falls to a permission prompt; --auto-approve still approves everything,
+// unchanged.
 
-// preApprovedTurfTools run without a confirmation prompt: pure reads and
-// Draft-only planning that authorize no new change to live infrastructure —
-// plus workspace_close (see below), the one deliberate exception.
+// preApprovedTurfTools run without a permission prompt: every turf tool. This is
+// the single source of truth for the set of tools the CLI knows about
+// (turfToolInfo in mcptoolset.go is kept in lock-step with it, enforced by
+// mcptoolset_test.go). Confirmation of consequential actions is the agent's job
+// via user_prompt (see agentConfirmTurfTools and the persona in agent.go), not the
+// permission layer's.
 var preApprovedTurfTools = []string{
 	// Providers: discovery + (in-memory) configuration.
 	"turf_provider_search",
 	"turf_provider_describe",
 	"turf_provider_load",
 	"turf_provider_configure",
-	// Workspace: open (acquire lock), read, and close (flush + release lock).
-	// workspace_close is server-annotated destructive because it persists state —
-	// but that state is the result of already-approved effects, so closing
-	// authorizes nothing new. It's the bookend of workspace_open (also pre-approved)
-	// and the server tells the agent to "always call it when done", so prompting
-	// there is pure friction. This is the sole "destructive but pre-authorized"
-	// exception; it's tracked explicitly in permissions_test.go so the guard still
-	// blocks every other destructive tool. (workspace_delete — true, irreversible
-	// deletion — stays in alwaysConfirmTurfTools.)
+	// Workspace lifecycle. workspace_delete is server-annotated destructive and
+	// irreversible; it is pre-approved like the rest but the persona must obtain an
+	// explicit, irreversibility-warning user_prompt before calling it (see
+	// agentConfirmTurfTools). workspace_close is destructive too but authorizes
+	// nothing new (it flushes already-approved state), so it is neither confirmed
+	// nor persona-gated.
 	"turf_workspace_open",
 	"turf_workspace_list",
 	"turf_workspace_show",
 	"turf_workspace_close",
-	// State / outputs: read-only.
+	"turf_workspace_delete",
+	// State / outputs. state_list, outputs, and the *_outputs reads are read-only;
+	// resource_refresh only reconciles state to live reality (like `tofu refresh`)
+	// so it is benign and runs silently; resource_import adopts existing infra into
+	// state and the persona confirms it (see agentConfirmTurfTools).
 	"turf_state_list",
 	"turf_outputs",
 	"turf_declare_outputs",
 	"turf_module_outputs",
+	"turf_resource_import",
+	"turf_resource_refresh",
 	// Data source: read-only.
 	"turf_datasource_read",
-	// Draft lifecycle.
+	// Draft / phase lifecycle. plan_approve seals the Draft into an Execution and
+	// effect_apply/effect_cancel run the approved effects — their confirmation is
+	// the single phase-level user_prompt the persona seeks before plan_approve, not
+	// a per-effect prompt.
 	"turf_plan_new",
 	"turf_plan_cancel",
-	// Plan approval — seals the in-memory Draft into an Execution; it authorizes
-	// no live-infra change (the mutation still happens at effect_apply, which
-	// stays behind confirmation) and the server annotates it destructiveHint=false.
-	// The model already gates approval upstream via the built-in user_prompt tool
-	// (a yes/no dialog, per the /up and /destroy persona), so prompting again on
-	// plan_approve is a redundant second confirmation for what the user just
-	// approved. Pre-approve it to keep user_prompt the single checkpoint.
-	// (Future: have plan_approve elicit via MCP directly, then take it back off.)
 	"turf_plan_approve",
-	// Config / module authoring. The declare family writes through into the
-	// user's configuration directory as .tf.json files — a checkout mutation,
-	// not a live-infra one: the files are git-recoverable, plan_cancel reports
-	// touched_files, and no infrastructure changes until an approved effect
-	// applies. Prompting on every declare would gate the whole planning loop.
+	"turf_replan",
+	"turf_effect_apply",
+	"turf_effect_cancel",
+	// Config / module authoring. The declare family writes through into the user's
+	// configuration directory (git-recoverable checkout mutations, not live infra).
+	// config_promote graduates a plot into a plain tofu configuration — a one-way
+	// directory transformation the persona confirms (see agentConfirmTurfTools).
 	"turf_config_init",
 	"turf_config_show",
+	"turf_config_promote",
 	"turf_declare_backend",
 	"turf_declare_provider",
-	"turf_replan",
 	"turf_module_init",
 	"turf_declare_module",
-	// Resource / action planning — accumulates into the Draft only.
+	// Resource / action planning — accumulates into the Draft. action_invoke fires
+	// an imperative side effect; the persona confirms a directly-invoked one.
 	"turf_declare_resource",
 	"turf_declare_var",
 	"turf_declare_action",
+	"turf_action_invoke",
 	// Skills / docs.
 	"turf_skill_core",
 	"turf_skill_adhoc",
@@ -92,18 +107,24 @@ var preApprovedTurfTools = []string{
 	"turf_read_skill_file",
 }
 
-// alwaysConfirmTurfTools always require confirmation: they mutate live infra,
-// write persisted state, or cross the plan-approval review gate.
-var alwaysConfirmTurfTools = []string{
-	"turf_effect_apply",     // the only tool that applies real infra changes
+// agentConfirmTurfTools names the high-consequence tools whose confirmation the
+// persona guarantees via user_prompt. Every entry is pre-approved at the
+// permission layer (a subset of preApprovedTurfTools) — this list is documentation
+// plus a drift guard (permissions_test.go), not a permission list. It is turf's
+// own confirm-policy, deliberately NOT a mirror of the server's destructiveHint:
+// it includes non-destructive-but-consequential tools (effect_cancel can
+// cascade-cancel dependents; resource_import adopts infra into state), and it
+// excludes workspace_close (destructive but authorizes nothing new). Two
+// confirmation shapes, spelled out in the persona (see agent.go):
+//   - effect_apply / effect_cancel are covered by the single phase-level
+//     confirmation the persona seeks before plan_approve — NOT prompted per-effect;
+//   - workspace_delete, resource_import, config_promote, and a directly-invoked
+//     action_invoke are standalone ops confirmed with their own targeted user_prompt.
+var agentConfirmTurfTools = []string{
+	"turf_effect_apply",     // applies real infra changes (confirmed at plan_approve)
+	"turf_effect_cancel",    // can cascade-cancel dependents (confirmed at plan_approve)
 	"turf_action_invoke",    // imperative side effects
-	"turf_effect_cancel",    // can cascade-cancel dependents
-	"turf_workspace_delete", // irreversible state deletion
+	"turf_workspace_delete", // irreversible state deletion — warn it cannot be undone
 	"turf_resource_import",  // adopts existing infra into state
-	"turf_resource_refresh", // writes reconciled state
-	// config_promote graduates a plot into a plain tofu configuration: it
-	// retires the dialect in place — renames every unit to .tf and deletes the
-	// settings unit — a one-way directory transformation the server annotates
-	// destructive. Confirm it (unlike the reversible, per-file declare writes).
-	"turf_config_promote",
+	"turf_config_promote",   // one-way plot → tofu configuration transformation
 }

@@ -7,10 +7,12 @@ import (
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-// allTurfPermissionTools is the union of the two permission lists: the full set
-// of turf tools the CLI knows about. turfToolGroups must cover exactly this set.
+// allTurfPermissionTools is the full set of turf tools the CLI knows about. Every
+// turf tool is pre-approved, so preApprovedTurfTools is that complete set on its
+// own (agentConfirmTurfTools is a subset of it). turfToolInfo must cover exactly
+// this set.
 func allTurfPermissionTools() []string {
-	return append(append([]string{}, preApprovedTurfTools...), alwaysConfirmTurfTools...)
+	return append([]string{}, preApprovedTurfTools...)
 }
 
 // TestTurfToolInfoMatchesPermissionLists is a drift guard tying turfToolInfo to

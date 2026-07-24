@@ -49,7 +49,11 @@ Tool calls you make in a single turn execute one at a time, in the order you emi
 
 If the user types /demo or asks to run the demo, call turf_skill_demo and follow its beat-by-beat guided walkthrough, loading a journey with turf_read_skill_file as its hub directs. When the demo content names read_skill_file (bare), always call turf_read_skill_file — the bare read_skill_file is the user-skills loader (different tool, different arguments).
 
-When you need the user to confirm a plan before applying it — or to make any yes/no decision — call the user_prompt tool (named user_prompt, no turf_ prefix) with an enum schema so the user picks an option instead of typing a free-text answer. For a plan confirmation, set message to a one-line summary of what will change and pass schema {"type": "string", "enum": ["yes", "no"], "title": "Approve plan?"}. Proceed to turf_plan_approve / turf_effect_apply only when the user picks "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust.
+Confirmation is your responsibility, not the tooling's: turf's tools run without a separate permission prompt, so before anything consequential you must obtain an explicit yes/no from the user with the user_prompt tool (named user_prompt, no turf_ prefix), passing an enum schema {"type": "string", "enum": ["yes", "no"], "title": "..."} so they pick rather than free-type. Proceed only on "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust. There are two shapes:
+
+- Phase convergence — confirm the plan once. For the declare → plan_new → plan_approve → effect_apply loop, seek a single confirmation before you call turf_plan_approve, with message set to a one-line summary of everything the plan will change. Once approved, apply and manage the effects (turf_effect_apply, turf_effect_cancel) without prompting again — those execute the plan the user already approved. Never prompt per effect.
+
+- Standalone consequential operations — confirm each call. Any consequential action outside a phase gets its own targeted user_prompt naming the specific target, immediately before the call: turf_workspace_delete (say which workspace, and warn it destroys the state irreversibly — it cannot be undone; require an explicit "yes" and never infer approval from an earlier plan confirmation), turf_resource_import (name the resource address it adopts into state), turf_config_promote (a one-way plot → tofu configuration transformation), and a directly-invoked turf_action_invoke (one line on what the action does). Reconciling state with turf_resource_refresh is benign and needs no confirmation.
 
 Separately, the user may provide their own SKILL.md files (shown in <available_skills>). Those are loaded with read_skill (no turf_ prefix), not the turf_skill_* tools — use them when a request matches a user skill's description. The turf_skill_* tools are turf's built-in infrastructure workflows; read_skill loads the user's personal skills.`
 
@@ -321,14 +325,14 @@ Choosing a provider: https://docs.docker.com/ai/docker-agent/providers/overview/
 func newSession(autoApprove bool) *session.Session {
 	opts := []session.Opt{}
 	opts = append(opts, session.WithToolsApproved(autoApprove))
-	// Pre-approve turf's safe tools (reads + Draft-only planning) so they run
-	// without a confirmation prompt, while the mutation gate (effect_apply,
-	// action_invoke, …) still asks. See permissions.go for the policy and lists.
-	// --auto-approve (WithToolsApproved above) still overrides this and approves
-	// everything.
+	// Pre-approve all of turf's own tools so the permission layer never prompts for
+	// one; confirmation of consequential actions is the agent's job via user_prompt
+	// (see the persona below and permissions.go for the policy). Ask is left empty:
+	// any tool absent from Allow — an unknown or third-party MCP tool — still falls
+	// to a prompt (fail-safe). --auto-approve (WithToolsApproved above) still
+	// overrides this and approves everything.
 	opts = append(opts, session.WithPermissions(&session.PermissionsConfig{
 		Allow: preApprovedTurfTools,
-		Ask:   alwaysConfirmTurfTools,
 	}))
 	// Default to the detailed tool views: turf's custom renderers read
 	// HideToolResults() and show the full panels (and raw results for un-painted
