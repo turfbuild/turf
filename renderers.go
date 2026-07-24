@@ -68,11 +68,26 @@ import (
 // registerTurfToolRenderers installs turf's per-tool renderers on cagent's global
 // tool-renderer registry. The full TUI does this via tui.WithToolRenderers (in
 // runTUI); the lean TUI never calls tui.New, so runLeanTUI registers them directly
-// — both paths funnel through the same tool.Register and the same turfToolRenderers
-// source.
+// — both paths funnel through the same tool.Register and the same renderer sources
+// (turfToolRenderers plus builtinToolRenderers).
 func registerTurfToolRenderers() {
 	for name, b := range turfToolRenderers() {
 		tool.Register(name, b)
+	}
+	for name, b := range builtinToolRenderers() {
+		tool.Register(name, b)
+	}
+}
+
+// builtinToolRenderers maps cagent *built-in* tool names (bare, not "turf_"-prefixed)
+// to turf's overriding renderers. Unlike turfToolRenderers — turf's own MCP tools —
+// these replace a view cagent already ships. Registered renderers win over the
+// built-in ones (see tool.Register), so this quiets a built-in's default output.
+// Currently just the "think" scratchpad, whose result echoes the whole running
+// thought log; the default renderer dumps it verbatim, so we suppress it.
+func builtinToolRenderers() map[string]tool.Builder {
+	return map[string]tool.Builder{
+		"think": builder(renderThink),
 	}
 }
 
@@ -128,6 +143,24 @@ func builder(render toolcommon.Renderer) tool.Builder {
 	return func(msg *types.Message, ss service.SessionStateReader) layout.Model {
 		return toolcommon.NewBase(msg, ss, render)
 	}
+}
+
+// --- think (cagent built-in) ------------------------------------------------
+//
+// The built-in think tool is a pure reasoning scratchpad: each call appends a
+// thought and returns the *entire* running log ("Thoughts:\n…"), which cagent's
+// default renderer dumps verbatim — increasingly noisy as the log grows. This
+// renderer suppresses that body, collapsing every think call to a single quiet
+// "Think" line. A framework error is still surfaced (errorLine), since that is
+// terse and diagnostic rather than the verbose success output we're hiding.
+// Registered under the bare "think" name (builtinToolRenderers), so it overrides
+// cagent's built-in view rather than living alongside turf's "turf_" tools.
+func renderThink(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if out, ok := errorLine(msg, s, ss, width); ok {
+		return out
+	}
+	content := toolcommon.Icon(msg, s) + styles.ToolName.Render("Think")
+	return styles.RenderComposite(styles.ToolMessageStyle.Width(width), content)
 }
 
 // --- shared line helpers ----------------------------------------------------

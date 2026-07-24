@@ -52,6 +52,10 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firs
 		// of raw JSON. Keys are the "turf_"-prefixed exposed names (see
 		// mcptoolset.go / agent.go). Detail level follows Ctrl+O (HideToolResults).
 		tui.WithToolRenderers(turfToolRenderers()),
+		// Override a couple of cagent's noisy built-in tool views (e.g. the think
+		// scratchpad, which dumps its whole running thought log). The lean path
+		// registers the same set via registerTurfToolRenderers.
+		tui.WithToolRenderers(builtinToolRenderers()),
 	)
 
 	// Coalesce raw mouse-wheel events into the WheelCoalescedMsg the TUI acts on.

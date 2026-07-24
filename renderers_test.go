@@ -578,6 +578,53 @@ func TestEveryRendererReportsErrors(t *testing.T) {
 	}
 }
 
+// TestThink_SuppressesThoughtBody locks in the think override: cagent's built-in
+// think view dumps the entire running thought log ("Thoughts:\n…"); turf's renderer
+// collapses every call to a quiet "Think" line and never echoes the log, in both the
+// compact and expanded (Ctrl+O) detail levels. A framework error is still surfaced.
+func TestThink_SuppressesThoughtBody(t *testing.T) {
+	const content = "Thoughts:\nfirst secret thought\nsecond verbose thought"
+	renderThinkFor := func(ss service.SessionStateReader) string {
+		msg := &types.Message{
+			Content:        content,
+			ToolStatus:     types.ToolStatusCompleted,
+			ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: "think"}},
+			ToolDefinition: tools.Tool{Name: "think"},
+		}
+		b := builtinToolRenderers()["think"](msg, ss)
+		b.SetSize(120, 10)
+		return b.View()
+	}
+
+	for _, ss := range []service.SessionStateReader{service.StaticSessionState{}, hiddenState{}} {
+		out := renderThinkFor(ss)
+		if !strings.Contains(out, "Think") {
+			t.Fatalf("think line should show the Think label: %q", out)
+		}
+		for _, leaked := range []string{"Thoughts", "secret thought", "verbose thought"} {
+			if strings.Contains(out, leaked) {
+				t.Fatalf("think renderer leaked the thought body %q: %q", leaked, out)
+			}
+		}
+		if strings.Contains(strings.TrimRight(out, " \n"), "\n") {
+			t.Fatalf("suppressed think line should be a single line: %q", out)
+		}
+	}
+
+	// A framework error is terse and diagnostic, so it is still surfaced.
+	errMsg := &types.Message{
+		Content:        "boom: think failed",
+		ToolStatus:     types.ToolStatusError,
+		ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: "think"}},
+		ToolDefinition: tools.Tool{Name: "think"},
+	}
+	b := builtinToolRenderers()["think"](errMsg, service.StaticSessionState{})
+	b.SetSize(120, 10)
+	if out := b.View(); !strings.Contains(out, "boom: think failed") {
+		t.Fatalf("think renderer should surface a framework error: %q", out)
+	}
+}
+
 func TestNewRenderers_Smoke(t *testing.T) {
 	cases := []struct {
 		name    string
