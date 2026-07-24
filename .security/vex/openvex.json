@@ -3,9 +3,24 @@
   "@id": "https://openvex.dev/docs/turf/openvex",
   "author": "Turf Security <security@turf.build>",
   "role": "Project Security Team",
-  "timestamp": "2026-07-13T00:00:00Z",
-  "version": 1,
+  "timestamp": "2026-07-24T00:00:00Z",
+  "version": 2,
   "statements": [
+    {
+      "vulnerability": { "name": "GHSA-hrxh-6v49-42gf" },
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/turfbuild/turf",
+          "subcomponents": [
+            { "@id": "pkg:golang/google.golang.org/grpc@1.81.1" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "grpc-go bundles fixes for an xDS RBAC authorization-bypass/panic (internal/xds/rbac) and an HTTP/2 Rapid Reset DoS on the server transport (internal/transport). The turf CLI reaches grpc only as a client transport: docker-agent's model provider uses the Anthropic SDK's Vertex path, which pulls google.golang.org/api/option -> grpc to call Google/Vertex API endpoints over TLS. The CLI imports no xDS (the RBAC engine is never compiled into any execute path) and runs no grpc server accepting untrusted client connections, so neither the RBAC bypass nor the Rapid Reset server-side DoS is reachable. govulncheck reports 0 reachable (grpc appears only in the imported-but-not-called 'modules you require' set). Fixed in grpc 1.82.1; grpc 1.81.1 is owned as an indirect dep by the docker-agent fork (mirrored as a root // indirect), so the bump arrives with the next docker-agent fork rebase. Re-review then.",
+      "timestamp": "2026-07-24T00:00:00Z"
+    },
     {
       "vulnerability": { "name": "GO-2026-5932" },
       "products": [
