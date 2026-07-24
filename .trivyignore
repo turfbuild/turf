@@ -1,0 +1,17 @@
+# Trivy suppression list for the Turf CLI. One vuln id per line, each with a
+# trailing comment giving the reason + a review date. This mirrors the discipline
+# of .security/osv-scanner.toml — a mute, with the record living in OpenVEX.
+#
+# Fork findings are NOT suppressed here — a CVE in the docker-agent fork is fixed
+# by rebasing the fork on upstream and re-pinning the submodule, not muted.
+
+# google.golang.org/grpc GHSA-hrxh-6v49-42gf (xDS RBAC + HTTP/2 Rapid Reset).
+# Fork-transitive via the docker-agent fork (owns grpc 1.81.1). Not in the CLI's
+# execute path: grpc is reached only as a client transport (docker-agent's
+# Anthropic-Vertex model provider -> google.golang.org/api -> grpc, over TLS to
+# Google endpoints); the CLI imports no xDS (RBAC engine never compiled in) and
+# runs no grpc server for untrusted clients. govulncheck reports 0 reachable.
+# Fix (grpc 1.82.1) rides the next docker-agent fork rebase. Dispositioned
+# not_affected in .security/vex/openvex.json (+ .security/osv-scanner.toml).
+# Re-review 2026-10-01.
+GHSA-hrxh-6v49-42gf
