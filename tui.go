@@ -56,6 +56,10 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firs
 		// scratchpad, which dumps its whole running thought log). The lean path
 		// registers the same set via registerTurfToolRenderers.
 		tui.WithToolRenderers(builtinToolRenderers()),
+		// Hide the right-side chat sidebar. turf's timeline is the primary surface;
+		// the sidebar's per-session metadata adds little for an infra workflow, so
+		// we drop it (this also disables its ctrl+b toggle). Lean mode has no sidebar.
+		tui.WithHideSidebar(),
 	)
 
 	// Coalesce raw mouse-wheel events into the WheelCoalescedMsg the TUI acts on.
