@@ -23,7 +23,7 @@ jobs:
           submodules: recursive # materialize ./docker-agent for the replace directive
           fetch-depth: 0 # tags for `git describe` version injection (main.Version)
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod # single source of truth for the Go version
           # Caches the Go module cache (~/go/pkg/mod) and build cache
@@ -57,7 +57,7 @@ jobs:
         with:
           submodules: recursive # golangci-lint compiles the package; needs ./docker-agent
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
