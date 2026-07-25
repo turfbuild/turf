@@ -61,18 +61,22 @@ func enterDir(t *testing.T, dir string) {
 
 func TestSetupRunWorktreeNotRequested(t *testing.T) {
 	setWorktreeFlags(t, "", "")
-	wt, err := setupRunWorktree(context.Background())
+	wt, anchor, err := setupRunWorktree(context.Background())
 	if err != nil {
 		t.Fatalf("setupRunWorktree: %v", err)
 	}
 	if wt != nil {
 		t.Fatalf("expected nil worktree when --worktree unset, got %+v", wt)
 	}
+	// No worktree: the anchor is empty, so the session store falls back to cwd.
+	if anchor != "" {
+		t.Fatalf("expected empty anchor when --worktree unset, got %q", anchor)
+	}
 }
 
 func TestSetupRunWorktreeBaseRequiresWorktree(t *testing.T) {
 	setWorktreeFlags(t, "", "main")
-	_, err := setupRunWorktree(context.Background())
+	_, _, err := setupRunWorktree(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "--worktree-base requires --worktree") {
 		t.Fatalf("expected base-requires-worktree error, got %v", err)
 	}
@@ -90,7 +94,7 @@ func TestSetupRunWorktreeCreatesAndChdirs(t *testing.T) {
 	enterDir(t, repo)
 	setWorktreeFlags(t, "authoring", "")
 
-	wt, err := setupRunWorktree(context.Background())
+	wt, anchor, err := setupRunWorktree(context.Background())
 	if err != nil {
 		t.Fatalf("setupRunWorktree: %v", err)
 	}
@@ -98,6 +102,15 @@ func TestSetupRunWorktreeCreatesAndChdirs(t *testing.T) {
 		t.Fatal("expected a worktree, got nil")
 	}
 	t.Cleanup(func() { _ = os.Chdir(repo); _ = wt.Remove(context.Background()) })
+
+	// The anchor is the launch dir (repo), captured before the chdir into the
+	// worktree, so session history is pinned to the real project, not the worktree.
+	if resolved, err := filepath.EvalSymlinks(anchor); err == nil {
+		anchor = resolved
+	}
+	if anchor != repo {
+		t.Errorf("anchor = %q, want launch dir %q", anchor, repo)
+	}
 
 	wantDir := filepath.Join(home, "worktrees", "authoring")
 	if wt.Dir != wantDir {
@@ -122,7 +135,7 @@ func TestSetupRunWorktreeNonGitRepo(t *testing.T) {
 	enterDir(t, t.TempDir())
 	setWorktreeFlags(t, "auto", "")
 
-	_, err := setupRunWorktree(context.Background())
+	_, _, err := setupRunWorktree(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "git repository") {
 		t.Fatalf("expected not-a-git-repository error, got %v", err)
 	}
@@ -135,7 +148,7 @@ func TestCleanupRunWorktreeNonInteractiveKeeps(t *testing.T) {
 	enterDir(t, repo)
 	setWorktreeFlags(t, "keepme", "")
 
-	wt, err := setupRunWorktree(context.Background())
+	wt, _, err := setupRunWorktree(context.Background())
 	if err != nil {
 		t.Fatalf("setupRunWorktree: %v", err)
 	}
@@ -155,7 +168,7 @@ func TestCleanupRunWorktreeCleanRemoves(t *testing.T) {
 	enterDir(t, repo)
 	setWorktreeFlags(t, "throwaway", "")
 
-	wt, err := setupRunWorktree(context.Background())
+	wt, _, err := setupRunWorktree(context.Background())
 	if err != nil {
 		t.Fatalf("setupRunWorktree: %v", err)
 	}
@@ -174,7 +187,7 @@ func TestCleanupRunWorktreeDirtyKeepsOnDecline(t *testing.T) {
 	enterDir(t, repo)
 	setWorktreeFlags(t, "dirty", "")
 
-	wt, err := setupRunWorktree(context.Background())
+	wt, _, err := setupRunWorktree(context.Background())
 	if err != nil {
 		t.Fatalf("setupRunWorktree: %v", err)
 	}

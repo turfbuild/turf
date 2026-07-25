@@ -77,9 +77,22 @@ type agentOpts struct {
 	welcomeMessage string
 	memoryPath     string
 	noMemory       bool
-	logFile        string
-	logLevel       string
-	logFormat      string
+	// sessionDBPath is the SQLite session-history database path. Empty resolves
+	// to .turf-sessions.db in the session directory (see sessionDBDir). noSession
+	// disables persistence entirely, leaving the runtime on its ephemeral
+	// in-memory store.
+	sessionDBPath string
+	noSession     bool
+	// sessionDBDir anchors the default session db to a directory other than cwd.
+	// It is set to the launch/--chdir dir when a --worktree redirected cwd, so
+	// session history lives with the real project rather than inside the
+	// throwaway worktree (memory and the recorded WorkingDir still follow cwd
+	// into the worktree). Empty means "use cwd" — the no-worktree default, and
+	// also ignored when sessionDBPath is set explicitly.
+	sessionDBDir string
+	logFile      string
+	logLevel     string
+	logFormat    string
 	// interactive reports whether a human is at the terminal (TTY). It gates
 	// tools that elicit input from the user — chiefly user_prompt, which can
 	// only function when the TUI is up to render the dialog.
@@ -106,17 +119,19 @@ func resolveMCPServer() (string, error) {
 }
 
 // createAgentRuntime constructs a cagent agent, team, and runtime that talks to
-// the turf MCP server over stdio. The returned cleanup function must be called
-// to stop the MCP subprocess.
-func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, func(), error) {
+// the turf MCP server over stdio. It also opens the session-history store (unless
+// disabled via opts.noSession) and returns it so callers can resolve a resume
+// reference before building the session. The returned cleanup function must be
+// called to stop the MCP subprocess and close the session store.
+func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, session.Store, func(), error) {
 	mcpServerPath, err := resolveMCPServer()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	llm, err := newModelProvider(ctx, opts.model, opts.baseURL)
 	if err != nil {
-		return nil, nil, modelProviderError(opts.model, err)
+		return nil, nil, nil, modelProviderError(opts.model, err)
 	}
 
 	serveArgs := []string{"--transport", "stdio"}
@@ -153,13 +168,13 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 	mcpToolset := mcp.NewToolsetCommand("turf", mcpServerPath, serveArgs, os.Environ(), "")
 
 	if err := mcpToolset.Start(ctx); err != nil {
-		return nil, nil, fmt.Errorf("starting %s: %w", mcpServerBinaryName, err)
+		return nil, nil, nil, fmt.Errorf("starting %s: %w", mcpServerBinaryName, err)
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		_ = mcpToolset.Stop(ctx)
-		return nil, nil, fmt.Errorf("getting working directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
 	// Sandbox the agent's own file access to the directories turf legitimately
 	// works in: the working directory (HCL configs, plan/state, memory db) and
@@ -223,7 +238,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 		memDB, err := sqlite.NewMemoryDatabase(memPath)
 		if err != nil {
 			_ = mcpToolset.Stop(ctx)
-			return nil, nil, fmt.Errorf("opening memory database: %w", err)
+			return nil, nil, nil, fmt.Errorf("opening memory database: %w", err)
 		}
 		toolsets = append(toolsets, memory.New(memDB))
 	}
@@ -249,6 +264,39 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 	}
 	a := agent.New("turf", workflowInstructions, agentOptsList...)
 
+	// Open the SQLite session-history store (unless disabled) and wire it into
+	// the runtime. cagent auto-registers a PersistenceObserver for a configured
+	// store, so the conversation is persisted (lazily, on first content) with no
+	// further plumbing, and the full TUI's /sessions browser lights up for free.
+	// The store must exist before runtime.New so WithSessionStore can take it;
+	// callers then resolve any resume reference against it (see resolveTurfSession).
+	// The default file is .turf-sessions.db in the session directory: cwd, unless
+	// opts.sessionDBDir anchors it elsewhere (the launch/--chdir dir under
+	// --worktree, so history lives with the real project — unlike the memory db,
+	// which follows cwd into the worktree). An explicit --session-db wins over both.
+	var sessStore session.Store
+	if !opts.noSession {
+		sessPath := opts.sessionDBPath
+		if sessPath == "" {
+			sessDir := opts.sessionDBDir
+			if sessDir == "" {
+				sessDir = cwd
+			}
+			sessPath = filepath.Join(sessDir, ".turf-sessions.db")
+		}
+		// Ensure the parent dir exists — matters when --session-db points outside
+		// cwd; NewSQLiteSessionStore can't create a missing directory.
+		if err := os.MkdirAll(filepath.Dir(sessPath), 0o755); err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, fmt.Errorf("creating session database directory: %w", err)
+		}
+		sessStore, err = session.NewSQLiteSessionStore(ctx, sessPath)
+		if err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, fmt.Errorf("opening session database: %w", err)
+		}
+	}
+
 	t := team.New(team.WithAgents(a))
 	// Serialize each model batch's tool calls in emission order (a fork patch;
 	// upstream cagent fans batches out in parallel, unconditionally). Turf's
@@ -259,17 +307,28 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, f
 	// one turn; only execution is serialized, so this costs no extra LLM
 	// round-trips (unlike parallel_tool_calls=false, which only the
 	// OpenAI/DMR providers honor — Gemini, turf's default, ignores it).
-	rt, err := runtime.New(ctx, t, runtime.WithSequentialToolCalls(true))
+	rtOpts := []runtime.Opt{runtime.WithSequentialToolCalls(true)}
+	if sessStore != nil {
+		rtOpts = append(rtOpts, runtime.WithSessionStore(sessStore))
+	}
+	rt, err := runtime.New(ctx, t, rtOpts...)
 	if err != nil {
+		if sessStore != nil {
+			_ = sessStore.Close()
+		}
 		_ = mcpToolset.Stop(ctx)
-		return nil, nil, fmt.Errorf("creating runtime: %w", err)
+		return nil, nil, nil, fmt.Errorf("creating runtime: %w", err)
 	}
 
+	// The runtime never closes an embedder-owned session store, so cleanup does.
 	cleanup := func() {
 		_ = mcpToolset.Stop(context.WithoutCancel(ctx))
+		if sessStore != nil {
+			_ = sessStore.Close()
+		}
 	}
 
-	return rt, cleanup, nil
+	return rt, sessStore, cleanup, nil
 }
 
 // newModelProvider creates a cagent LLM provider from a "provider/model" string.
@@ -318,27 +377,48 @@ turf needs an LLM to run. Either:
 Choosing a provider: https://docs.docker.com/ai/docker-agent/providers/overview/`, modelRef, err)
 }
 
-// newSession builds an empty session with turf's permission policy. The active
-// user turn is not seeded here; it is delivered by the caller — the TUI via its
-// first-message mechanism, the headless path via cli.Run's user messages (see
-// runExecWith) — so the prompt is sent exactly once.
-func newSession(autoApprove bool) *session.Session {
-	opts := []session.Opt{}
-	opts = append(opts, session.WithToolsApproved(autoApprove))
+// applyTurfSessionPolicy stamps turf's permission and display policy onto a
+// session. It runs both on a freshly created session (newSession) and on one
+// loaded from the store on resume (resolveTurfSession) — the latter matters
+// because cagent's own resume path re-applies only tools-approved and
+// hide-tool-results, not permissions, so a resumed session would otherwise lose
+// turf's pre-approval and start prompting for every turf tool.
+func applyTurfSessionPolicy(sess *session.Session, autoApprove bool) {
+	session.WithToolsApproved(autoApprove)(sess)
 	// Pre-approve all of turf's own tools so the permission layer never prompts for
 	// one; confirmation of consequential actions is the agent's job via user_prompt
 	// (see the persona below and permissions.go for the policy). Ask is left empty:
 	// any tool absent from Allow — an unknown or third-party MCP tool — still falls
 	// to a prompt (fail-safe). --auto-approve (WithToolsApproved above) still
 	// overrides this and approves everything.
-	opts = append(opts, session.WithPermissions(&session.PermissionsConfig{
+	session.WithPermissions(&session.PermissionsConfig{
 		Allow: preApprovedTurfTools,
-	}))
+	})(sess)
 	// Default to the detailed tool views: turf's custom renderers read
 	// HideToolResults() and show the full panels (and raw results for un-painted
 	// tools) when it's false. Ctrl+O flips it to collapse each tool to a single
 	// colored line. Starting detailed makes tool activity visible without an
 	// extra keystroke.
-	opts = append(opts, session.WithHideToolResults(false))
-	return session.New(opts...)
+	session.WithHideToolResults(false)(sess)
+}
+
+// newSession builds an empty session with turf's permission policy. The active
+// user turn is not seeded here; it is delivered by the caller — the TUI via its
+// first-message mechanism, the headless path via cli.Run's user messages (see
+// runExecWith) — so the prompt is sent exactly once.
+//
+// The session is stamped with the current working directory (WithWorkingDir).
+// cagent leaves Session.WorkingDir empty unless the embedder sets it, and the
+// TUI's /sessions browser groups entries by that field ("This workspace" vs
+// elsewhere) — so without it, turf's own sessions never group under the dir they
+// were created in. turf runs entirely in cwd (after any --chdir / --worktree
+// redirect), so os.Getwd() is the right value.
+func newSession(autoApprove bool) *session.Session {
+	opts := []session.Opt{}
+	if cwd, err := os.Getwd(); err == nil {
+		opts = append(opts, session.WithWorkingDir(cwd))
+	}
+	sess := session.New(opts...)
+	applyTurfSessionPolicy(sess, autoApprove)
+	return sess
 }
