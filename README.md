@@ -89,8 +89,10 @@ Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers work
 | `--base-url`          | `TURF_MODEL_BASE_URL` | _(provider default)_       | Model endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways) |
 | `--mcp-server`        | `TURF_MCP_SERVER`  | _(PATH lookup)_               | Path to the `turf-mcp-server` binary             |
 | `--tmp-dir`           | `TURF_TMP_DIR`     | system temp                   | Cache directory for downloaded provider binaries |
-| `--memory-path`       |                    | `./.turf-memory.db`           | SQLite memory database                           |
+| `--memory-path`       |                    | `./.turf/memory.db`           | SQLite memory database                           |
 | `--no-memory`         |                    | `false`                       | Disable persistent agent memory                  |
+| `--session-db`        | `TURF_SESSION_DB`  | `./.turf/sessions.db`         | SQLite session-history database (`chat`/`exec` resume via `--session`/`--continue`) |
+| `--no-session`        |                    | `false`                       | Disable session persistence and resume           |
 | `--chdir`, `-C`       |                    |                               | Switch to this directory before running          |
 | `--log-file`          | `TF_LOG_PATH`      | _(stderr)_                    | Write server logs to this file                   |
 | `--log-level`         | `TF_LOG_CORE`, `TF_LOG` | `info`                   | `trace`/`debug`/`info`/`warn`/`error`/`off`      |

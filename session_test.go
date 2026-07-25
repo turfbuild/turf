@@ -190,7 +190,7 @@ func TestCreateAgentRuntimeWiresSessionStore(t *testing.T) {
 	})
 
 	t.Run("sessionDBDir anchors the default path", func(t *testing.T) {
-		// With no explicit --session-db, the store defaults to .turf-sessions.db in
+		// With no explicit --session-db, the store defaults to .turf/sessions.db in
 		// the anchor dir (opts.sessionDBDir) rather than cwd — the --worktree case,
 		// where the anchor is the launch dir so history lives with the real project.
 		anchor := t.TempDir()
@@ -208,7 +208,7 @@ func TestCreateAgentRuntimeWiresSessionStore(t *testing.T) {
 		if store == nil {
 			t.Fatal("createAgentRuntime returned a nil session store with persistence enabled")
 		}
-		want := filepath.Join(anchor, ".turf-sessions.db")
+		want := filepath.Join(anchor, ".turf", "sessions.db")
 		if _, err := os.Stat(want); err != nil {
 			t.Errorf("session database not created at anchored path %s: %v", want, err)
 		}

@@ -78,7 +78,7 @@ type agentOpts struct {
 	memoryPath     string
 	noMemory       bool
 	// sessionDBPath is the SQLite session-history database path. Empty resolves
-	// to .turf-sessions.db in the session directory (see sessionDBDir). noSession
+	// to .turf/sessions.db in the session directory (see sessionDBDir). noSession
 	// disables persistence entirely, leaving the runtime on its ephemeral
 	// in-memory store.
 	sessionDBPath string
@@ -233,7 +233,17 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	if !opts.noMemory {
 		memPath := opts.memoryPath
 		if memPath == "" {
-			memPath = filepath.Join(cwd, ".turf-memory.db")
+			// Default under the turf-owned .turf/ dir (alongside skills and the
+			// session db), not the project root. Follows cwd — so it lands inside
+			// a --worktree, unlike the anchored session store.
+			memPath = filepath.Join(cwd, ".turf", "memory.db")
+		}
+		// The memory opener (ensureDB → sqliteutil.OpenDB) does not create parent
+		// dirs and SQLite won't make the .turf/ subdir, so ensure it exists —
+		// matters for the default path and any --memory-path outside cwd.
+		if err := os.MkdirAll(filepath.Dir(memPath), 0o755); err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, fmt.Errorf("creating memory database directory: %w", err)
 		}
 		memDB, err := sqlite.NewMemoryDatabase(memPath)
 		if err != nil {
@@ -270,7 +280,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// further plumbing, and the full TUI's /sessions browser lights up for free.
 	// The store must exist before runtime.New so WithSessionStore can take it;
 	// callers then resolve any resume reference against it (see resolveTurfSession).
-	// The default file is .turf-sessions.db in the session directory: cwd, unless
+	// The default file is .turf/sessions.db in the session directory: cwd, unless
 	// opts.sessionDBDir anchors it elsewhere (the launch/--chdir dir under
 	// --worktree, so history lives with the real project — unlike the memory db,
 	// which follows cwd into the worktree). An explicit --session-db wins over both.
@@ -282,10 +292,11 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 			if sessDir == "" {
 				sessDir = cwd
 			}
-			sessPath = filepath.Join(sessDir, ".turf-sessions.db")
+			sessPath = filepath.Join(sessDir, ".turf", "sessions.db")
 		}
-		// Ensure the parent dir exists — matters when --session-db points outside
-		// cwd; NewSQLiteSessionStore can't create a missing directory.
+		// Ensure the parent dir exists — creates the default .turf/ dir, and
+		// matters when --session-db points outside cwd; NewSQLiteSessionStore
+		// can't create a missing directory.
 		if err := os.MkdirAll(filepath.Dir(sessPath), 0o755); err != nil {
 			_ = mcpToolset.Stop(ctx)
 			return nil, nil, nil, fmt.Errorf("creating session database directory: %w", err)
