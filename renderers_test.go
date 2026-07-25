@@ -397,13 +397,20 @@ func TestSkill_LoadedLineNotBody(t *testing.T) {
 		t.Fatalf("compact skill should not dump the guide body: %q", out)
 	}
 
-	// Expanded shows the title + size, still not the full body.
+	// Expanded stays a single line: same title + load status + size, and never the
+	// guide title or body — the skill renderer emits no Ctrl+O detail block.
 	det := renderFor("turf_skill_core", body, service.StaticSessionState{})
-	if !strings.Contains(det, "Core Infrastructure Skill") {
-		t.Fatalf("expanded skill missing guide title: %q", det)
+	if !strings.Contains(det, "Core Skill") || !strings.Contains(det, "loaded") || !strings.Contains(det, "(4 lines)") {
+		t.Fatalf("expanded skill summary wrong: %q", det)
+	}
+	if strings.Contains(det, "Core Infrastructure Skill") {
+		t.Fatalf("expanded skill should not add the guide title: %q", det)
 	}
 	if strings.Contains(det, "more guidance") {
-		t.Fatalf("expanded skill should summarize, not dump body: %q", det)
+		t.Fatalf("expanded skill should not dump the guide body: %q", det)
+	}
+	if strings.Contains(strings.TrimRight(det, "\n"), "\n") {
+		t.Fatalf("expanded skill should be a single line: %q", det)
 	}
 }
 

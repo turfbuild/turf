@@ -1539,8 +1539,8 @@ func renderProviderSearch(msg *types.Message, s spinner.Spinner, ss service.Sess
 //
 // Skill tools are lazy-loaded how-to guides: a zero-arg skill_<slug> call returns
 // the guide's SKILL.md markdown, which is too long to dump in the timeline. We
-// render a clean "skill <slug> loaded (N lines)" line — the size inline, not in
-// the unfold — and, on expand, just the guide title, never the whole body.
+// render a clean single "skill <slug> loaded (N lines)" line — the size inline —
+// with no expand detail; the leading title already names which skill this is.
 
 func renderSkill(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	// The title (e.g. "Core Skill") already names which skill this is, so the body
@@ -1555,11 +1555,7 @@ func renderSkill(msg *types.Message, s spinner.Spinner, ss service.SessionStateR
 	if n := lineCount(msg.Content); n > 0 {
 		summary += muted(fmt.Sprintf(" (%d lines)", n))
 	}
-	var detail []string
-	if title := firstLine(msg.Content); title != "" {
-		detail = append(detail, muted("guide: ")+title)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
+	return line(msg, s, summary, width)
 }
 
 func renderReadSkillFile(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
