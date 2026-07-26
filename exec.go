@@ -46,19 +46,27 @@ func newExecCmd() *cobra.Command {
 			// exec is always headless: create the worktree (when --worktree is
 			// set) here and, like the non-interactive up/destroy path, leave it in
 			// place on teardown (interactive=false never auto-removes it).
-			wt, err := setupRunWorktree(ctx)
+			wt, sessionDir, err := setupRunWorktree(ctx)
 			if err != nil {
 				return err
 			}
 			defer cleanupRunWorktree(context.WithoutCancel(ctx), wt, false)
 
-			rt, cleanup, err := createAgentRuntime(ctx, agentOpts{
+			ref, err := resumeRef(flagSession, flagContinue)
+			if err != nil {
+				return err
+			}
+
+			rt, store, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
 				tmpDir:         flagTmpDir,
 				pluginCacheDir: flagPluginCacheDir,
 				memoryPath:     flagMemoryPath,
 				noMemory:       flagNoMemory,
+				sessionDBPath:  flagSessionDB,
+				noSession:      flagNoSession,
+				sessionDBDir:   sessionDir,
 				logFile:        flagLogFile,
 				logLevel:       flagLogLevel,
 				logFormat:      flagLogFormat,
@@ -72,8 +80,14 @@ func newExecCmd() *cobra.Command {
 			defer cleanup()
 
 			// The session carries no seeded message — the prompt IS the user
-			// turn (see execMessages), so it is not double-sent.
-			sess := newSession(autoApprove)
+			// turn (see execMessages), so it is not double-sent. A resume ref
+			// (--session/--continue) loads a prior session, or with an explicit
+			// unknown ID creates one bound to it so a script can own the ID
+			// across turns (see resolveTurfSession).
+			sess, err := resolveTurfSession(ctx, store, ref, autoApprove)
+			if err != nil {
+				return err
+			}
 			return runExecWith(ctx, rt, sess, execConfig{
 				autoApprove:   autoApprove,
 				outputJSON:    outputJSON,
@@ -87,6 +101,7 @@ func newExecCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Auto-approve changes without confirmation")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Emit each runtime event as one JSON object per line (for scripting)")
 	cmd.Flags().BoolVar(&hideToolCalls, "hide-tool-calls", false, "Suppress tool-call and tool-result lines, printing only the agent's prose")
+	addResumeFlags(cmd)
 
 	return cmd
 }

@@ -22,7 +22,7 @@ func newDestroyCmd() *cobra.Command {
 
 			interactive := isatty.IsTerminal(os.Stdout.Fd())
 
-			wt, err := setupRunWorktree(ctx)
+			wt, sessionDir, err := setupRunWorktree(ctx)
 			if err != nil {
 				return err
 			}
@@ -37,13 +37,20 @@ func newDestroyCmd() *cobra.Command {
 				return err
 			}
 
-			rt, cleanup, err := createAgentRuntime(ctx, agentOpts{
+			// destroy persists to the session store (so the run shows up in the
+			// /sessions browser and can be continued later from chat) but takes
+			// no resume flag: each destroy run delivers a fresh /destroy trigger
+			// prompt, so the store is only ever the sink here. Store handle unused.
+			rt, _, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
 				tmpDir:         flagTmpDir,
 				pluginCacheDir: flagPluginCacheDir,
 				memoryPath:     flagMemoryPath,
 				noMemory:       flagNoMemory,
+				sessionDBPath:  flagSessionDB,
+				noSession:      flagNoSession,
+				sessionDBDir:   sessionDir,
 				logFile:        flagLogFile,
 				logLevel:       flagLogLevel,
 				logFormat:      flagLogFormat,

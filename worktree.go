@@ -45,20 +45,29 @@ func addWorktreeFlags(cmd *cobra.Command) {
 
 // setupRunWorktree creates the git worktree requested by --worktree and chdirs
 // into it, so the runtime, the filesystem tool, memory, and the inherited
-// turf-mcp-server cwd all land inside the worktree. It returns (nil, nil) when
-// --worktree was not given. It MUST be called before createAgentRuntime, which
-// captures the working directory when it builds toolsets and starts the server.
-func setupRunWorktree(ctx context.Context) (*worktree.Worktree, error) {
+// turf-mcp-server cwd all land inside the worktree. It returns (nil, "", nil)
+// when --worktree was not given. It MUST be called before createAgentRuntime,
+// which captures the working directory when it builds toolsets and starts the
+// server.
+//
+// The second return value is the anchor: the launch/--chdir working directory
+// captured *before* the chdir into the worktree. Session history is anchored
+// there (see createAgentRuntime / agentOpts.sessionDBDir) so a session's
+// transcript lives with the real project across throwaway worktrees, while
+// memory, the recorded WorkingDir, and the server all follow cwd into the
+// worktree. It is "" when no worktree was created (the anchor is then just cwd,
+// which createAgentRuntime already defaults to).
+func setupRunWorktree(ctx context.Context) (*worktree.Worktree, string, error) {
 	if flagWorktree == "" {
 		if flagWorktreeBase != "" {
-			return nil, errors.New("--worktree-base requires --worktree")
+			return nil, "", errors.New("--worktree-base requires --worktree")
 		}
-		return nil, nil
+		return nil, "", nil
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	name := flagWorktree
@@ -78,14 +87,16 @@ func setupRunWorktree(ctx context.Context) (*worktree.Worktree, error) {
 	wt, err := worktree.Create(ctx, cwd, name,
 		worktree.WithBase(flagWorktreeBase), worktree.WithRoot(root))
 	if err != nil {
-		return nil, friendlyWorktreeErr(err, cwd)
+		return nil, "", friendlyWorktreeErr(err, cwd)
 	}
 
 	if err := os.Chdir(wt.Dir); err != nil {
-		return nil, fmt.Errorf("entering git worktree %s: %w", wt.Dir, err)
+		return nil, "", fmt.Errorf("entering git worktree %s: %w", wt.Dir, err)
 	}
 	fmt.Fprintf(os.Stderr, "Using git worktree %s (branch %s)\n", wt.Dir, wt.Branch)
-	return wt, nil
+	// cwd is the anchor: the launch dir captured before the chdir above. The
+	// session store is pinned there so history survives the throwaway worktree.
+	return wt, cwd, nil
 }
 
 // worktreeBranch returns the worktree's branch for the TUI status bar, or "" when

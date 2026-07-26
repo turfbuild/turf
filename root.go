@@ -19,6 +19,10 @@ var (
 	flagChdir          string
 	flagMemoryPath     string
 	flagNoMemory       bool
+	flagSessionDB      string
+	flagNoSession      bool
+	flagSession        string
+	flagContinue       bool
 	flagNoTelemetry    bool
 	flagMCPServer      string
 	flagLogFile        string
@@ -81,8 +85,10 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flagModelBaseURL, "base-url", os.Getenv("TURF_MODEL_BASE_URL"), "Override the model API endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways); DMR/Ollama resolve their own (env: TURF_MODEL_BASE_URL)")
 	cmd.PersistentFlags().StringVar(&flagTmpDir, "tmp-dir", os.Getenv("TURF_TMP_DIR"), "Per-run scratch dir for the server (provider target + phase dirs); for the persistent plugin cache use --plugin-cache-dir (env: TURF_TMP_DIR)")
 	cmd.PersistentFlags().StringVar(&flagPluginCacheDir, "plugin-cache-dir", os.Getenv("TURF_PLUGIN_CACHE_DIR"), "Shared provider plugin cache, persisted across runs (env: TURF_PLUGIN_CACHE_DIR; default: <user cache>/turf/plugins; 'off' disables)")
-	cmd.PersistentFlags().StringVar(&flagMemoryPath, "memory-path", "", "Path to SQLite memory database (default: .turf-memory.db in working dir)")
+	cmd.PersistentFlags().StringVar(&flagMemoryPath, "memory-path", "", "Path to SQLite memory database (default: .turf/memory.db in working dir)")
 	cmd.PersistentFlags().BoolVar(&flagNoMemory, "no-memory", false, "Disable persistent agent memory")
+	cmd.PersistentFlags().StringVar(&flagSessionDB, "session-db", os.Getenv("TURF_SESSION_DB"), "Path to SQLite session-history database (default: .turf/sessions.db in working dir; env: TURF_SESSION_DB)")
+	cmd.PersistentFlags().BoolVar(&flagNoSession, "no-session", false, "Disable session persistence and resume")
 	cmd.PersistentFlags().BoolVar(&flagNoTelemetry, "no-telemetry", os.Getenv("TURF_NO_TELEMETRY") != "", "Disable anonymous usage telemetry sent by the underlying agent runtime (env: TURF_NO_TELEMETRY)")
 	cmd.PersistentFlags().StringVar(&flagMCPServer, "mcp-server", os.Getenv("TURF_MCP_SERVER"), "Path to turf-mcp-server binary (default: looked up on PATH; env: TURF_MCP_SERVER)")
 	cmd.PersistentFlags().StringVar(&flagLogFile, "log-file", "", "Write turf-mcp-server logs to this file (default: stderr; env passthrough: TF_LOG_PATH)")
@@ -92,6 +98,11 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flagDebug, "debug", os.Getenv("TURF_DEBUG") != "", "Log at debug level to <TURF_HOME>/turf.debug.log (default: warnings and errors only; env: TURF_DEBUG)")
 	cmd.PersistentFlags().BoolVar(&flagLean, "lean", os.Getenv("TURF_LEAN") != "", "Use the simplified lean TUI (no sidebar/tabs/overlays; renders to scrollback; env: TURF_LEAN)")
 	addWorktreeFlags(cmd)
+	// Resume flags are local (not persistent) so they cover the bare `turf`
+	// invocation (which runs runChat) but never leak onto up/destroy, where
+	// resuming onto a fresh /up|/destroy trigger prompt has no clean meaning.
+	// chat and exec register the same flags on themselves (see addResumeFlags).
+	addResumeFlags(cmd)
 
 	cmd.AddCommand(newUpCmd())
 	cmd.AddCommand(newDestroyCmd())
