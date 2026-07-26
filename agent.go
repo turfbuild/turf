@@ -241,7 +241,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		// The memory opener (ensureDB → sqliteutil.OpenDB) does not create parent
 		// dirs and SQLite won't make the .turf/ subdir, so ensure it exists —
 		// matters for the default path and any --memory-path outside cwd.
-		if err := os.MkdirAll(filepath.Dir(memPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(memPath), 0o750); err != nil {
 			_ = mcpToolset.Stop(ctx)
 			return nil, nil, nil, fmt.Errorf("creating memory database directory: %w", err)
 		}
@@ -297,7 +297,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		// Ensure the parent dir exists — creates the default .turf/ dir, and
 		// matters when --session-db points outside cwd; NewSQLiteSessionStore
 		// can't create a missing directory.
-		if err := os.MkdirAll(filepath.Dir(sessPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(sessPath), 0o750); err != nil {
 			_ = mcpToolset.Stop(ctx)
 			return nil, nil, nil, fmt.Errorf("creating session database directory: %w", err)
 		}
