@@ -88,7 +88,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flagMemoryPath, "memory-path", "", "Path to SQLite memory database (default: .turf/memory.db in working dir)")
 	cmd.PersistentFlags().BoolVar(&flagNoMemory, "no-memory", false, "Disable persistent agent memory")
 	cmd.PersistentFlags().StringVar(&flagSessionDB, "session-db", os.Getenv("TURF_SESSION_DB"), "Path to SQLite session-history database (default: .turf/sessions.db in working dir; env: TURF_SESSION_DB)")
-	cmd.PersistentFlags().BoolVar(&flagNoSession, "no-session", false, "Disable session persistence and resume (mirrors --no-memory)")
+	cmd.PersistentFlags().BoolVar(&flagNoSession, "no-session", false, "Disable session persistence and resume")
 	cmd.PersistentFlags().BoolVar(&flagNoTelemetry, "no-telemetry", os.Getenv("TURF_NO_TELEMETRY") != "", "Disable anonymous usage telemetry sent by the underlying agent runtime (env: TURF_NO_TELEMETRY)")
 	cmd.PersistentFlags().StringVar(&flagMCPServer, "mcp-server", os.Getenv("TURF_MCP_SERVER"), "Path to turf-mcp-server binary (default: looked up on PATH; env: TURF_MCP_SERVER)")
 	cmd.PersistentFlags().StringVar(&flagLogFile, "log-file", "", "Write turf-mcp-server logs to this file (default: stderr; env passthrough: TF_LOG_PATH)")
