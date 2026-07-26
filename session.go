@@ -40,6 +40,14 @@ func resolveTurfSession(ctx context.Context, store session.Store, ref string, au
 
 	id, err := session.ResolveSessionID(ctx, store, ref)
 	if err != nil {
+		// A relative ref ("-1" from --continue, "-2", …) against an empty store
+		// has nothing to resume. Rather than erroring, start a fresh session:
+		// `turf --continue` (or `-c`) in a new/empty directory means "continue if
+		// there's history, otherwise begin". An out-of-range offset against a
+		// NON-empty store is kept as an error (a likely typo, e.g. -5 of 3).
+		if session.IsRelativeSessionRef(ref) && storeIsEmpty(ctx, store) {
+			return newSession(autoApprove), nil
+		}
 		return nil, fmt.Errorf("resolving session %q: %w", ref, err)
 	}
 
@@ -55,6 +63,15 @@ func resolveTurfSession(ctx context.Context, store session.Store, ref string, au
 	default:
 		return nil, fmt.Errorf("loading session %q: %w", id, err)
 	}
+}
+
+// storeIsEmpty reports whether the session store holds no sessions. It lets a
+// relative resume ref (e.g. --continue) fall back to a fresh session instead of
+// failing when there is nothing to resume. A summaries error is treated as
+// "not empty" so the original, more informative resolve error is surfaced.
+func storeIsEmpty(ctx context.Context, store session.Store) bool {
+	summaries, err := store.GetSessionSummaries(ctx)
+	return err == nil && len(summaries) == 0
 }
 
 // resumeRef folds the --session and --continue flags into a single reference for

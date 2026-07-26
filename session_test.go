@@ -104,12 +104,36 @@ func TestResolveTurfSessionResumeReappliesPolicy(t *testing.T) {
 	assertTurfPolicy(t, sess) // the guard: policy re-applied on the loaded session
 }
 
-func TestResolveTurfSessionRelativeOutOfRange(t *testing.T) {
+func TestResolveTurfSessionContinueEmptyStoreIsFresh(t *testing.T) {
+	// `turf --continue` (ref "-1") in a new/empty directory has nothing to
+	// resume, so it must start a fresh session rather than erroring with
+	// "session offset 1 out of range (have 0 sessions)".
 	store := newTestStore(t)
-	// Empty store: "-1" has nothing to resolve to and must error rather than
-	// silently starting fresh (the user explicitly asked to resume).
-	if _, err := resolveTurfSession(context.Background(), store, "-1", false); err == nil {
-		t.Fatal("expected error resolving -1 against empty store, got nil")
+	sess, err := resolveTurfSession(context.Background(), store, "-1", false)
+	if err != nil {
+		t.Fatalf("resolveTurfSession(-1) against empty store: %v", err)
+	}
+	assertTurfPolicy(t, sess)
+	if len(sess.Messages) != 0 {
+		t.Errorf("fresh session has %d messages, want 0", len(sess.Messages))
+	}
+}
+
+func TestResolveTurfSessionRelativeOutOfRangeNonEmpty(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	// One session exists; asking for the 2nd-most-recent is an out-of-range
+	// offset against a non-empty store — a likely typo, so it stays an error
+	// rather than silently starting fresh.
+	seed := session.New(session.WithID("only-1"))
+	if err := store.AddSession(ctx, seed); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	if _, err := store.AddMessage(ctx, seed.ID, session.UserMessage("hi")); err != nil {
+		t.Fatalf("AddMessage: %v", err)
+	}
+	if _, err := resolveTurfSession(ctx, store, "-2", false); err == nil {
+		t.Fatal("expected error resolving -2 against a 1-session store, got nil")
 	}
 }
 
