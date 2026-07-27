@@ -9,8 +9,11 @@ package main
 // pre-approves ALL of turf's own tools — the permission layer never fires a
 // prompt for a turf tool — and moves confirmation of consequential actions into
 // the agent, which seeks a user_prompt yes/no per the persona (see
-// workflowInstructions in agent.go): once before plan_approve for a whole phase,
-// and per-call for standalone destructive ops (workspace_delete, resource_import,
+// workflowInstructions in agent.go): once before editing a coded (tofu-dialect)
+// configuration — the user's own .tf/.tfvars, edited via the filesystem
+// write_file/edit_file tools (ad-hoc plot authoring via declare_* is NOT gated —
+// the plan gate covers it); once before plan_approve for a whole phase; and
+// per-call for standalone destructive ops (workspace_delete, resource_import,
 // config_promote, a directly-invoked action_invoke). This trades the deterministic
 // per-tool permission gate for agent-driven confirmation, on purpose — the old
 // gate double-prompted right after the user had already approved a plan, which is
@@ -82,10 +85,13 @@ var preApprovedTurfTools = []string{
 	"turf_replan",
 	"turf_effect_apply",
 	"turf_effect_cancel",
-	// Config / module authoring. The declare family writes through into the user's
-	// configuration directory (git-recoverable checkout mutations, not live infra).
-	// config_promote graduates a plot into a plain tofu configuration — a one-way
-	// directory transformation the persona confirms (see agentConfirmTurfTools).
+	// Config / module authoring. The declare family authors a turf-owned plot
+	// (git-recoverable checkout mutations, not live infra); it is deliberately NOT
+	// edit-gated by the persona — ad-hoc stays streamlined, and the plan gate covers
+	// it before apply. (The persona's coded-config edit gate is over write_file/
+	// edit_file on the user's own .tf/.tfvars, not these plot tools.) config_promote
+	// graduates a plot into a plain tofu configuration — a one-way directory
+	// transformation the persona confirms (see agentConfirmTurfTools).
 	"turf_config_init",
 	"turf_config_show",
 	"turf_config_promote",
