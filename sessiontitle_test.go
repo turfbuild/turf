@@ -311,8 +311,9 @@ func TestCuratorResumeHumanTitlePreserved(t *testing.T) {
 	}
 }
 
-// TestCuratorIgnoresSubSessions checks that tool activity on a session other
-// than the pinned root does not retitle.
+// TestCuratorIgnoresSubSessions checks that a delegated sub-session (ParentID
+// set) neither re-pins the curator via OnRunStart nor retitles via its tool
+// activity.
 func TestCuratorIgnoresSubSessions(t *testing.T) {
 	c := newSessionTitleCurator(nil)
 	fired := false
@@ -321,7 +322,10 @@ func TestCuratorIgnoresSubSessions(t *testing.T) {
 	root := session.New()
 	c.OnRunStart(context.Background(), root)
 
-	sub := session.New()
+	// A sub-session's OnRunStart must not re-pin the root (IsSubSession guard),
+	// and its tool activity must not retitle.
+	sub := session.New(session.WithParentID(root.ID))
+	c.OnRunStart(context.Background(), sub)
 	c.OnEvent(context.Background(), sub, respEvent("turf_config_init", `{"path":"/x/other"}`))
 
 	if fired {
@@ -329,6 +333,39 @@ func TestCuratorIgnoresSubSessions(t *testing.T) {
 	}
 	if root.Title != "" {
 		t.Errorf("root title changed to %q from sub-session activity", root.Title)
+	}
+	if c.rootID != root.ID {
+		t.Errorf("sub-session re-pinned curator: rootID=%q, want %q", c.rootID, root.ID)
+	}
+}
+
+// TestCuratorRetitlesAfterClear: a fresh top-level session (as /clear or /new
+// produce) re-pins the curator and gets its own title; the prior session's
+// digest does not leak.
+func TestCuratorRetitlesAfterClear(t *testing.T) {
+	c := newSessionTitleCurator(nil)
+	var last string
+	c.setEmitter(func(title string) { last = title })
+	ctx := context.Background()
+
+	first := session.New()
+	c.OnRunStart(ctx, first)
+	c.OnEvent(ctx, first, respEvent("turf_config_init", `{"path":"/x/actions"}`))
+	c.OnEvent(ctx, first, respEvent("turf_plan_new", `{"resources":[{"action":"create"}]}`))
+	if last != "actions · plan +1 ~0 -0" {
+		t.Fatalf("precondition: first title = %q", last)
+	}
+
+	// /clear: a brand-new top-level session on the same curator.
+	second := session.New()
+	c.OnRunStart(ctx, second)
+	c.OnEvent(ctx, second, respEvent("turf_config_init", `{"path":"/x/webapp"}`))
+	c.OnEvent(ctx, second, respEvent("turf_plan_new", `{"resources":[{"action":"create"},{"action":"create"}]}`))
+	if second.Title != "webapp · plan +2 ~0 -0" || last != "webapp · plan +2 ~0 -0" {
+		t.Errorf("post-clear session not titled: title=%q last=%q", second.Title, last)
+	}
+	if first.Title != "actions · plan +1 ~0 -0" {
+		t.Errorf("prior session title changed after clear: %q", first.Title)
 	}
 }
 
