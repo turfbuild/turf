@@ -30,8 +30,8 @@ func TestEnvPathList(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.set {
 				t.Setenv(key, tc.val)
-			} else {
-				os.Unsetenv(key)
+			} else if err := os.Unsetenv(key); err != nil {
+				t.Fatalf("unsetting %s: %v", key, err)
 			}
 			if got := envPathList(key); !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("envPathList(%q=%q) = %#v, want %#v", key, tc.val, got, tc.want)
