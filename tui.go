@@ -17,7 +17,7 @@ import (
 	tuiinput "github.com/docker/docker-agent/pkg/tui/input"
 )
 
-func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string, lean bool, worktreeBranch string) error {
+func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, curator *sessionTitleCurator, firstMessage string, lean bool, worktreeBranch string) error {
 	// Apply turf's theme before constructing either TUI. cagent's tui.New /
 	// leantui.Run do not auto-apply the persisted/default theme, so turf does it
 	// here; leantui reads the same styles package the theme configures.
@@ -26,17 +26,27 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firs
 	// Callers decide lean vs full: chat honors --lean, while up/destroy always
 	// pass true (the sidebar/tabs are noise for a one-shot deploy/teardown).
 	if lean {
-		return runLeanTUI(ctx, rt, sess, firstMessage, worktreeBranch)
+		return runLeanTUI(ctx, rt, sess, curator, firstMessage, worktreeBranch)
 	}
 
 	var opts []app.Opt
 	if firstMessage != "" {
 		opts = append(opts, app.WithFirstMessage(firstMessage))
 	}
-	if gen := rt.TitleGenerator(ctx); gen != nil {
-		opts = append(opts, app.WithTitleGenerator(gen))
-	}
+	// No app.WithTitleGenerator: turf does not use cagent's built-in LLM titler.
+	// The sessionTitleCurator owns titling, composing it deterministically from
+	// turf's plan/apply outcomes (see sessiontitle.go).
 	a := app.New(ctx, rt, sess, opts...)
+
+	// Live-refresh the sidebar/window title as the curator titles the session
+	// (first message) and retitles at infra milestones. app.UpdateSessionTitle
+	// persists and emits the SessionTitleEvent the TUI listens for; run it off the
+	// event goroutine so the observer never blocks on the app's event channel.
+	if curator != nil {
+		curator.setEmitter(func(title string) {
+			go func() { _ = a.UpdateSessionTitle(ctx, title) }()
+		})
+	}
 
 	wd, _ := os.Getwd()
 	cleanup := func() {}
@@ -123,15 +133,20 @@ var turfBannerArt string
 // be ignored or approximated by the terminal.
 var turfBanner = strings.Split(strings.TrimRight(turfBannerArt, "\n"), "\n")
 
-func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage string, worktreeBranch string) error {
+func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, curator *sessionTitleCurator, firstMessage string, worktreeBranch string) error {
 	registerTurfToolRenderers()
 
-	var opts []app.Opt
-	if gen := rt.TitleGenerator(ctx); gen != nil {
-		opts = append(opts, app.WithTitleGenerator(gen))
-	}
-	a := app.New(ctx, rt, sess, opts...)
+	// No app.WithTitleGenerator — the sessionTitleCurator owns titling (see runTUI).
+	a := app.New(ctx, rt, sess)
 	a.Start(ctx) // lean mode drives the app itself; the full TUI's model does this in Init
+
+	// Live-refresh the title as the curator retitles at infra milestones (see the
+	// full-TUI path in runTUI for the rationale).
+	if curator != nil {
+		curator.setEmitter(func(title string) {
+			go func() { _ = a.UpdateSessionTitle(ctx, title) }()
+		})
+	}
 
 	wd, _ := os.Getwd()
 	cfg := leantui.Config{

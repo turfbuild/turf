@@ -41,7 +41,7 @@ func newUpCmd() *cobra.Command {
 			// /sessions browser and can be continued later from chat) but takes
 			// no resume flag: each up run delivers a fresh /up trigger prompt, so
 			// the store is only ever the sink here. The store handle is unused.
-			rt, _, cleanup, err := createAgentRuntime(ctx, agentOpts{
+			rt, _, curator, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
 				tmpDir:         flagTmpDir,
@@ -69,7 +69,7 @@ func newUpCmd() *cobra.Command {
 			// messages. Seeding the prompt into the session too would double it.
 			sess := newSession(autoApprove)
 			if interactive {
-				return runTUI(ctx, rt, sess, prompt, true, worktreeBranch(wt))
+				return runTUI(ctx, rt, sess, curator, prompt, true, worktreeBranch(wt))
 			}
 			return runExecWith(ctx, rt, sess, execConfig{
 				autoApprove: autoApprove,

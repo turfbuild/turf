@@ -104,6 +104,35 @@ func TestResolveTurfSessionResumeReappliesPolicy(t *testing.T) {
 	assertTurfPolicy(t, sess) // the guard: policy re-applied on the loaded session
 }
 
+// TestResolveTurfSessionResumePreservesTitle guards that a title the curator
+// persisted (via store.UpdateSessionTitle) survives resume — applyTurfSessionPolicy
+// re-stamps permissions/tool-view but must not wipe the loaded title.
+func TestResolveTurfSessionResumePreservesTitle(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	seed := session.New(session.WithID("titled-1"))
+	if err := store.AddSession(ctx, seed); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	if _, err := store.AddMessage(ctx, seed.ID, session.UserMessage("set up a bucket")); err != nil {
+		t.Fatalf("AddMessage: %v", err)
+	}
+	// Simulate the curator writing a milestone title through the store.
+	if err := store.UpdateSessionTitle(ctx, seed.ID, "Provisioned myapp bucket"); err != nil {
+		t.Fatalf("UpdateSessionTitle: %v", err)
+	}
+
+	sess, err := resolveTurfSession(ctx, store, "titled-1", false)
+	if err != nil {
+		t.Fatalf("resolveTurfSession: %v", err)
+	}
+	if sess.Title != "Provisioned myapp bucket" {
+		t.Errorf("resumed title = %q, want %q", sess.Title, "Provisioned myapp bucket")
+	}
+	assertTurfPolicy(t, sess) // policy re-applied without clobbering the title
+}
+
 func TestResolveTurfSessionContinueEmptyStoreIsFresh(t *testing.T) {
 	// `turf --continue` (ref "-1") in a new/empty directory has nothing to
 	// resume, so it must start a fresh session rather than erroring with
@@ -191,7 +220,7 @@ func TestCreateAgentRuntimeWiresSessionStore(t *testing.T) {
 
 	t.Run("store wired and file created", func(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "sessions.db")
-		rt, store, cleanup, err := createAgentRuntime(ctx, agentOpts{
+		rt, store, _, cleanup, err := createAgentRuntime(ctx, agentOpts{
 			model:         "openai/gpt-4o",
 			baseURL:       "http://127.0.0.1:1/v1",
 			noMemory:      true,
@@ -218,7 +247,7 @@ func TestCreateAgentRuntimeWiresSessionStore(t *testing.T) {
 		// the anchor dir (opts.sessionDBDir) rather than cwd — the --worktree case,
 		// where the anchor is the launch dir so history lives with the real project.
 		anchor := t.TempDir()
-		_, store, cleanup, err := createAgentRuntime(ctx, agentOpts{
+		_, store, _, cleanup, err := createAgentRuntime(ctx, agentOpts{
 			model:        "openai/gpt-4o",
 			baseURL:      "http://127.0.0.1:1/v1",
 			noMemory:     true,
@@ -240,7 +269,7 @@ func TestCreateAgentRuntimeWiresSessionStore(t *testing.T) {
 
 	t.Run("no-session leaves store nil", func(t *testing.T) {
 		dbPath := filepath.Join(t.TempDir(), "sessions.db")
-		_, store, cleanup, err := createAgentRuntime(ctx, agentOpts{
+		_, store, _, cleanup, err := createAgentRuntime(ctx, agentOpts{
 			model:         "openai/gpt-4o",
 			baseURL:       "http://127.0.0.1:1/v1",
 			noMemory:      true,
