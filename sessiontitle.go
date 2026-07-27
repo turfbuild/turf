@@ -40,8 +40,9 @@ type sessionTitleCurator struct {
 	store session.Store
 
 	mu sync.Mutex
-	// rootID pins the curator to the top-level session seen at the first
-	// OnRunStart; sub-session (delegated task) events are ignored so their tool
+	// rootID pins the curator to the current top-level session. It is re-pinned
+	// whenever a fresh top-level session appears on the same runtime (/clear,
+	// /new, /fork); sub-session (delegated task) events are ignored so their tool
 	// activity never retitles the user's session.
 	rootID string
 	digest titleDigest
@@ -76,11 +77,20 @@ func (c *sessionTitleCurator) setEmitter(emit func(string)) {
 	c.mu.Unlock()
 }
 
-// OnRunStart pins the curator to the first (top-level) session it sees.
+// OnRunStart pins the curator to the current top-level session. It re-pins (and
+// resets the accumulated digest) when the top-level session ID changes — e.g.
+// /clear, /new, or /fork swaps in a fresh session on the same runtime — but never
+// on a delegated sub-session, whose tool activity must not retitle the user's
+// session. OnRunStart fires on every top-level turn, so the reset is gated on an
+// actual ID change to keep the digest stable across a single session's turns.
 func (c *sessionTitleCurator) OnRunStart(_ context.Context, sess *session.Session) {
+	if sess.IsSubSession() {
+		return
+	}
 	c.mu.Lock()
-	if c.rootID == "" {
+	if c.rootID != sess.ID {
 		c.rootID = sess.ID
+		c.digest = titleDigest{}
 	}
 	c.mu.Unlock()
 }
