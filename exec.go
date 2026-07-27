@@ -57,7 +57,7 @@ func newExecCmd() *cobra.Command {
 				return err
 			}
 
-			rt, store, cleanup, err := createAgentRuntime(ctx, agentOpts{
+			rt, store, _, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
 				tmpDir:         flagTmpDir,

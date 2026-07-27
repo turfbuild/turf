@@ -123,15 +123,15 @@ func resolveMCPServer() (string, error) {
 // disabled via opts.noSession) and returns it so callers can resolve a resume
 // reference before building the session. The returned cleanup function must be
 // called to stop the MCP subprocess and close the session store.
-func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, session.Store, func(), error) {
+func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, session.Store, *sessionTitleCurator, func(), error) {
 	mcpServerPath, err := resolveMCPServer()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	llm, err := newModelProvider(ctx, opts.model, opts.baseURL)
 	if err != nil {
-		return nil, nil, nil, modelProviderError(opts.model, err)
+		return nil, nil, nil, nil, modelProviderError(opts.model, err)
 	}
 
 	serveArgs := []string{"--transport", "stdio"}
@@ -168,13 +168,13 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	mcpToolset := mcp.NewToolsetCommand("turf", mcpServerPath, serveArgs, os.Environ(), "")
 
 	if err := mcpToolset.Start(ctx); err != nil {
-		return nil, nil, nil, fmt.Errorf("starting %s: %w", mcpServerBinaryName, err)
+		return nil, nil, nil, nil, fmt.Errorf("starting %s: %w", mcpServerBinaryName, err)
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		_ = mcpToolset.Stop(ctx)
-		return nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
 	// Sandbox the agent's own file access to the directories turf legitimately
 	// works in: the working directory (HCL configs, plan/state, memory db) and
@@ -243,12 +243,12 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		// matters for the default path and any --memory-path outside cwd.
 		if err := os.MkdirAll(filepath.Dir(memPath), 0o750); err != nil {
 			_ = mcpToolset.Stop(ctx)
-			return nil, nil, nil, fmt.Errorf("creating memory database directory: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("creating memory database directory: %w", err)
 		}
 		memDB, err := sqlite.NewMemoryDatabase(memPath)
 		if err != nil {
 			_ = mcpToolset.Stop(ctx)
-			return nil, nil, nil, fmt.Errorf("opening memory database: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("opening memory database: %w", err)
 		}
 		toolsets = append(toolsets, memory.New(memDB))
 	}
@@ -299,12 +299,12 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		// can't create a missing directory.
 		if err := os.MkdirAll(filepath.Dir(sessPath), 0o750); err != nil {
 			_ = mcpToolset.Stop(ctx)
-			return nil, nil, nil, fmt.Errorf("creating session database directory: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("creating session database directory: %w", err)
 		}
 		sessStore, err = session.NewSQLiteSessionStore(ctx, sessPath)
 		if err != nil {
 			_ = mcpToolset.Stop(ctx)
-			return nil, nil, nil, fmt.Errorf("opening session database: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("opening session database: %w", err)
 		}
 	}
 
@@ -322,13 +322,23 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	if sessStore != nil {
 		rtOpts = append(rtOpts, runtime.WithSessionStore(sessStore))
 	}
+	// Keep the session title in step with what the agent does: a turf-authored
+	// observer that watches turf's tool results and retitles at each infra
+	// milestone (plan, apply/destroy complete, promote) via a one-shot LLM call.
+	// It layers on top of cagent's built-in first-message titler (still wired in
+	// tui.go). It persists titles through the session store (durable — browser,
+	// resume, headless up/destroy); the interactive TUI additionally installs a
+	// live-refresh emitter (see runTUI/runLeanTUI). Returned to callers so the
+	// TUI can wire that emitter after the app is built.
+	titleCurator := newSessionTitleCurator(sessStore)
+	rtOpts = append(rtOpts, runtime.WithEventObserver(titleCurator))
 	rt, err := runtime.New(ctx, t, rtOpts...)
 	if err != nil {
 		if sessStore != nil {
 			_ = sessStore.Close()
 		}
 		_ = mcpToolset.Stop(ctx)
-		return nil, nil, nil, fmt.Errorf("creating runtime: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("creating runtime: %w", err)
 	}
 
 	// The runtime never closes an embedder-owned session store, so cleanup does.
@@ -339,7 +349,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		}
 	}
 
-	return rt, sessStore, cleanup, nil
+	return rt, sessStore, titleCurator, cleanup, nil
 }
 
 // newModelProvider creates a cagent LLM provider from a "provider/model" string.

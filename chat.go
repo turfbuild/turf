@@ -37,7 +37,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	rt, store, cleanup, err := createAgentRuntime(ctx, agentOpts{
+	rt, store, curator, cleanup, err := createAgentRuntime(ctx, agentOpts{
 		model:          flagModel,
 		baseURL:        flagModelBaseURL,
 		tmpDir:         flagTmpDir,
@@ -62,5 +62,5 @@ func runChat(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return runTUI(ctx, rt, sess, "", flagLean, worktreeBranch(wt))
+	return runTUI(ctx, rt, sess, curator, "", flagLean, worktreeBranch(wt))
 }
