@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/docker/docker-agent/pkg/session"
@@ -22,17 +21,13 @@ func newTestStore(t *testing.T) session.Store {
 	return store
 }
 
-// assertTurfPolicy checks that a session carries turf's pre-approval and detailed
-// tool-view policy. This is the property resolveTurfSession must guarantee on
-// both fresh and resumed sessions.
+// assertTurfPolicy checks that a session carries turf's detailed tool-view policy.
+// This is the session-level property resolveTurfSession must guarantee on both
+// fresh and resumed sessions. Tool pre-approval is NOT a session property anymore —
+// it is installed at the team level (see createAgentRuntime / preApprovedTools), so
+// it is not stamped onto (nor asserted on) the session object here.
 func assertTurfPolicy(t *testing.T, sess *session.Session) {
 	t.Helper()
-	if sess.Permissions == nil {
-		t.Fatal("session has no permissions; turf policy not applied")
-	}
-	if !reflect.DeepEqual(sess.Permissions.Allow, preApprovedTurfTools) {
-		t.Errorf("Permissions.Allow = %v, want preApprovedTurfTools %v", sess.Permissions.Allow, preApprovedTurfTools)
-	}
 	if sess.HideToolResults {
 		t.Error("HideToolResults = true, want false (detailed tool views)")
 	}
@@ -76,13 +71,13 @@ func TestResolveTurfSessionResumeReappliesPolicy(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// Seed a session WITHOUT turf's permission policy — this simulates cagent's
-	// own resume gap, where a stored session carries no Permissions. The regression
-	// guard is that resolveTurfSession re-stamps the policy on load.
+	// Seed a session with HideToolResults=true — the opposite of turf's policy.
+	// cagent's resume path re-applies tools-approved and hide-tool-results, but the
+	// guard here is that resolveTurfSession re-stamps turf's session flags (detailed
+	// tool views) on load regardless. (Tool pre-approval is team-level now, so it
+	// isn't a session flag and isn't asserted here.)
 	seed := session.New(session.WithID("seed-1"))
-	if seed.Permissions != nil {
-		t.Fatal("precondition: seeded session should have nil permissions")
-	}
+	session.WithHideToolResults(true)(seed)
 	if err := store.AddSession(ctx, seed); err != nil {
 		t.Fatalf("AddSession: %v", err)
 	}

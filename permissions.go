@@ -9,8 +9,11 @@ package main
 // pre-approves ALL of turf's own tools — the permission layer never fires a
 // prompt for a turf tool — and moves confirmation of consequential actions into
 // the agent, which seeks a user_prompt yes/no per the persona (see
-// workflowInstructions in agent.go): once before plan_approve for a whole phase,
-// and per-call for standalone destructive ops (workspace_delete, resource_import,
+// workflowInstructions in agent.go): once before editing a coded (tofu-dialect)
+// configuration — the user's own .tf/.tfvars, edited via the filesystem
+// write_file/edit_file tools (ad-hoc plot authoring via declare_* is NOT gated —
+// the plan gate covers it); once before plan_approve for a whole phase; and
+// per-call for standalone destructive ops (workspace_delete, resource_import,
 // config_promote, a directly-invoked action_invoke). This trades the deterministic
 // per-tool permission gate for agent-driven confirmation, on purpose — the old
 // gate double-prompted right after the user had already approved a plan, which is
@@ -82,10 +85,13 @@ var preApprovedTurfTools = []string{
 	"turf_replan",
 	"turf_effect_apply",
 	"turf_effect_cancel",
-	// Config / module authoring. The declare family writes through into the user's
-	// configuration directory (git-recoverable checkout mutations, not live infra).
-	// config_promote graduates a plot into a plain tofu configuration — a one-way
-	// directory transformation the persona confirms (see agentConfirmTurfTools).
+	// Config / module authoring. The declare family authors a turf-owned plot
+	// (git-recoverable checkout mutations, not live infra); it is deliberately NOT
+	// edit-gated by the persona — ad-hoc stays streamlined, and the plan gate covers
+	// it before apply. (The persona's coded-config edit gate is over write_file/
+	// edit_file on the user's own .tf/.tfvars, not these plot tools.) config_promote
+	// graduates a plot into a plain tofu configuration — a one-way directory
+	// transformation the persona confirms (see agentConfirmTurfTools).
 	"turf_config_init",
 	"turf_config_show",
 	"turf_config_promote",
@@ -105,6 +111,83 @@ var preApprovedTurfTools = []string{
 	"turf_skill_codified",
 	"turf_skill_demo",
 	"turf_read_skill_file",
+}
+
+// The cagent builtin toolsets turf pre-approves so the permission layer never
+// prompts for them (bare names, NOT turf_-prefixed server tools). Split per toolset
+// so each list can be tied to its package's tool-name constants by a drift guard in
+// permissions_test.go — a new/renamed builtin tool fails CI until it is consciously
+// classified. `think` is not listed: it is a single, pure, read-only tool that
+// already auto-approves via ReadOnlyHint and has nothing to author.
+
+// preApprovedMemoryTools: turf's advisory-knowledge slot — the agent reads and
+// writes it silently to inform planning (see the builtin-toolset note in
+// CLAUDE.md), so prompting on it is pure friction. The read tools
+// (get_memories/search_memories) already auto-approve via ReadOnlyHint; listed here
+// too so the whole toolset is covered regardless of any upstream hint change.
+var preApprovedMemoryTools = []string{
+	"add_memory",
+	"get_memories",
+	"delete_memory",
+	"search_memories",
+	"update_memory",
+}
+
+// preApprovedFilesystemTools: the agent's own file tools. Pre-approved BY NAME (not
+// arg-scoped path patterns) because the toolset is already hard-sandboxed to the
+// allow-list roots — the working dir, the scratch dir, and any --allow-path — via an
+// *os.Root (see createAgentRuntime in agent.go). That sandbox, not the permission
+// layer, is the real boundary: a file tool physically cannot touch anything outside
+// the allowed roots, so pre-approval only removes the redundant prompt for work that
+// is already confined to them, and --allow-path widens the auto-approved area simply
+// by widening the sandbox. (The read tools already auto-approve via ReadOnlyHint;
+// the writers — write_file/edit_file/create_directory/remove_directory — did not,
+// and are the ones this unblocks. All are listed so the toolset is covered whole.)
+var preApprovedFilesystemTools = []string{
+	"read_file",
+	"read_multiple_files",
+	"edit_file",
+	"write_file",
+	"directory_tree",
+	"list_directory",
+	"search_files_content",
+	"create_directory",
+	"remove_directory",
+}
+
+// preApprovedTodoTools: the in-flight step checklist. These already auto-approve via
+// ReadOnlyHint, but are pre-approved explicitly so turf's trust in them is stated
+// (not inherited from an upstream annotation the code itself flags as "technically
+// not read-only") and survives if that hint ever changes.
+var preApprovedTodoTools = []string{
+	"create_todo",
+	"create_todos",
+	"update_todos",
+	"list_todos",
+}
+
+// preApprovedBuiltinTools is the union of the per-toolset lists above — the full set
+// of cagent builtin tools turf pre-approves.
+func preApprovedBuiltinTools() []string {
+	out := make([]string, 0, len(preApprovedMemoryTools)+len(preApprovedFilesystemTools)+len(preApprovedTodoTools))
+	out = append(out, preApprovedMemoryTools...)
+	out = append(out, preApprovedFilesystemTools...)
+	out = append(out, preApprovedTodoTools...)
+	return out
+}
+
+// preApprovedTools is the full set turf pre-approves at the team (process) level:
+// every turf server tool plus the builtin tools above. This is installed as a
+// team-level permission checker (see createAgentRuntime in agent.go), which is a
+// property of the runtime rather than of any single session — so the pre-approval
+// survives session replacement (/clear, /new, /fork) and resume without needing to
+// be re-stamped per session. Copy-then-append so neither source slice is mutated.
+func preApprovedTools() []string {
+	builtins := preApprovedBuiltinTools()
+	out := make([]string, 0, len(preApprovedTurfTools)+len(builtins))
+	out = append(out, preApprovedTurfTools...)
+	out = append(out, builtins...)
+	return out
 }
 
 // agentConfirmTurfTools names the high-consequence tools whose confirmation the

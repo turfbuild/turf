@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/memory/database/sqlite"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
+	"github.com/docker/docker-agent/pkg/permissions"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
@@ -49,7 +50,9 @@ Tool calls you make in a single turn execute one at a time, in the order you emi
 
 If the user types /demo or asks to run the demo, call turf_skill_demo and follow its beat-by-beat guided walkthrough, loading a journey with turf_read_skill_file as its hub directs. When the demo content names read_skill_file (bare), always call turf_read_skill_file — the bare read_skill_file is the user-skills loader (different tool, different arguments).
 
-Confirmation is your responsibility, not the tooling's: turf's tools run without a separate permission prompt, so before anything consequential you must obtain an explicit yes/no from the user with the user_prompt tool (named user_prompt, no turf_ prefix), passing an enum schema {"type": "string", "enum": ["yes", "no"], "title": "..."} so they pick rather than free-type. Proceed only on "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust. There are two shapes:
+Confirmation is your responsibility, not the tooling's: turf's tools run without a separate permission prompt, so before anything consequential you must obtain an explicit yes/no from the user with the user_prompt tool (named user_prompt, no turf_ prefix), passing an enum schema {"type": "string", "enum": ["yes", "no"], "title": "..."} so they pick rather than free-type. Proceed only on "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust. There are three shapes:
+
+- Coded-configuration edits — confirm before you change the user's .tf files. When you work a codified (tofu-dialect) configuration — the user's own hand-authored .tf/.tfvars files — obtain one confirmation before you edit them with write_file/edit_file, with message set to a summary of the edits you intend (what you will add, change, or remove, and in which files). Proceed only on "yes", then make that whole set of edits without prompting again; start a fresh confirmation only for a later, materially different change. This precedes and is separate from the plan confirmation below — editing configuration is not applying it, so you still confirm the plan before turf_plan_approve. Ad-hoc plot authoring with the turf_declare_* tools needs no separate edit confirmation; the plan confirmation covers it.
 
 - Phase convergence — confirm the plan once. For the declare → plan_new → plan_approve → effect_apply loop, seek a single confirmation before you call turf_plan_approve, with message set to a one-line summary of everything the plan will change. Once approved, apply and manage the effects (turf_effect_apply, turf_effect_cancel) without prompting again — those execute the plan the user already approved. Never prompt per effect.
 
@@ -93,6 +96,11 @@ type agentOpts struct {
 	logFile      string
 	logLevel     string
 	logFormat    string
+	// allowPaths are extra directories (from --allow-path) the filesystem toolset
+	// may access beyond cwd and tmpDir. Because the filesystem tools are
+	// pre-approved by name (see permissions.go), widening this sandbox also widens
+	// the auto-approved area. Relative entries resolve against the effective cwd.
+	allowPaths []string
 	// interactive reports whether a human is at the terminal (TTY). It gates
 	// tools that elicit input from the user — chiefly user_prompt, which can
 	// only function when the TUI is up to render the dialog.
@@ -185,6 +193,29 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	allow := []string{cwd}
 	if opts.tmpDir != "" {
 		allow = append(allow, opts.tmpDir)
+	}
+	// --allow-path adds extra roots the file tools may reach (and, since those
+	// tools are pre-approved by name, that turf auto-approves). Resolve each to an
+	// absolute path — relative entries resolve against the effective cwd (post
+	// --chdir / --worktree, which both run before this) — and skip empties/dupes.
+	seenAllow := map[string]struct{}{}
+	for _, a := range allow {
+		seenAllow[a] = struct{}{}
+	}
+	for _, p := range opts.allowPaths {
+		if p == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, nil, fmt.Errorf("resolving --allow-path %q: %w", p, err)
+		}
+		if _, dup := seenAllow[abs]; dup {
+			continue
+		}
+		seenAllow[abs] = struct{}{}
+		allow = append(allow, abs)
 	}
 	fsToolset := filesystem.New(cwd, filesystem.WithAllowList(allow))
 
@@ -308,7 +339,20 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		}
 	}
 
-	t := team.New(team.WithAgents(a))
+	// Pre-approve turf's tools (and the builtin memory tools) at the TEAM level.
+	// The dispatcher consults session-level then team-level permission checkers
+	// (see runtime.tool_dispatch), and the team checker is a property of the
+	// runtime, not of any single session — so this pre-approval survives session
+	// replacement (/clear, /new, /fork) and resume without per-session re-stamping.
+	// Ask/Deny are left empty: any tool absent from Allow (an unknown or
+	// third-party MCP tool) still falls to a prompt (fail-safe). --auto-approve
+	// (session ToolsApproved) is evaluated first and still overrides everything.
+	t := team.New(
+		team.WithAgents(a),
+		team.WithPermissions(permissions.NewChecker(&latest.PermissionsConfig{
+			Allow: preApprovedTools(),
+		})),
+	)
 	// Serialize each model batch's tool calls in emission order (a fork patch;
 	// upstream cagent fans batches out in parallel, unconditionally). Turf's
 	// planning tools are stateful and order-dependent — every call needs an
@@ -398,23 +442,18 @@ turf needs an LLM to run. Either:
 Choosing a provider: https://docs.docker.com/ai/docker-agent/providers/overview/`, modelRef, err)
 }
 
-// applyTurfSessionPolicy stamps turf's permission and display policy onto a
-// session. It runs both on a freshly created session (newSession) and on one
-// loaded from the store on resume (resolveTurfSession) — the latter matters
-// because cagent's own resume path re-applies only tools-approved and
-// hide-tool-results, not permissions, so a resumed session would otherwise lose
-// turf's pre-approval and start prompting for every turf tool.
+// applyTurfSessionPolicy stamps turf's session-level display and approval flags
+// onto a session. It runs both on a freshly created session (newSession) and on
+// one loaded from the store on resume (resolveTurfSession); cagent's own resume
+// path re-applies only tools-approved and hide-tool-results, so re-stamping them
+// here keeps a resumed session consistent with the current --auto-approve flag.
+//
+// Tool PRE-APPROVAL no longer lives here: it is installed once at the team
+// (process) level in createAgentRuntime (see preApprovedTools / the team's
+// permission checker), which — unlike a per-session Allow list — survives session
+// replacement (/clear, /new, /fork) and resume by construction.
 func applyTurfSessionPolicy(sess *session.Session, autoApprove bool) {
 	session.WithToolsApproved(autoApprove)(sess)
-	// Pre-approve all of turf's own tools so the permission layer never prompts for
-	// one; confirmation of consequential actions is the agent's job via user_prompt
-	// (see the persona below and permissions.go for the policy). Ask is left empty:
-	// any tool absent from Allow — an unknown or third-party MCP tool — still falls
-	// to a prompt (fail-safe). --auto-approve (WithToolsApproved above) still
-	// overrides this and approves everything.
-	session.WithPermissions(&session.PermissionsConfig{
-		Allow: preApprovedTurfTools,
-	})(sess)
 	// Default to the detailed tool views: turf's custom renderers read
 	// HideToolResults() and show the full panels (and raw results for un-painted
 	// tools) when it's false. Ctrl+O flips it to collapse each tool to a single

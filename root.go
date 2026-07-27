@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -31,6 +32,7 @@ var (
 	flagTheme          string
 	flagDebug          bool
 	flagLean           bool
+	flagAllowPaths     []string
 )
 
 func execute(ctx context.Context, args []string) error {
@@ -97,6 +99,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flagTheme, "theme", os.Getenv("TURF_THEME"), "TUI theme name; overrides the saved /theme choice for this run (default: calm-roots; env: TURF_THEME)")
 	cmd.PersistentFlags().BoolVar(&flagDebug, "debug", os.Getenv("TURF_DEBUG") != "", "Log at debug level to <TURF_HOME>/turf.debug.log (default: warnings and errors only; env: TURF_DEBUG)")
 	cmd.PersistentFlags().BoolVar(&flagLean, "lean", os.Getenv("TURF_LEAN") != "", "Use the simplified lean TUI (no sidebar/tabs/overlays; renders to scrollback; env: TURF_LEAN)")
+	cmd.PersistentFlags().StringArrayVar(&flagAllowPaths, "allow-path", envPathList("TURF_ALLOW_PATH"), "Extra directory the file tools may read/write (and that is auto-approved), beyond the working dir; repeatable. Relative paths resolve against the working dir — prefer absolute (env: TURF_ALLOW_PATH, os.PathList-separated)")
 	addWorktreeFlags(cmd)
 	// Resume flags are local (not persistent) so they cover the bare `turf`
 	// invocation (which runs runChat) but never leak onto up/destroy, where
@@ -118,4 +121,21 @@ func envOrDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envPathList reads an os.PathListSeparator-delimited env var (e.g.
+// "/a:/b" on Unix) into a slice, dropping empty entries. Used as the default for
+// the repeatable --allow-path flag so it also has an env fallback.
+func envPathList(key string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for p := range strings.SplitSeq(v, string(os.PathListSeparator)) {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
