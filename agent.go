@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/memory/database/sqlite"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
+	"github.com/docker/docker-agent/pkg/permissions"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
@@ -93,6 +94,11 @@ type agentOpts struct {
 	logFile      string
 	logLevel     string
 	logFormat    string
+	// allowPaths are extra directories (from --allow-path) the filesystem toolset
+	// may access beyond cwd and tmpDir. Because the filesystem tools are
+	// pre-approved by name (see permissions.go), widening this sandbox also widens
+	// the auto-approved area. Relative entries resolve against the effective cwd.
+	allowPaths []string
 	// interactive reports whether a human is at the terminal (TTY). It gates
 	// tools that elicit input from the user — chiefly user_prompt, which can
 	// only function when the TUI is up to render the dialog.
@@ -185,6 +191,29 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	allow := []string{cwd}
 	if opts.tmpDir != "" {
 		allow = append(allow, opts.tmpDir)
+	}
+	// --allow-path adds extra roots the file tools may reach (and, since those
+	// tools are pre-approved by name, that turf auto-approves). Resolve each to an
+	// absolute path — relative entries resolve against the effective cwd (post
+	// --chdir / --worktree, which both run before this) — and skip empties/dupes.
+	seenAllow := map[string]struct{}{}
+	for _, a := range allow {
+		seenAllow[a] = struct{}{}
+	}
+	for _, p := range opts.allowPaths {
+		if p == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, nil, fmt.Errorf("resolving --allow-path %q: %w", p, err)
+		}
+		if _, dup := seenAllow[abs]; dup {
+			continue
+		}
+		seenAllow[abs] = struct{}{}
+		allow = append(allow, abs)
 	}
 	fsToolset := filesystem.New(cwd, filesystem.WithAllowList(allow))
 
@@ -308,7 +337,20 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		}
 	}
 
-	t := team.New(team.WithAgents(a))
+	// Pre-approve turf's tools (and the builtin memory tools) at the TEAM level.
+	// The dispatcher consults session-level then team-level permission checkers
+	// (see runtime.tool_dispatch), and the team checker is a property of the
+	// runtime, not of any single session — so this pre-approval survives session
+	// replacement (/clear, /new, /fork) and resume without per-session re-stamping.
+	// Ask/Deny are left empty: any tool absent from Allow (an unknown or
+	// third-party MCP tool) still falls to a prompt (fail-safe). --auto-approve
+	// (session ToolsApproved) is evaluated first and still overrides everything.
+	t := team.New(
+		team.WithAgents(a),
+		team.WithPermissions(permissions.NewChecker(&latest.PermissionsConfig{
+			Allow: preApprovedTools(),
+		})),
+	)
 	// Serialize each model batch's tool calls in emission order (a fork patch;
 	// upstream cagent fans batches out in parallel, unconditionally). Turf's
 	// planning tools are stateful and order-dependent — every call needs an
@@ -398,23 +440,18 @@ turf needs an LLM to run. Either:
 Choosing a provider: https://docs.docker.com/ai/docker-agent/providers/overview/`, modelRef, err)
 }
 
-// applyTurfSessionPolicy stamps turf's permission and display policy onto a
-// session. It runs both on a freshly created session (newSession) and on one
-// loaded from the store on resume (resolveTurfSession) — the latter matters
-// because cagent's own resume path re-applies only tools-approved and
-// hide-tool-results, not permissions, so a resumed session would otherwise lose
-// turf's pre-approval and start prompting for every turf tool.
+// applyTurfSessionPolicy stamps turf's session-level display and approval flags
+// onto a session. It runs both on a freshly created session (newSession) and on
+// one loaded from the store on resume (resolveTurfSession); cagent's own resume
+// path re-applies only tools-approved and hide-tool-results, so re-stamping them
+// here keeps a resumed session consistent with the current --auto-approve flag.
+//
+// Tool PRE-APPROVAL no longer lives here: it is installed once at the team
+// (process) level in createAgentRuntime (see preApprovedTools / the team's
+// permission checker), which — unlike a per-session Allow list — survives session
+// replacement (/clear, /new, /fork) and resume by construction.
 func applyTurfSessionPolicy(sess *session.Session, autoApprove bool) {
 	session.WithToolsApproved(autoApprove)(sess)
-	// Pre-approve all of turf's own tools so the permission layer never prompts for
-	// one; confirmation of consequential actions is the agent's job via user_prompt
-	// (see the persona below and permissions.go for the policy). Ask is left empty:
-	// any tool absent from Allow — an unknown or third-party MCP tool — still falls
-	// to a prompt (fail-safe). --auto-approve (WithToolsApproved above) still
-	// overrides this and approves everything.
-	session.WithPermissions(&session.PermissionsConfig{
-		Allow: preApprovedTurfTools,
-	})(sess)
 	// Default to the detailed tool views: turf's custom renderers read
 	// HideToolResults() and show the full panels (and raw results for un-painted
 	// tools) when it's false. Ctrl+O flips it to collapse each tool to a single

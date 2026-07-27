@@ -20,9 +20,10 @@ func addResumeFlags(cmd *cobra.Command) {
 
 // resolveTurfSession returns the session a run should use, honoring an optional
 // resume reference. It is the resume counterpart to newSession and always
-// applies turf's session policy (see applyTurfSessionPolicy) — including on a
-// session loaded from the store, where cagent's own resume path would leave
-// turf's tool pre-approval unset.
+// applies turf's session policy (see applyTurfSessionPolicy) on the loaded
+// session so its display/approval flags match the current run. Tool pre-approval
+// is not a session concern anymore — it lives at the team level (see
+// createAgentRuntime) and applies to a resumed session automatically.
 //
 // The ref (from --session / --continue) is either a concrete session ID or a
 // relative offset ("-1" for the last session, resolved via ResolveSessionID

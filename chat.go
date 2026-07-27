@@ -41,6 +41,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 		model:          flagModel,
 		baseURL:        flagModelBaseURL,
 		tmpDir:         flagTmpDir,
+		allowPaths:     flagAllowPaths,
 		pluginCacheDir: flagPluginCacheDir,
 		memoryPath:     flagMemoryPath,
 		noMemory:       flagNoMemory,

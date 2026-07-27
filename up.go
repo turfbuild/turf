@@ -45,6 +45,7 @@ func newUpCmd() *cobra.Command {
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
 				tmpDir:         flagTmpDir,
+				allowPaths:     flagAllowPaths,
 				pluginCacheDir: flagPluginCacheDir,
 				memoryPath:     flagMemoryPath,
 				noMemory:       flagNoMemory,
