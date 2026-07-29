@@ -52,7 +52,7 @@ turf up ./path/to/config
 turf destroy ./path/to/config
 
 # Pick a model explicitly
-turf --model anthropic/claude-sonnet-4-6 chat
+turf --model anthropic/claude-sonnet-5 chat
 ```
 
 Provider plugins are downloaded on demand and cached (shared with `tofu`) under

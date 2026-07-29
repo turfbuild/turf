@@ -70,7 +70,7 @@ turf -C ./examples/azure-storage-container up
 turf -C ./examples/azure-storage-container destroy
 
 # Use a different model
-turf --model anthropic/claude-sonnet-4-6 chat
+turf --model anthropic/claude-sonnet-5 chat
 
 # Run a local model — no API key, no cost (see Model providers)
 turf --model dmr/ai/qwen3 chat
@@ -232,7 +232,7 @@ turf --model dmr/ai/qwen3
 ```
 
 **`unknown provider …` / `invalid model format …`** — `--model` must be
-`provider/model` (e.g. `anthropic/claude-sonnet-4-6`, `dmr/ai/qwen3`). Check the
+`provider/model` (e.g. `anthropic/claude-sonnet-5`, `dmr/ai/qwen3`). Check the
 prefix against the [providers overview].
 
 **`turf-mcp-server not found on PATH`** — the CLI launches the server as a
