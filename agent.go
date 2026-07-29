@@ -105,6 +105,11 @@ type agentOpts struct {
 	// tools that elicit input from the user — chiefly user_prompt, which can
 	// only function when the TUI is up to render the dialog.
 	interactive bool
+	// autoApprove reports whether the run was launched with --auto-approve/--yes.
+	// When true, the persona's user_prompt confirmations are auto-accepted even in
+	// an interactive TTY — the whole point of the flag is to proceed without the
+	// plan-confirmation dialog (see the user_prompt wiring below).
+	autoApprove bool
 }
 
 // resolveMCPServer locates the turf-mcp-server binary. Resolution order:
@@ -236,15 +241,21 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// user_prompt lets the agent pause and ask the user a structured question
 	// (free-text, enum, or object schema) — useful for agent-driven remediation
 	// decisions where the model needs a choice the MCP workflow can't anticipate.
-	// Interactive runs get cagent's real tool: the runtime auto-wires the
-	// elicitation handler and the TUI renders a dialog. In the non-interactive
-	// exec path (up/destroy over a pipe, --auto-approve) that same tool would
-	// route through the runtime's elicitation handler, which auto-declines when
-	// there is no client to answer — so the /up prompt's "seek approval before
-	// plan_approve" step fails and the run stalls before applying a later (e.g.
-	// deferred) phase. Swap in a synthetic user_prompt that auto-confirms
-	// directly, so headless runs proceed (see autoconfirm.go).
-	if opts.interactive {
+	// An attended interactive run gets cagent's real tool: the runtime auto-wires
+	// the elicitation handler and the TUI renders a dialog.
+	//
+	// Everything else gets a synthetic user_prompt that auto-confirms directly
+	// (see autoconfirm.go). Two cases need it: (1) the non-interactive exec path
+	// (up/destroy over a pipe) — cagent's real tool would route through the
+	// runtime's elicitation handler, which auto-declines when there is no client
+	// to answer, so the /up prompt's "seek approval before plan_approve" step
+	// would fail and stall the run before a later (e.g. deferred) phase; (2) an
+	// interactive run launched with --auto-approve/--yes — the persona still calls
+	// user_prompt before plan_approve, but --yes means "proceed without the
+	// confirmation dialog," so we auto-accept it rather than block on a prompt the
+	// user has already opted out of. (ToolsApproved/yolo only bypasses the tool
+	// PERMISSION gate; it does nothing to a model-invoked user_prompt elicitation.)
+	if opts.interactive && !opts.autoApprove {
 		toolsets = append(toolsets, tools.WithName(userprompt.New(), "user_prompt"))
 	} else {
 		toolsets = append(toolsets, tools.WithName(autoConfirmUserPrompt{}, "user_prompt"))

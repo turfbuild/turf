@@ -58,6 +58,7 @@ func newUpCmd() *cobra.Command {
 				logLevel:       flagLogLevel,
 				logFormat:      flagLogFormat,
 				interactive:    interactive,
+				autoApprove:    autoApprove,
 			})
 			if err != nil {
 				return err
