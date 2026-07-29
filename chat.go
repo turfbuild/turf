@@ -63,5 +63,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return runTUI(ctx, rt, sess, curator, "", flagLean, worktreeBranch(wt))
+	// exitWhenDone=false: chat is a persistent session, not one-shot — it stays
+	// open after each turn for the next message.
+	return runTUI(ctx, rt, sess, curator, "", flagLean, false, worktreeBranch(wt))
 }

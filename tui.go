@@ -17,7 +17,7 @@ import (
 	tuiinput "github.com/docker/docker-agent/pkg/tui/input"
 )
 
-func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, curator *sessionTitleCurator, firstMessage string, lean bool, worktreeBranch string) error {
+func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, curator *sessionTitleCurator, firstMessage string, lean, exitWhenDone bool, worktreeBranch string) error {
 	// Apply turf's theme before constructing either TUI. cagent's tui.New /
 	// leantui.Run do not auto-apply the persisted/default theme, so turf does it
 	// here; leantui reads the same styles package the theme configures.
@@ -26,12 +26,20 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, cura
 	// Callers decide lean vs full: chat honors --lean, while up/destroy always
 	// pass true (the sidebar/tabs are noise for a one-shot deploy/teardown).
 	if lean {
-		return runLeanTUI(ctx, rt, sess, curator, firstMessage, worktreeBranch)
+		return runLeanTUI(ctx, rt, sess, curator, firstMessage, exitWhenDone, worktreeBranch)
 	}
 
 	var opts []app.Opt
 	if firstMessage != "" {
 		opts = append(opts, app.WithFirstMessage(firstMessage))
+	}
+	// up/destroy are one-shot: quit once the agent finishes rather than idling for
+	// more input. The plan-confirmation user_prompt blocks *inside* the turn (its
+	// elicitation handler pauses the tool call, not the run stream), so the whole
+	// plan → confirm → apply is a single outermost stream and exit fires only at
+	// true completion, never at the confirmation prompt. chat passes false.
+	if exitWhenDone {
+		opts = append(opts, app.WithExitAfterFirstResponse())
 	}
 	// No app.WithTitleGenerator: turf does not use cagent's built-in LLM titler.
 	// The sessionTitleCurator owns titling, composing it deterministically from
@@ -133,11 +141,17 @@ var turfBannerArt string
 // be ignored or approximated by the terminal.
 var turfBanner = strings.Split(strings.TrimRight(turfBannerArt, "\n"), "\n")
 
-func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, curator *sessionTitleCurator, firstMessage string, worktreeBranch string) error {
+func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, curator *sessionTitleCurator, firstMessage string, exitWhenDone bool, worktreeBranch string) error {
 	registerTurfToolRenderers()
 
 	// No app.WithTitleGenerator — the sessionTitleCurator owns titling (see runTUI).
-	a := app.New(ctx, rt, sess)
+	// exitWhenDone makes the lean loop quit on the outermost StreamStopped (see the
+	// full-TUI path in runTUI for why the confirmation prompt doesn't trip it early).
+	var opts []app.Opt
+	if exitWhenDone {
+		opts = append(opts, app.WithExitAfterFirstResponse())
+	}
+	a := app.New(ctx, rt, sess, opts...)
 	a.Start(ctx) // lean mode drives the app itself; the full TUI's model does this in Init
 
 	// Live-refresh the title as the curator retitles at infra milestones (see the

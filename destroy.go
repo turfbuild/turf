@@ -78,7 +78,7 @@ func newDestroyCmd() *cobra.Command {
 			// messages. Seeding the prompt into the session too would double it.
 			sess := newSession(autoApprove)
 			if interactive {
-				return runTUI(ctx, rt, sess, curator, prompt, true, worktreeBranch(wt))
+				return runTUI(ctx, rt, sess, curator, prompt, true, true, worktreeBranch(wt))
 			}
 			return runExecWith(ctx, rt, sess, execConfig{
 				autoApprove: autoApprove,
