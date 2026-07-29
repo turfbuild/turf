@@ -61,8 +61,8 @@ func TestNewModelProvider(t *testing.T) {
 		if err == nil {
 			t.Fatal("newModelProvider(claude): expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "invalid model format") {
-			t.Errorf("error = %q, want it to mention 'invalid model format'", err.Error())
+		if !strings.Contains(err.Error(), "invalid model") {
+			t.Errorf("error = %q, want it to mention 'invalid model'", err.Error())
 		}
 	})
 }
