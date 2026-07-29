@@ -3,16 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
-	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/memory/database/sqlite"
-	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
 	"github.com/docker/docker-agent/pkg/permissions"
 	"github.com/docker/docker-agent/pkg/runtime"
@@ -142,10 +140,28 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		return nil, nil, nil, nil, err
 	}
 
-	llm, err := newModelProvider(ctx, opts.model, opts.baseURL)
+	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, nil, nil, nil, modelProviderError(opts.model, err)
+		return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
+
+	// Resolve the model before starting the subprocess (so a model failure never
+	// leaves an orphaned server). Merge turf.yaml (global + project), pick the
+	// reference (--model/TURF_MODEL > config `model:` > "auto"), then construct
+	// the provider via cagent's first-available / auto selection. One provider
+	// registry is created here and shared with the /model switcher below, so
+	// runtime model switching instantiates providers the same way.
+	turfCfg, err := loadTurfConfig(cwd)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	modelRegistry := providers.NewDefaultRegistry()
+	modelPick := pickModel(opts.model, turfCfg)
+	llm, resolved, err := resolveModel(ctx, turfCfg, modelPick, opts.baseURL, modelRegistry)
+	if err != nil {
+		return nil, nil, nil, nil, modelProviderError(modelPick, err)
+	}
+	slog.Debug("turf: resolved model", "pick", modelPick, "provider", resolved.Provider, "model", resolved.Model)
 
 	serveArgs := []string{"--transport", "stdio"}
 	if opts.tmpDir != "" {
@@ -184,11 +200,6 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		return nil, nil, nil, nil, fmt.Errorf("starting %s: %w", mcpServerBinaryName, err)
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		_ = mcpToolset.Stop(ctx)
-		return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
-	}
 	// Sandbox the agent's own file access to the directories turf legitimately
 	// works in: the working directory (HCL configs, plan/state, memory db) and
 	// the provider cache dir when one is set. The allow-list is symlink-hardened
@@ -374,6 +385,13 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// round-trips (unlike parallel_tool_calls=false, which only the
 	// OpenAI/DMR providers honor — Gemini, turf's default, ignores it).
 	rtOpts := []runtime.Opt{runtime.WithSequentialToolCalls(true)}
+	// Enable the TUI /model picker (SupportsModelSwitching): without a switcher
+	// config the runtime reports model switching unsupported and /model shows
+	// "No models available". The picker lists turf.yaml's named models plus
+	// locally-pulled DMR models and the models.dev catalog filtered by available
+	// credentials; switching is session-scoped (turf.yaml remains the persistent
+	// default). Reuses the same provider registry as the agent's own model.
+	rtOpts = append(rtOpts, runtime.WithModelSwitcherConfig(buildModelSwitcherConfig(ctx, turfCfg, modelRegistry, modelPick)))
 	if sessStore != nil {
 		rtOpts = append(rtOpts, runtime.WithSessionStore(sessStore))
 	}
@@ -405,36 +423,6 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	}
 
 	return rt, sessStore, titleCurator, cleanup, nil
-}
-
-// newModelProvider creates a cagent LLM provider from a "provider/model" string.
-//
-// It routes through cagent's full provider registry (the same factory cagent's
-// own teamloader uses) rather than dispatching to a fixed set of clients. That
-// registry resolves every provider cagent supports — cloud (openai, anthropic,
-// google, amazon-bedrock), local (dmr / Docker Model Runner), and the many
-// OpenAI-compatible aliases (ollama, mistral, groq, deepseek, xai, azure, …) —
-// filling in each provider's default base URL, token env var, and API type, and
-// expanding ${env.*} references. An unknown provider errors here (rather than
-// silently falling through to OpenAI), which surfaces typos instead of hiding
-// them behind a confusing "OPENAI_API_KEY required".
-//
-// baseURL, when set (via --base-url / TURF_MODEL_BASE_URL), overrides the
-// endpoint — the escape hatch for arbitrary OpenAI-compatible servers (vLLM,
-// LM Studio, gateways). DMR and Ollama resolve their own local endpoints, so
-// they need no base URL.
-func newModelProvider(ctx context.Context, modelRef, baseURL string) (provider.Provider, error) {
-	parts := strings.SplitN(modelRef, "/", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid model format %q, expected provider/model (e.g. google/gemini-pro-latest, anthropic/claude-sonnet-4-6, dmr/ai/qwen3)", modelRef)
-	}
-
-	cfg := &latest.ModelConfig{
-		Provider: parts[0],
-		Model:    parts[1],
-		BaseURL:  baseURL,
-	}
-	return providers.NewDefaultRegistry().New(ctx, cfg, environment.NewDefaultProvider())
 }
 
 // modelProviderError wraps a model-provider construction failure with actionable

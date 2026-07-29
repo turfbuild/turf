@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/docker/docker-agent/pkg/config"
+	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/goccy/go-yaml"
 )
 
 // The examples live in the sibling github.com/turfbuild/turf-examples repo,
@@ -58,6 +61,54 @@ func TestCliExampleSkillDiscovered(t *testing.T) {
 	}
 	if !hasRef {
 		t.Fatalf("tagging-policy missing references/tags.md in Files: %v", loaded[0].Files)
+	}
+}
+
+// TestCliConfigExamplesValid confirms the example turf.yaml model-configuration
+// files (integrations/turf-cli) parse into turfConfig and pass cagent's schema
+// validation (e.g. first_available's mutual-exclusion rules), so the gallery
+// cannot drift into an invalid state against the pinned docker-agent.
+func TestCliConfigExamplesValid(t *testing.T) {
+	root := filepath.Join(examplesDir(t), "integrations", "turf-cli")
+	if _, err := os.Stat(filepath.Join(root, "gallery")); err != nil {
+		t.Skipf("turf-cli model-config gallery not present: %v", err)
+	}
+
+	var files []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		// Both the active .turf/turf.yaml and the gallery/*.turf.yaml configs.
+		if filepath.Base(p) == turfConfigFileName || filepath.Ext(p) == ".yaml" {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", root, err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no example configs found under %s", root)
+	}
+
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Errorf("%s: %v", f, err)
+			continue
+		}
+		var c turfConfig
+		if err := yaml.Unmarshal(data, &c); err != nil {
+			t.Errorf("%s: does not parse into turfConfig: %v", f, err)
+			continue
+		}
+		// Validate the reused cagent model/provider schema (first_available rules,
+		// auth, compaction thresholds) exactly as a real config load would.
+		syn := latest.Config{Models: c.Models, Providers: c.Providers}
+		if err := syn.Validate(); err != nil {
+			t.Errorf("%s: fails schema validation: %v", f, err)
+		}
 	}
 }
 
