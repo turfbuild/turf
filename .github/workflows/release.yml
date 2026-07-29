@@ -141,7 +141,7 @@ jobs:
             dist/turf_*.tar.gz
 
       - name: Attest CLI SBOM (SBOM #1)
-        uses: actions/attest-sbom@v4
+        uses: actions/attest@v4
         with:
           subject-path: |
             dist/turf-darwin_arm64
@@ -151,7 +151,7 @@ jobs:
           sbom-path: dist/turf.cdx.json
 
       - name: Attest assembly SBOM (BOM-of-BOMs)
-        uses: actions/attest-sbom@v4
+        uses: actions/attest@v4
         with:
           subject-path: dist/turf_*.tar.gz
           sbom-path: dist/turf-assembly.cdx.json
