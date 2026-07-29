@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -13,10 +14,11 @@ func newUpCmd() *cobra.Command {
 	var autoApprove bool
 
 	cmd := &cobra.Command{
-		Use:   "up",
+		Use:   "up [instructions...]",
 		Short: "Deploy infrastructure from HCL configuration",
-		Long:  "Deploy or reconcile infrastructure by running an AI agent that plans and applies changes from HCL configuration files in the current directory. Use -C/--chdir to target another directory.",
-		Args:  cobra.NoArgs,
+		Long: "Deploy or reconcile infrastructure by running an AI agent that plans and applies changes from HCL configuration files in the current directory. Use -C/--chdir to target another directory.\n\n" +
+			"Optionally pass freeform instructions to steer the plan (e.g. `turf up replace aws_s3_bucket.assets`, or `turf up -- -target=module.network` when the text starts with a dash). Instructions are honored within the normal plan/approve flow and never bypass approval.",
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -39,8 +41,8 @@ func newUpCmd() *cobra.Command {
 
 			// up persists to the session store (so the run shows up in the
 			// /sessions browser and can be continued later from chat) but takes
-			// no resume flag: each up run delivers a fresh /up trigger prompt, so
-			// the store is only ever the sink here. The store handle is unused.
+			// no resume flag: each up run delivers a fresh /up runbook, so the
+			// store is only ever the sink here. The store handle is unused.
 			rt, _, curator, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
@@ -62,7 +64,13 @@ func newUpCmd() *cobra.Command {
 			}
 			defer cleanup()
 
-			prompt := generateUpPrompt(absPath)
+			// Render the server's authored /up runbook as the first message —
+			// the same content the TUI's /up slash command produces — with any
+			// positional args joined into the optional instructions argument.
+			prompt, err := renderServerPrompt(ctx, rt, "up", absPath, strings.Join(args, " "))
+			if err != nil {
+				return err
+			}
 
 			// Both paths start from an empty session and deliver the prompt as
 			// the active user turn — the TUI via its first-message mechanism

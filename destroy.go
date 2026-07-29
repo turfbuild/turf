@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -13,10 +14,11 @@ func newDestroyCmd() *cobra.Command {
 	var autoApprove bool
 
 	cmd := &cobra.Command{
-		Use:   "destroy",
+		Use:   "destroy [instructions...]",
 		Short: "Destroy all managed infrastructure",
-		Long:  "Destroy all infrastructure resources managed by the HCL configuration in the current directory. Use -C/--chdir to target another directory.",
-		Args:  cobra.NoArgs,
+		Long: "Destroy all infrastructure resources managed by the HCL configuration in the current directory. Use -C/--chdir to target another directory.\n\n" +
+			"Optionally pass freeform instructions to steer the teardown (e.g. `turf destroy only module.staging`, or `turf destroy -- -target=module.network` when the text starts with a dash). Instructions are honored within the normal plan/approve flow and never bypass the destroy confirmation.",
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -39,8 +41,8 @@ func newDestroyCmd() *cobra.Command {
 
 			// destroy persists to the session store (so the run shows up in the
 			// /sessions browser and can be continued later from chat) but takes
-			// no resume flag: each destroy run delivers a fresh /destroy trigger
-			// prompt, so the store is only ever the sink here. Store handle unused.
+			// no resume flag: each destroy run delivers a fresh /destroy runbook,
+			// so the store is only ever the sink here. Store handle unused.
 			rt, _, curator, cleanup, err := createAgentRuntime(ctx, agentOpts{
 				model:          flagModel,
 				baseURL:        flagModelBaseURL,
@@ -62,7 +64,13 @@ func newDestroyCmd() *cobra.Command {
 			}
 			defer cleanup()
 
-			prompt := generateDestroyPrompt(absPath)
+			// Render the server's authored /destroy runbook as the first message —
+			// the same content the TUI's /destroy slash command produces — with any
+			// positional args joined into the optional instructions argument.
+			prompt, err := renderServerPrompt(ctx, rt, "destroy", absPath, strings.Join(args, " "))
+			if err != nil {
+				return err
+			}
 
 			// Both paths start from an empty session and deliver the prompt as
 			// the active user turn — the TUI via its first-message mechanism

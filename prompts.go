@@ -1,29 +1,29 @@
 package main
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"strings"
 
-// generateUpPrompt returns the initial user message for the `up` subcommand.
-// The detailed step-by-step procedure lives in the turf MCP server as the
-// `/up` prompt; this wrapper triggers that flow and points the agent at the
-// codified-IaC skill for any concepts it needs along the way. The turf MCP
-// tools are exposed to the model with a `turf_` prefix (see agent.go), so the
-// skill tools are named with that prefix here.
-func generateUpPrompt(configPath string) string {
-	return fmt.Sprintf(
-		"Deploy the infrastructure declared at %q by running the turf MCP server's `/up` prompt against that path. "+
-			"Load `turf_skill_codified` if you need conceptual guidance on reconciliation, lifecycle options, or replan hints, "+
-			"and `turf_skill_core` for the underlying plan/apply discipline.",
-		configPath,
-	)
-}
+	"github.com/docker/docker-agent/pkg/runtime"
+)
 
-// generateDestroyPrompt returns the initial user message for the `destroy`
-// subcommand. It delegates to the turf MCP server's `/destroy` prompt. As in
-// generateUpPrompt, skill tools carry the `turf_` prefix (see agent.go).
-func generateDestroyPrompt(configPath string) string {
-	return fmt.Sprintf(
-		"Tear down the infrastructure declared at %q by running the turf MCP server's `/destroy` prompt against that path. "+
-			"Load `turf_skill_codified` if you need conceptual guidance on destruction ordering or lifecycle constraints.",
-		configPath,
-	)
+// renderServerPrompt fetches and renders one of the turf MCP server's authored
+// prompts ("up"/"destroy") into the initial user message, so the CLI subcommands
+// deliver the exact same runbook the TUI's /up and /destroy slash commands do
+// (both go through the runtime's ExecuteMCPPrompt → MCP prompts/get path).
+//
+// config_path is passed explicitly (resolved after any --worktree chdir) so the
+// server never has to fall back to its inherited cwd; instructions, when
+// non-empty, are woven into the prompt's User Instructions section server-side.
+func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPath, instructions string) (string, error) {
+	args := map[string]string{"config_path": configPath}
+	if instructions = strings.TrimSpace(instructions); instructions != "" {
+		args["instructions"] = instructions
+	}
+	text, err := rt.ExecuteMCPPrompt(ctx, name, args)
+	if err != nil {
+		return "", fmt.Errorf("render %q prompt from turf-mcp-server: %w", name, err)
+	}
+	return text, nil
 }
