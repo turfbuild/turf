@@ -72,8 +72,11 @@ func newExecCmd() *cobra.Command {
 				logLevel:       flagLogLevel,
 				logFormat:      flagLogFormat,
 				// Headless run: no TUI to render a user_prompt dialog, so wire the
-				// auto-confirming stand-in (see agent.go / autoconfirm.go).
+				// auto-confirming stand-in (see agent.go / autoconfirm.go). The
+				// stand-in is already selected by interactive:false; passing
+				// autoApprove keeps the two flags describing the same intent.
 				interactive: false,
+				autoApprove: autoApprove,
 			})
 			if err != nil {
 				return err
