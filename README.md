@@ -69,7 +69,7 @@ turf -C ./examples/azure-storage-container up
 # Destroy everything in a configuration
 turf -C ./examples/azure-storage-container destroy
 
-# Use a different model
+# Use a specific model
 turf --model anthropic/claude-sonnet-5 chat
 
 # Run a local model — no API key, no cost (see Model providers)
@@ -215,6 +215,10 @@ For any OpenAI-compatible server (vLLM, LM Studio, an internal gateway), use the
 turf --model openai/my-model --base-url http://localhost:8000/v1
 ```
 
+A project can pin its model configuration in a `.turf/turf.yaml` (named models,
+credential-based `first_available` fallback) — see the
+[CLI configuration example](https://github.com/turfbuild/turf-examples/tree/main/integrations/turf-cli).
+
 [docker-agent]: https://docs.docker.com/ai/docker-agent/
 [providers overview]: https://docs.docker.com/ai/docker-agent/providers/overview/
 [dmr]: https://docs.docker.com/ai/docker-agent/dmr/
@@ -325,6 +329,9 @@ Adopt-then-reconcile; never create before importing.
 These are separate from turf's built-in infrastructure workflows (which the
 agent already knows) — your skills add to them, they don't replace them.
 
+For a working project skill you can copy, see the
+[CLI configuration example](https://github.com/turfbuild/turf-examples/tree/main/integrations/turf-cli).
+
 ## Architecture
 
 ```
@@ -346,11 +353,17 @@ protocol spoken over stdio.
 ## Examples
 
 Runnable examples live in
-[turfbuild/turf-examples](https://github.com/turfbuild/turf-examples) — ordinary
-HCL configurations you drive with `turf -C <dir>`: a local Kubernetes kind
-cluster (CRD + custom resource, or a Helm release; credential-free, Docker
-only), Azure and GCP modules, and language/feature tours (Terraform Actions,
-Turf-native actions).
+[turfbuild/turf-examples](https://github.com/turfbuild/turf-examples).
+
+- **[Configuring the CLI](https://github.com/turfbuild/turf-examples/tree/main/integrations/turf-cli)**
+  — a per-project turf setup: a `.turf/turf.yaml` with credential-based
+  `first_available` model fallback and named models, plus a project
+  `.turf/skills/` skill. Copy it as a starting point for your own `.turf/`
+  directory.
+- **Infrastructure configurations** — ordinary HCL you drive with
+  `turf -C <dir>`: a local Kubernetes kind cluster (CRD + custom resource, or a
+  Helm release; credential-free, Docker only), Azure and GCP modules, and
+  language/feature tours (Terraform Actions, Turf-native actions).
 
 ## License
 
