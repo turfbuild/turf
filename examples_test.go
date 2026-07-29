@@ -65,13 +65,13 @@ func TestCliExampleSkillDiscovered(t *testing.T) {
 }
 
 // TestCliConfigExamplesValid confirms the example turf.yaml model-configuration
-// files (integrations/turf-cli-config) parse into turfConfig and pass cagent's
-// schema validation (e.g. first_available's mutual-exclusion rules), so the
-// gallery cannot drift into an invalid state against the pinned docker-agent.
+// files (integrations/turf-cli) parse into turfConfig and pass cagent's schema
+// validation (e.g. first_available's mutual-exclusion rules), so the gallery
+// cannot drift into an invalid state against the pinned docker-agent.
 func TestCliConfigExamplesValid(t *testing.T) {
-	root := filepath.Join(examplesDir(t), "integrations", "turf-cli-config")
-	if _, err := os.Stat(root); err != nil {
-		t.Skipf("turf-cli-config example not present: %v", err)
+	root := filepath.Join(examplesDir(t), "integrations", "turf-cli")
+	if _, err := os.Stat(filepath.Join(root, "gallery")); err != nil {
+		t.Skipf("turf-cli model-config gallery not present: %v", err)
 	}
 
 	var files []string
