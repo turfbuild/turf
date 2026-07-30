@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/session/sqlitestore"
 )
 
 // newTestStore opens a real SQLite session store in a temp dir. Using the real
 // store (not the in-memory one) exercises the same code path production runs do.
 func newTestStore(t *testing.T) session.Store {
 	t.Helper()
-	store, err := session.NewSQLiteSessionStore(context.Background(), filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := sqlitestore.New(context.Background(), filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatalf("opening test session store: %v", err)
 	}
