@@ -1,4 +1,4 @@
 [submodule "docker-agent"]
 	path = docker-agent
 	url = https://github.com/turfbuild/docker-agent.git
-	branch = fork/1.99
+	branch = fork/1.118

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker-agent/pkg/tools"
+	"github.com/docker/docker-agent/pkg/tui/animation"
 	"github.com/docker/docker-agent/pkg/tui/service"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
@@ -35,7 +36,7 @@ func renderFor(name, content string, ss service.SessionStateReader) string {
 		ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: name}},
 		ToolDefinition: tools.Tool{Name: name},
 	}
-	b := turfToolRenderers()[name](msg, ss)
+	b := turfToolRenderers()[name](animation.NewRuntime(), msg, ss)
 	b.SetSize(120, 1)
 	return b.View()
 }
@@ -56,7 +57,7 @@ func renderErrArgs(name, content, argsJSON string, ss service.SessionStateReader
 		ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: name, Arguments: argsJSON}},
 		ToolDefinition: tools.Tool{Name: name},
 	}
-	b := turfToolRenderers()[name](msg, ss)
+	b := turfToolRenderers()[name](animation.NewRuntime(), msg, ss)
 	b.SetSize(120, 10)
 	return b.View()
 }
@@ -174,7 +175,7 @@ func TestProviderLoad_RequestedConstraintDetail(t *testing.T) {
 		ToolDefinition: tools.Tool{Name: "turf_provider_load"},
 	}
 
-	b := turfToolRenderers()["turf_provider_load"](msg, service.StaticSessionState{})
+	b := turfToolRenderers()["turf_provider_load"](animation.NewRuntime(), msg, service.StaticSessionState{})
 	b.SetSize(120, 1)
 	detailed := b.View()
 	if !strings.Contains(detailed, "requested") || !strings.Contains(detailed, ">= 3.0") {
@@ -182,7 +183,7 @@ func TestProviderLoad_RequestedConstraintDetail(t *testing.T) {
 	}
 
 	// Compact view (results hidden) must not carry the detail.
-	b = turfToolRenderers()["turf_provider_load"](msg, hiddenState{})
+	b = turfToolRenderers()["turf_provider_load"](animation.NewRuntime(), msg, hiddenState{})
 	b.SetSize(120, 1)
 	if compact := b.View(); strings.Contains(compact, "requested") {
 		t.Fatalf("compact provider_load should omit requested constraint: %q", compact)
@@ -598,7 +599,7 @@ func TestThink_SuppressesThoughtBody(t *testing.T) {
 			ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: "think"}},
 			ToolDefinition: tools.Tool{Name: "think"},
 		}
-		b := builtinToolRenderers()["think"](msg, ss)
+		b := builtinToolRenderers()["think"](animation.NewRuntime(), msg, ss)
 		b.SetSize(120, 10)
 		return b.View()
 	}
@@ -625,7 +626,7 @@ func TestThink_SuppressesThoughtBody(t *testing.T) {
 		ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: "think"}},
 		ToolDefinition: tools.Tool{Name: "think"},
 	}
-	b := builtinToolRenderers()["think"](errMsg, service.StaticSessionState{})
+	b := builtinToolRenderers()["think"](animation.NewRuntime(), errMsg, service.StaticSessionState{})
 	b.SetSize(120, 10)
 	if out := b.View(); !strings.Contains(out, "boom: think failed") {
 		t.Fatalf("think renderer should surface a framework error: %q", out)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/docker/docker-agent/pkg/tui/animation"
 	"github.com/docker/docker-agent/pkg/tui/components/spinner"
 	"github.com/docker/docker-agent/pkg/tui/components/tool"
 	"github.com/docker/docker-agent/pkg/tui/components/toolcommon"
@@ -140,8 +141,8 @@ func turfToolRenderers() map[string]tool.Builder {
 // builder adapts a toolcommon.Renderer into a tool.Builder (the map value type
 // tui.WithToolRenderers expects). NewBase supplies the spinner/sizing boilerplate.
 func builder(render toolcommon.Renderer) tool.Builder {
-	return func(msg *types.Message, ss service.SessionStateReader) layout.Model {
-		return toolcommon.NewBase(msg, ss, render)
+	return func(ar *animation.Runtime, msg *types.Message, ss service.SessionStateReader) layout.Model {
+		return toolcommon.NewBase(ar, msg, ss, render)
 	}
 }
 

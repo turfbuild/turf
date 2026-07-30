@@ -26,16 +26,6 @@ ignoreUntil = 2026-10-01
 # .security/vex/openvex.json. Re-review if a caller ever imports x/crypto/openpgp.
 reason = "no fix (openpgp unmaintained); unreachable (govulncheck + osv call-analysis); see OpenVEX not_affected (vulnerable_code_not_in_execute_path)"
 
-[[IgnoredVulns]]
-id = "GHSA-hrxh-6v49-42gf"
-ignoreUntil = 2026-10-01
-# google.golang.org/grpc (fork-transitive: indirect, pinned 1.81.1 by the
-# docker-agent fork; mirrored as a root // indirect). Bundles an xDS RBAC
-# auth-bypass/panic (internal/xds/rbac) and an HTTP/2 Rapid Reset DoS on the
-# server transport (internal/transport). Neither is in the CLI's execute path:
-# grpc is reached only as a client transport (docker-agent's Anthropic-Vertex
-# provider -> google.golang.org/api -> grpc, calling Google endpoints over TLS);
-# the CLI imports no xDS and runs no grpc server for untrusted clients.
-# govulncheck reports 0 reachable. Fixed in grpc 1.82.1; the bump rides the next
-# docker-agent fork rebase. Dispositioned not_affected in .security/vex/openvex.json.
-reason = "fork-transitive (docker-agent); grpc client-only (Vertex API), no xDS + no untrusted grpc server; govulncheck-unreachable; fix rides next docker-agent fork rebase; see OpenVEX not_affected"
+# GHSA-hrxh-6v49-42gf (google.golang.org/grpc) was resolved by the docker-agent
+# fork rebase onto upstream v1.118.0, which bumped grpc 1.81.1 -> 1.82.1 (the
+# fixed version). Suppression removed; recorded as fixed in .security/vex/openvex.json.

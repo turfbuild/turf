@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/permissions"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/session/sqlitestore"
 	"github.com/docker/docker-agent/pkg/team"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tools/builtin/filesystem"
@@ -348,13 +349,13 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 			sessPath = filepath.Join(sessDir, ".turf", "sessions.db")
 		}
 		// Ensure the parent dir exists — creates the default .turf/ dir, and
-		// matters when --session-db points outside cwd; NewSQLiteSessionStore
+		// matters when --session-db points outside cwd; sqlitestore.New
 		// can't create a missing directory.
 		if err := os.MkdirAll(filepath.Dir(sessPath), 0o750); err != nil {
 			_ = mcpToolset.Stop(ctx)
 			return nil, nil, nil, nil, fmt.Errorf("creating session database directory: %w", err)
 		}
-		sessStore, err = session.NewSQLiteSessionStore(ctx, sessPath)
+		sessStore, err = sqlitestore.New(ctx, sessPath)
 		if err != nil {
 			_ = mcpToolset.Stop(ctx)
 			return nil, nil, nil, nil, fmt.Errorf("opening session database: %w", err)
