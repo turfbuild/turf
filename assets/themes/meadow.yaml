@@ -1,0 +1,79 @@
+version: 1
+name: "Meadow"
+# Natural (real) turf in bloom — grass & loam as the canvas, but the ink is
+# wildflower: buttercup / goldenrod / dandelion yellows and thistle / clover /
+# heather / lavender purples. Green is held back to the earthy background and the
+# one place it means something — new growth (create). Turf's default theme.
+colors:
+  text_bright: "#f0e9d6"     # sun-bleached seedhead (warm cream)
+  text_primary: "#ddd4bf"    # dry grass / sand
+  text_secondary: "#b3a582"  # weathered grass (taupe)
+  text_muted: "#7d745c"      # dry thatch (TextMutedGray)
+  text_faint: "#5e5741"      # shadowed thatch
+  accent: "#b48fd0"          # thistle — borders, cursor, focus
+  accent_muted: "#a89a7e"    # dry grass — general muted text
+  background: "#171c14"      # deep soil in shadow
+  background_alt: "#212819"  # loam
+  border_secondary: "#a58fbf" # heather
+  success: "#8bc765"         # new growth — create (the meaningful green)
+  error: "#cc5140"           # red clay / poppy — destroy
+  warning: "#e6be48"         # buttercup — change
+  info: "#a99bd6"            # lavender
+  highlight: "#e6c14a"       # goldenrod
+  brand: "#463a52"           # heather shade — selection/badge bg
+  brand_bg: "#212819"        # loam
+  error_strong: "#e0604a"
+  error_dark: "#3a201b"
+  spinner_dim: "#a89a7e"
+  spinner_bright: "#e6c14a"
+  spinner_brightest: "#f2dc9a"
+  diff_add_bg: "#1e2e1c"     # add stays green (semantic)
+  diff_remove_bg: "#33231f"
+  line_number: "#5e5741"
+  separator: "#544a3f"       # dry twig
+  selected: "#3d2f4a"        # heather shade
+  selected_fg: "#f0e9d6"
+  suggestion_ghost: "#6f6650"
+  tab_bg: "#141a11"
+  tab_active_bg: "#212819"
+  tab_active_fg: "#ddd4bf"
+  tab_inactive_fg: "#7d745c"
+  tab_border: "#a58fbf"      # heather
+  placeholder: "#7d745c"
+  badge_accent: "#c29ed8"    # thistle
+  badge_info: "#a99bd6"      # lavender
+  badge_success: "#8bc765"   # new growth
+  agent_hues: [275, 45, 300, 60, 320, 30, 260, 85, 340, 15, 200, 130, 240, 95, 355, 160]
+
+chroma:
+  error_fg: "#f1f1f1"
+  error_bg: "#cc5140"
+  success: "#8bc765"
+  comment: "#7d745c"         # dry thatch
+  comment_preproc: "#a89a7e"
+  keyword: "#bd9ad8"         # thistle — HCL keywords
+  keyword_reserved: "#bd9ad8"
+  keyword_namespace: "#c29ed8"
+  keyword_type: "#e6c14a"    # goldenrod
+  operator: "#b3a582"
+  punctuation: "#b3a582"
+  name_builtin: "#a99bd6"    # lavender
+  name_tag: "#bd9ad8"
+  name_attribute: "#cbb884"  # dry-grass gold
+  name_decorator: "#c29ed8"
+  literal_number: "#e0c060"  # goldenrod
+  literal_string: "#c19a6b"  # bark
+  literal_string_escape: "#e6c14a"
+  generic_deleted: "#cc5140"
+  generic_subheading: "#7d745c"
+  background: "#212819"
+
+markdown:
+  heading: "#ecd9a8"         # pale goldenrod
+  link: "#9b9de0"            # lavender-blue
+  strong: "#e6c14a"          # goldenrod
+  code: "#ddd4bf"
+  code_bg: "#212819"
+  blockquote: "#a89a7e"
+  list: "#ddd4bf"
+  hr: "#544a3f"

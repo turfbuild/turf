@@ -1,0 +1,77 @@
+version: 1
+name: "Stadium"
+# Astroturf on a football field — vivid turf, crisp white chalk yard-lines,
+# pigskin leather, penalty-flag red, first-down yellow, team colors.
+colors:
+  text_bright: "#ffffff"     # chalk white
+  text_primary: "#d8e6d6"    # turf blade
+  text_secondary: "#9fb8a2"  # faded chalk
+  text_muted: "#6f8a74"      # weathered turf
+  text_faint: "#4c6552"      # end-zone shadow
+  accent: "#f2f7f0"          # chalk — yard-line borders, cursor, focus
+  accent_muted: "#9fb8a2"    # faded chalk — general muted text
+  background: "#0e1a11"      # field in stadium-night shadow
+  background_alt: "#16281a"  # turf shadow
+  border_secondary: "#e4ebe1" # chalk yard-line
+  success: "#35d64f"         # vivid astroturf — create
+  error: "#e23b3b"           # penalty-flag red — destroy
+  warning: "#ffc233"         # first-down yellow — change
+  info: "#4aa8ff"            # team blue
+  highlight: "#7cfc00"       # astro-lime sideline
+  brand: "#1f6f2e"           # end-zone turf — selection/badge bg
+  brand_bg: "#143019"
+  error_strong: "#ff5252"
+  error_dark: "#3a1414"
+  spinner_dim: "#9fb8a2"
+  spinner_bright: "#35d64f"
+  spinner_brightest: "#7cfc00"
+  diff_add_bg: "#123a1a"
+  diff_remove_bg: "#3a1616"
+  line_number: "#4c6552"
+  separator: "#cfd8cd"       # chalk yard-line
+  selected: "#1c5a29"        # turf
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#5c7562"
+  tab_bg: "#0b150d"
+  tab_active_bg: "#16281a"
+  tab_active_fg: "#d8e6d6"
+  tab_inactive_fg: "#6f8a74"
+  tab_border: "#e4ebe1"
+  placeholder: "#6f8a74"
+  badge_accent: "#4aa8ff"    # team blue
+  badge_info: "#ffc233"      # first-down yellow
+  badge_success: "#35d64f"   # astroturf
+  agent_hues: [135, 210, 0, 48, 275, 160, 20, 300, 100, 190, 55, 330, 240, 12, 170, 85]
+
+chroma:
+  error_fg: "#ffffff"
+  error_bg: "#e23b3b"
+  success: "#35d64f"
+  comment: "#7f9683"         # faded chalk
+  comment_preproc: "#9fb8a2"
+  keyword: "#35d64f"         # astroturf
+  keyword_reserved: "#35d64f"
+  keyword_namespace: "#7cfc00"
+  keyword_type: "#4aa8ff"
+  operator: "#9fb8a2"
+  punctuation: "#c4d4c6"
+  name_builtin: "#4aa8ff"    # team blue
+  name_tag: "#35d64f"
+  name_attribute: "#eef3ec"  # chalk
+  name_decorator: "#4aa8ff"
+  literal_number: "#ffc233"  # first-down yellow
+  literal_string: "#b5793b"  # pigskin
+  literal_string_escape: "#7cfc00"
+  generic_deleted: "#e23b3b"
+  generic_subheading: "#7f9683"
+  background: "#16281a"
+
+markdown:
+  heading: "#ffffff"         # chalk
+  link: "#4aa8ff"            # team blue
+  strong: "#7cfc00"          # astro-lime
+  code: "#d8e6d6"
+  code_bg: "#16281a"
+  blockquote: "#9fb8a2"
+  list: "#d8e6d6"
+  hr: "#cfd8cd"
