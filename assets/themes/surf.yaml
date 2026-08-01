@@ -1,0 +1,78 @@
+version: 1
+name: "Surf"
+# Turf underwater — seagrass & kelp as the "turf" on a deep teal-ocean canvas,
+# sea-foam text, bioluminescent-cyan chrome, with coral, warm sand, and
+# sea-urchin purple breaking up the syntax so it reads varied, not mono-teal.
+colors:
+  text_bright: "#e4f4f2"     # sea foam / whitecap
+  text_primary: "#c2d8d6"    # water-lit shallows
+  text_secondary: "#8fb0b2"  # muted seawater
+  text_muted: "#5f7f82"      # deep-water shadow (TextMutedGray)
+  text_faint: "#46605f"      # abyssal shadow
+  accent: "#3fd0d8"          # bioluminescent cyan — borders, cursor, focus
+  accent_muted: "#7fa8a8"    # muted seawater — general muted text
+  background: "#08171f"      # deep ocean
+  background_alt: "#0f2630"  # sunlit water column
+  border_secondary: "#3f9fb0" # reef edge
+  success: "#4fc98a"         # fresh seagrass / kelp sprout — create
+  error: "#e05563"           # lionfish / red tide — destroy
+  warning: "#f0a24b"         # clownfish / anemone — change
+  info: "#5aa9e6"            # open-water blue
+  highlight: "#5fe0d0"       # sunlit caustics
+  brand: "#2f3a55"           # deep-water indigo — selection/badge bg
+  brand_bg: "#0f2630"        # water column
+  error_strong: "#f0707c"
+  error_dark: "#3a1c22"
+  spinner_dim: "#7fa8a8"
+  spinner_bright: "#3fd0d8"
+  spinner_brightest: "#8ff0ec"
+  diff_add_bg: "#0f2e2a"     # add stays green-teal (semantic)
+  diff_remove_bg: "#3a1c22"
+  line_number: "#46605f"
+  separator: "#2f4a4d"       # kelp strand
+  selected: "#28324a"        # deep-water indigo
+  selected_fg: "#e4f4f2"
+  suggestion_ghost: "#5a7476"
+  tab_bg: "#06131a"
+  tab_active_bg: "#0f2630"
+  tab_active_fg: "#c2d8d6"
+  tab_inactive_fg: "#5f7f82"
+  tab_border: "#3f9fb0"      # reef edge
+  placeholder: "#5f7f82"
+  badge_accent: "#a48fd0"    # sea-urchin / anemone purple
+  badge_info: "#3fd0d8"      # bioluminescent cyan
+  badge_success: "#4fc98a"   # seagrass
+  agent_hues: [185, 165, 20, 275, 200, 150, 40, 300, 175, 220, 55, 320, 195, 140, 15, 250]
+
+chroma:
+  error_fg: "#f1f1f1"
+  error_bg: "#e05563"
+  success: "#4fc98a"
+  comment: "#5f7f82"         # deep water
+  comment_preproc: "#7fa8a8"
+  keyword: "#43c8d8"         # bioluminescent cyan
+  keyword_reserved: "#43c8d8"
+  keyword_namespace: "#5fe0d0"
+  keyword_type: "#f0a24b"    # coral
+  operator: "#8fb0b2"
+  punctuation: "#8fb0b2"
+  name_builtin: "#a48fd0"    # anemone purple
+  name_tag: "#43c8d8"
+  name_attribute: "#7fd4c0"  # seagrass aqua
+  name_decorator: "#a48fd0"
+  literal_number: "#f0a24b"  # coral
+  literal_string: "#d8b48a"  # sand / shell
+  literal_string_escape: "#5fe0d0"
+  generic_deleted: "#e05563"
+  generic_subheading: "#5f7f82"
+  background: "#0f2630"
+
+markdown:
+  heading: "#d8f0ec"         # foam
+  link: "#3fd0d8"            # cyan
+  strong: "#5fe0d0"          # caustics
+  code: "#c2d8d6"
+  code_bg: "#0f2630"
+  blockquote: "#7fa8a8"
+  list: "#c2d8d6"
+  hr: "#2f4a4d"

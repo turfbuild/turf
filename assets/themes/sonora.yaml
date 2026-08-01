@@ -1,0 +1,77 @@
+version: 1
+name: "Sonora"
+# Astroturf as an Arizona lawn — adobe, sandstone, saguaro & prickly-pear green,
+# turquoise stone, sunset coral and gold, red-rock clay.
+colors:
+  text_bright: "#f5e6cf"     # sunlit sandstone
+  text_primary: "#e2ccac"    # sand
+  text_secondary: "#b6997a"  # dry mesquite
+  text_muted: "#8a6d52"      # dust (TextMutedGray)
+  text_faint: "#6a533f"      # deep dust
+  accent: "#e08a3c"          # desert sun / adobe glow — borders, cursor, focus
+  accent_muted: "#c79a6e"    # mesquite — general muted text
+  background: "#221610"      # adobe in night-desert shadow
+  background_alt: "#2e1d13"  # terracotta clay
+  border_secondary: "#b98f5f" # sandstone ridge
+  success: "#7fa84f"         # saguaro / prickly-pear — create
+  error: "#d24b3e"           # red-rock clay — destroy
+  warning: "#e0a72e"         # sunset gold — change
+  info: "#45b7ae"            # turquoise stone
+  highlight: "#e8704f"       # coral sunset
+  brand: "#6e3b28"           # adobe wall — selection/badge bg
+  brand_bg: "#2a1810"
+  error_strong: "#e8604a"
+  error_dark: "#3a1a12"
+  spinner_dim: "#c79a6e"
+  spinner_bright: "#e08a3c"
+  spinner_brightest: "#f0b96a"
+  diff_add_bg: "#26301a"
+  diff_remove_bg: "#3a1c16"
+  line_number: "#6a533f"
+  separator: "#7a5c40"       # sandstone ridge
+  selected: "#543022"        # adobe
+  selected_fg: "#f5e6cf"
+  suggestion_ghost: "#7a614a"
+  tab_bg: "#1c120c"
+  tab_active_bg: "#2e1d13"
+  tab_active_fg: "#e2ccac"
+  tab_inactive_fg: "#8a6d52"
+  tab_border: "#b98f5f"
+  placeholder: "#8a6d52"
+  badge_accent: "#e8704f"    # coral
+  badge_info: "#45b7ae"      # turquoise
+  badge_success: "#7fa84f"   # saguaro
+  agent_hues: [28, 175, 95, 8, 45, 330, 200, 15, 60, 310, 160, 35, 350, 130, 20, 185]
+
+chroma:
+  error_fg: "#f5e6cf"
+  error_bg: "#d24b3e"
+  success: "#7fa84f"
+  comment: "#8a6d52"         # dust
+  comment_preproc: "#c79a6e"
+  keyword: "#e08a3c"         # desert sun
+  keyword_reserved: "#e08a3c"
+  keyword_namespace: "#e8704f"
+  keyword_type: "#45b7ae"
+  operator: "#b6997a"
+  punctuation: "#c7ad8c"
+  name_builtin: "#e8704f"    # coral
+  name_tag: "#e08a3c"
+  name_attribute: "#45b7ae"  # turquoise
+  name_decorator: "#e8704f"
+  literal_number: "#e0a72e"  # sunset gold
+  literal_string: "#7fa84f"  # saguaro
+  literal_string_escape: "#45b7ae"
+  generic_deleted: "#d24b3e"
+  generic_subheading: "#8a6d52"
+  background: "#2e1d13"
+
+markdown:
+  heading: "#ec8a5f"         # coral
+  link: "#45b7ae"            # turquoise
+  strong: "#e0a72e"          # sunset gold
+  code: "#e2ccac"
+  code_bg: "#2e1d13"
+  blockquote: "#c79a6e"
+  list: "#e2ccac"
+  hr: "#7a5c40"

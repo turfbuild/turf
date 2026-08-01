@@ -1,0 +1,77 @@
+version: 1
+name: "Lunar"
+# Astroturf on the moon — grey regolith, black star-sky, mare basalt, crater rim,
+# Earthrise blue, and one absurd astro-green (turf, on the moon) for create.
+colors:
+  text_bright: "#f0f2f6"     # starlight / sunlit regolith
+  text_primary: "#cdd0d8"    # moondust grey
+  text_secondary: "#9599a3"  # crater-rim grey
+  text_muted: "#6c7079"      # crater shadow (TextMutedGray)
+  text_faint: "#4a4e58"      # deep crater
+  accent: "#5aa9e6"          # Earthrise blue — borders, cursor, focus
+  accent_muted: "#8a9db0"    # dusty blue-grey — general muted text
+  background: "#0a0b0f"      # space black
+  background_alt: "#14151b"  # mare basalt
+  border_secondary: "#6c7079" # crater rim
+  success: "#57d98a"         # astroturf-green wink — create
+  error: "#e0596a"           # beacon / rust red — destroy
+  warning: "#d8b24a"         # solar-flare gold — change
+  info: "#5aa9e6"            # Earthrise blue
+  highlight: "#8fe3b0"       # astroturf glow
+  brand: "#2a2d38"           # basalt — selection/badge bg
+  brand_bg: "#14151b"
+  error_strong: "#f06a7a"
+  error_dark: "#3a1a20"
+  spinner_dim: "#8a9db0"
+  spinner_bright: "#5aa9e6"
+  spinner_brightest: "#a8d4f2"
+  diff_add_bg: "#122a1e"
+  diff_remove_bg: "#301820"
+  line_number: "#4a4e58"
+  separator: "#3a3e48"       # crater rim
+  selected: "#232735"        # basalt shelf
+  selected_fg: "#f0f2f6"
+  suggestion_ghost: "#5a5e68"
+  tab_bg: "#08090c"
+  tab_active_bg: "#14151b"
+  tab_active_fg: "#cdd0d8"
+  tab_inactive_fg: "#6c7079"
+  tab_border: "#6c7079"
+  placeholder: "#6c7079"
+  badge_accent: "#8fe3b0"    # astro-green
+  badge_info: "#5aa9e6"      # Earthrise blue
+  badge_success: "#57d98a"   # astroturf
+  agent_hues: [210, 150, 200, 230, 190, 260, 170, 220, 145, 240, 205, 160, 250, 185, 215, 155]
+
+chroma:
+  error_fg: "#f0f2f6"
+  error_bg: "#e0596a"
+  success: "#57d98a"
+  comment: "#6c7079"         # crater grey
+  comment_preproc: "#8a9db0"
+  keyword: "#57d98a"         # astro-green
+  keyword_reserved: "#57d98a"
+  keyword_namespace: "#8fe3b0"
+  keyword_type: "#5aa9e6"
+  operator: "#9599a3"
+  punctuation: "#b0b4bd"
+  name_builtin: "#7cc0f0"    # pale Earthrise blue
+  name_tag: "#57d98a"
+  name_attribute: "#5aa9e6"  # Earthrise blue
+  name_decorator: "#7cc0f0"
+  literal_number: "#dfe3ea"  # starlight
+  literal_string: "#b8a98f"  # regolith tan
+  literal_string_escape: "#8fe3b0"
+  generic_deleted: "#e0596a"
+  generic_subheading: "#6c7079"
+  background: "#14151b"
+
+markdown:
+  heading: "#f0f2f6"         # starlight
+  link: "#5aa9e6"            # Earthrise blue
+  strong: "#8fe3b0"          # astro-green
+  code: "#cdd0d8"
+  code_bg: "#14151b"
+  blockquote: "#8a9db0"
+  list: "#cdd0d8"
+  hr: "#3a3e48"

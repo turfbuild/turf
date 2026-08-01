@@ -1,24 +1,54 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
-// defaultThemeRef is turf's distinctive built-in default theme. It is a built-in
-// cagent theme (not the stock "default"), so turf looks distinct out of the box.
-// Change this single constant to re-brand the default look.
-const defaultThemeRef = "calm-roots"
+// defaultThemeRef is turf's distinctive built-in default theme — "meadow", one of
+// turf's own terrain themes shipped from assets/themes (see registerTurfThemes),
+// so turf looks distinct out of the box. Change this single constant to re-brand
+// the default look.
+const defaultThemeRef = "meadow"
 
-// TODO(theming): ship a fully custom turf-branded theme. Today this means
-// //go:embed a partial turf.yaml and materialize it to styles.ThemesDir() so the
-// on-disk loader merges it onto DefaultTheme; a public in-memory ParseTheme is
-// proposed upstream (docker/docker-agent#3180) and would let us skip the file write.
-// Deferred by choice — the default stays calm-roots, a green/nature palette.
+// turfThemes embeds turf's own terrain themes. They are authored as partial
+// theme YAML (merged onto cagent's stock DefaultTheme) under an assets/themes
+// directory; registerTurfThemes exposes them to cagent's theme engine so they
+// resolve via LoadTheme, appear in the /theme picker, and can be persisted —
+// exactly like cagent's bundled built-ins.
+//
+//go:embed assets/themes/*.yaml
+var turfThemes embed.FS
+
+// registerThemesOnce guards registerTurfThemes so registration happens exactly
+// once per process even though applyTurfTheme may be invoked more than once
+// (e.g. across tests).
+var registerThemesOnce sync.Once
+
+// registerTurfThemes contributes turf's embedded terrain themes to cagent's
+// theme engine. cagent's RegisterBuiltinThemes expects theme files under a
+// top-level "themes/" path, so we hand it a sub-FS rooted at assets/ (which then
+// presents "themes/<ref>.yaml"). Best-effort: a failure is logged, not fatal —
+// turf falls back to whatever themes remain resolvable.
+func registerTurfThemes() {
+	registerThemesOnce.Do(func() {
+		sub, err := fs.Sub(turfThemes, "assets")
+		if err != nil {
+			slog.Warn("turf: could not root embedded themes FS", "error", err)
+			return
+		}
+		if err := styles.RegisterBuiltinThemes(sub); err != nil {
+			slog.Warn("turf: could not register built-in themes", "error", err)
+		}
+	})
+}
 
 // turfHome returns turf's config/data home: $TURF_HOME, else ~/.turf.
 func turfHome() string {
@@ -38,6 +68,9 @@ func turfHome() string {
 // apply one itself before the TUI renders. Never hard-fails: on any error it falls
 // back to the stock default so the TUI is always styled.
 func applyTurfTheme() {
+	// Make turf's own terrain themes resolvable before any ref is loaded below.
+	registerTurfThemes()
+
 	home := turfHome()
 	// Redirect theme loading (styles.ThemesDir() == GetDataDir()/themes), the /theme
 	// picker, hot-reload, and persistence at turf's home instead of cagent's.

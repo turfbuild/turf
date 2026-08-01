@@ -97,7 +97,7 @@ Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers work
 | `--log-file`          | `TF_LOG_PATH`      | _(stderr)_                    | Write server logs to this file                   |
 | `--log-level`         | `TF_LOG_CORE`, `TF_LOG` | `info`                   | `trace`/`debug`/`info`/`warn`/`error`/`off`      |
 | `--log-format`        | `TF_LOG` `-JSON` suffix | `text`                   | `text` or `json`                                 |
-| `--theme`             | `TURF_THEME`       | `calm-roots`                  | TUI theme name; overrides the saved choice for this run |
+| `--theme`             | `TURF_THEME`       | `meadow`                      | TUI theme name; overrides the saved choice for this run |
 
 The three `--log-*` flags are pass-throughs to the `turf-mcp-server` subprocess. When unset, the `TF_LOG_*` env vars (matching OpenTofu's convention) reach the server through environment inheritance. Provider plugins also inherit these vars, so `TF_LOG_PROVIDER=DEBUG` enables plugin-side debug logging into the same sink as the server.
 
@@ -256,9 +256,24 @@ rather than plain `llama3`. See [Model providers](#model-providers).
 
 ## Theming
 
-The TUI ships with the **calm-roots** theme by default. Themes are loaded
-and saved from turf's own config home — `~/.turf` (override with `TURF_HOME`) —
-so turf never reads or writes `~/.cagent`.
+turf ships five built-in **terrain themes** — a play on turf's own name, the
+astroturf pun: the same astroturf imagined in a different terrain, each palette
+drawn from that place's natural objects. The terrain tints the HCL syntax colors
+and the create / destroy / change status colors, but those keep their meaning
+(create stays green, destroy red, change amber) so a plan stays legible:
+
+| Theme      | Terrain                        | Palette notes                                            |
+| ---------- | ------------------------------ | -------------------------------------------------------- |
+| `meadow`   | real (natural) turf — *default* | grass & loam canvas, wildflower buttercup/goldenrod & thistle/lavender ink |
+| `stadium`  | football-field astroturf       | vivid turf, white chalk yard-lines, pigskin, flag red    |
+| `sonora`   | Arizona xeriscape              | adobe, sandstone, saguaro green, turquoise, sunset coral |
+| `lunar`    | astroturf on the moon          | grey regolith, black sky, Earthrise blue, astro-green    |
+| `surf`     | turf underwater                | seagrass, deep teal ocean, bioluminescent cyan, coral, sea-urchin purple |
+
+The default is **meadow**. cagent's built-ins (and the legacy `calm-roots`)
+remain selectable via `/theme`. Themes are loaded and saved from turf's own
+config home — `~/.turf` (override with `TURF_HOME`) — so turf never reads or
+writes `~/.cagent`.
 
 To use a custom theme, drop a YAML file at `~/.turf/themes/<name>.yaml` and pick
 it inside the TUI with the `/theme` command. A partial file is merged onto the
