@@ -256,15 +256,19 @@ rather than plain `llama3`. See [Model providers](#model-providers).
 
 ## Theming
 
-turf ships four built-in **terrain themes** — a riff on the astroturf pun, each
-palette drawn from the natural objects of its terrain:
+turf ships five built-in **terrain themes** — a play on turf's own name, the
+astroturf pun: the same astroturf imagined in a different terrain, each palette
+drawn from that place's natural objects. The terrain tints the HCL syntax colors
+and the create / destroy / change status colors, but those keep their meaning
+(create stays green, destroy red, change amber) so a plan stays legible:
 
 | Theme      | Terrain                        | Palette notes                                            |
 | ---------- | ------------------------------ | -------------------------------------------------------- |
-| `meadow`   | real (natural) turf — *default* | grass blade, loam, morning dew, poppy, buttercup pollen  |
+| `meadow`   | real (natural) turf — *default* | grass & loam canvas, wildflower buttercup/goldenrod & thistle/lavender ink |
 | `stadium`  | football-field astroturf       | vivid turf, white chalk yard-lines, pigskin, flag red    |
 | `sonora`   | Arizona xeriscape              | adobe, sandstone, saguaro green, turquoise, sunset coral |
 | `lunar`    | astroturf on the moon          | grey regolith, black sky, Earthrise blue, astro-green    |
+| `surf`     | turf underwater                | seagrass, deep teal ocean, bioluminescent cyan, coral, sea-urchin purple |
 
 The default is **meadow**. cagent's built-ins (and the legacy `calm-roots`)
 remain selectable via `/theme`. Themes are loaded and saved from turf's own

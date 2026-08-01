@@ -11,7 +11,7 @@ import (
 
 // turfTerrainThemes are the terrain themes turf ships from assets/themes. meadow
 // is also the brand default (defaultThemeRef).
-var turfTerrainThemes = []string{"meadow", "stadium", "sonora", "lunar"}
+var turfTerrainThemes = []string{"meadow", "stadium", "sonora", "lunar", "surf"}
 
 // TestTurfThemesRegistered verifies each embedded terrain theme registers with
 // cagent's theme engine: it appears in ListThemeRefs and loads (parses) cleanly
