@@ -98,7 +98,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flagLogFile, "log-file", "", "Write turf-mcp-server logs to this file (default: stderr; env passthrough: TF_LOG_PATH)")
 	cmd.PersistentFlags().StringVar(&flagLogLevel, "log-level", "", "turf-mcp-server log level: trace|debug|info|warn|error|off (env passthrough: TF_LOG_CORE / TF_LOG)")
 	cmd.PersistentFlags().StringVar(&flagLogFormat, "log-format", "", "turf-mcp-server log format: text|json (env passthrough: TF_LOG=...-JSON)")
-	cmd.PersistentFlags().StringVar(&flagTheme, "theme", os.Getenv("TURF_THEME"), "TUI theme name; overrides the saved /theme choice for this run (default: meadow; env: TURF_THEME)")
+	cmd.PersistentFlags().StringVar(&flagTheme, "theme", os.Getenv("TURF_THEME"), "TUI theme name; overrides the saved /theme choice for this run (default: stadium; env: TURF_THEME)")
 	cmd.PersistentFlags().BoolVar(&flagDebug, "debug", os.Getenv("TURF_DEBUG") != "", "Log at debug level to <TURF_HOME>/turf.debug.log (default: warnings and errors only; env: TURF_DEBUG)")
 	cmd.PersistentFlags().BoolVar(&flagLean, "lean", os.Getenv("TURF_LEAN") != "", "Use the simplified lean TUI (no sidebar/tabs/overlays; renders to scrollback; env: TURF_LEAN)")
 	cmd.PersistentFlags().StringArrayVar(&flagAllowPaths, "allow-path", envPathList("TURF_ALLOW_PATH"), "Extra directory the file tools may read/write (and that is auto-approved), beyond the working dir; repeatable. Relative paths resolve against the working dir — prefer absolute (env: TURF_ALLOW_PATH, os.PathList-separated)")

@@ -12,11 +12,11 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
-// defaultThemeRef is turf's distinctive built-in default theme — "meadow", one of
+// defaultThemeRef is turf's distinctive built-in default theme — "stadium", one of
 // turf's own terrain themes shipped from assets/themes (see registerTurfThemes),
 // so turf looks distinct out of the box. Change this single constant to re-brand
 // the default look.
-const defaultThemeRef = "meadow"
+const defaultThemeRef = "stadium"
 
 // turfThemes embeds turf's own terrain themes. They are authored as partial
 // theme YAML (merged onto cagent's stock DefaultTheme) under an assets/themes

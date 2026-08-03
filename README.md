@@ -303,13 +303,13 @@ and the create / destroy / change status colors, but those keep their meaning
 
 | Theme      | Terrain                        | Palette notes                                            |
 | ---------- | ------------------------------ | -------------------------------------------------------- |
-| `meadow`   | real (natural) turf — *default* | grass & loam canvas, wildflower buttercup/goldenrod & thistle/lavender ink |
-| `stadium`  | football-field astroturf       | vivid turf, white chalk yard-lines, pigskin, flag red    |
+| `meadow`   | real (natural) turf            | grass & loam canvas, wildflower buttercup/goldenrod & thistle/lavender ink |
+| `stadium`  | football-field astroturf — *default* | vivid turf, white chalk yard-lines, pigskin, flag red |
 | `sonora`   | Arizona xeriscape              | adobe, sandstone, saguaro green, turquoise, sunset coral |
 | `lunar`    | astroturf on the moon          | grey regolith, black sky, Earthrise blue, astro-green    |
 | `surf`     | turf underwater                | seagrass, deep teal ocean, bioluminescent cyan, coral, sea-urchin purple |
 
-The default is **meadow**. cagent's built-ins (and the legacy `calm-roots`)
+The default is **stadium**. cagent's built-ins (and the legacy `calm-roots`)
 remain selectable via `/theme`. Themes are loaded and saved from turf's own
 config home — `~/.turf` (override with `TURF_HOME`) — so turf never reads or
 writes `~/.cagent`.

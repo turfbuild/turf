@@ -9,7 +9,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
-// turfTerrainThemes are the terrain themes turf ships from assets/themes. meadow
+// turfTerrainThemes are the terrain themes turf ships from assets/themes. stadium
 // is also the brand default (defaultThemeRef).
 var turfTerrainThemes = []string{"meadow", "stadium", "sonora", "lunar", "surf"}
 
