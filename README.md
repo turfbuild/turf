@@ -85,7 +85,7 @@ Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers work
 
 | Flag                  | Env                | Default                       | Description                                      |
 |-----------------------|--------------------|-------------------------------|--------------------------------------------------|
-| `--model`             | `TURF_MODEL`       | `google/gemini-pro-latest`    | LLM as `provider/model` (see [Model providers](#model-providers)) |
+| `--model`             | `TURF_MODEL`       | `auto`                        | LLM as a named model, `provider/model`, or `auto` (see [Model providers](#model-providers)) |
 | `--base-url`          | `TURF_MODEL_BASE_URL` | _(provider default)_       | Model endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways) |
 | `--mcp-server`        | `TURF_MCP_SERVER`  | _(PATH lookup)_               | Path to the `turf-mcp-server` binary             |
 | `--tmp-dir`           | `TURF_TMP_DIR`     | system temp                   | Cache directory for downloaded provider binaries |
@@ -153,8 +153,10 @@ to print only the agent's prose.
 
 turf runs on any model provider that Docker's [docker-agent] runtime supports —
 select one with `--model provider/model` (env `TURF_MODEL`). The default is
-`google/gemini-pro-latest`. Docker's [providers overview] lists the full matrix
-and each provider's exact configuration.
+`auto`: turf picks the first provider whose credentials are set, falling back to
+a keyless local model, so it runs out of the box — pin a specific default in
+[`turf.yaml`](#configuration-file-turfyaml). Docker's [providers overview] lists
+the full matrix and each provider's exact configuration.
 
 > **turf needs a tool-calling model.** Every turf action runs through tools, so
 > the model *must* support tool (function) calling. The cloud models below all
@@ -195,7 +197,7 @@ Export the matching API key, then select the model. A representative set:
 |------------------|--------------------------------------|--------------------------------------|
 | `anthropic`      | `anthropic/claude-sonnet-4-6`        | `ANTHROPIC_API_KEY`                  |
 | `openai`         | `openai/gpt-5`                       | `OPENAI_API_KEY`                     |
-| `google`         | `google/gemini-pro-latest` (default) | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| `google`         | `google/gemini-pro-latest`           | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
 | `mistral`        | `mistral/mistral-large-latest`       | `MISTRAL_API_KEY`                    |
 | `groq`           | `groq/llama-3.3-70b-versatile`       | `GROQ_API_KEY`                       |
 | `deepseek`       | `deepseek/deepseek-chat`             | `DEEPSEEK_API_KEY`                   |
@@ -215,8 +217,45 @@ For any OpenAI-compatible server (vLLM, LM Studio, an internal gateway), use the
 turf --model openai/my-model --base-url http://localhost:8000/v1
 ```
 
-A project can pin its model configuration in a `.turf/turf.yaml` (named models,
-credential-based `first_available` fallback) — see the
+### Configuration file (`turf.yaml`)
+
+Beyond the flags, a project can pin its model configuration in a `turf.yaml`,
+read from two locations in increasing precedence (project overrides global):
+
+- `~/.turf/turf.yaml` — per-user global (override the home dir with `TURF_HOME`)
+- `<project>/.turf/turf.yaml` — versioned alongside your infra config
+
+Overall model precedence is `--model` / `TURF_MODEL` > `turf.yaml` `model:` >
+`auto`. A minimal file:
+
+```yaml
+# Default selector: a named model below, an inline provider/model, or "auto".
+model: smart
+
+models:
+  # Try each candidate in order; pick the first whose credentials are set.
+  smart:
+    first_available:
+      - anthropic/claude-sonnet-5
+      - openai/gpt-4o
+      - dmr/ai/qwen3          # keyless local fallback
+  # A named model that targets a custom provider (defined below).
+  house:
+    provider: myhouse
+    model: my-model
+
+# Custom providers, referenced by models by name — e.g. an internal
+# OpenAI-compatible gateway. Credentials are read from the named env var.
+providers:
+  myhouse:
+    provider: openai
+    base_url: https://gateway.internal/v1
+    token_key: MY_HOUSE_KEY
+```
+
+The `models:` and `providers:` values follow docker-agent's model/provider
+schema, so per-model tuning fields (`temperature`, `max_tokens`, …) and a
+top-level `models_gateway:` work here too. For a complete project, see the
 [CLI configuration example](https://github.com/turfbuild/turf-examples/tree/main/integrations/turf-cli).
 
 [docker-agent]: https://docs.docker.com/ai/docker-agent/
