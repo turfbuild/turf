@@ -121,6 +121,31 @@ func TestResolveModelBaseURL(t *testing.T) {
 	}
 }
 
+// TestResolveModelCustomProvider confirms turf.yaml's `providers:` map is handed
+// to the factory at construction (via options.WithProviders) so a model that
+// references a custom provider by NAME resolves to that provider's definition.
+// Without that wiring the factory treats the provider name as an unknown provider
+// TYPE and fails with "unknown provider type".
+func TestResolveModelCustomProvider(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("MY_HOUSE_KEY", "test-key")
+	cfg := turfConfig{
+		Providers: map[string]latest.ProviderConfig{
+			"myhouse": {Provider: "openai", BaseURL: "http://localhost:9/v1", TokenKey: "MY_HOUSE_KEY"},
+		},
+		Models: map[string]latest.ModelConfig{
+			"house": {Provider: "myhouse", Model: "some-model"},
+		},
+	}
+	_, resolved, err := resolveModel(ctx, cfg, "house", "", providers.NewDefaultRegistry())
+	if err != nil {
+		t.Fatalf("resolveModel(house): %v", err)
+	}
+	if resolved.Provider != "myhouse" || resolved.Model != "some-model" {
+		t.Errorf("resolved = %q/%q, want myhouse/some-model", resolved.Provider, resolved.Model)
+	}
+}
+
 func TestBuildModelSwitcherConfig(t *testing.T) {
 	ctx := context.Background()
 	cfg := turfConfig{

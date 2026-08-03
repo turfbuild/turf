@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/dmr"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
 	"github.com/docker/docker-agent/pkg/runtime"
 )
@@ -61,7 +62,17 @@ func resolveModel(ctx context.Context, cfg turfConfig, pick, baseURL string, reg
 	if baseURL != "" {
 		resolved.BaseURL = baseURL
 	}
-	llm, err := reg.New(ctx, &resolved, env)
+	// Construct with the same provider-scoped options cagent's teamloader uses
+	// (pkg/teamloader/teamloader.go). WithProviders hands the factory turf.yaml's
+	// custom `providers:` map so a model referencing a provider by NAME resolves
+	// to that definition's type/base_url/token_key (without it the factory sees
+	// the provider name as an unknown provider TYPE and fails). WithGateway routes
+	// calls through `models_gateway:` at construction — cfg.ModelsGateway is
+	// otherwise only consulted during selection (Auto/first-available).
+	llm, err := reg.New(ctx, &resolved, env,
+		options.WithProviders(cfg.Providers),
+		options.WithGateway(cfg.ModelsGateway),
+	)
 	if err != nil {
 		return nil, latest.ModelConfig{}, err
 	}
