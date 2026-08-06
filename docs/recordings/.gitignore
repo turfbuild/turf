@@ -1,0 +1,9 @@
+# render.sh build/work artifacts — regenerated on demand, never committed.
+# (gitignore has no inline comments: a pattern with a trailing "# ..." would be
+# read literally and match nothing, so keep each annotation on its own line.)
+
+# the built VHS fork binary (Wait+Line)
+.bin/
+
+# cloned vhs fork source + kind-crd temp working copy
+.cache/

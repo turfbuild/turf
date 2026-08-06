@@ -1,0 +1,6 @@
+# turf/tofu runtime state — regenerated on every recording, never committed
+.turf/
+.terraform/
+terraform.tfstate*
+# the tofu state lock has a leading dot, so terraform.tfstate* above misses it
+.terraform.tfstate.lock.info
