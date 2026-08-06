@@ -12,7 +12,9 @@ any OpenTofu provider.
 
 It is intended as a showcase: a small, readable example of how to wrap the
 turf MCP server in a polished UX. The server is the product; this CLI is one
-way to consume it.
+way to consume it. Here's the CLI in action:
+
+<video src="https://github.com/user-attachments/assets/49d5d672-1c0e-41e2-a6d8-76c348dc6d5b" controls muted playsinline width="100%"></video>
 
 ## Install
 
