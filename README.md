@@ -14,7 +14,7 @@ It is intended as a showcase: a small, readable example of how to wrap the
 turf MCP server in a polished UX. The server is the product; this CLI is one
 way to consume it. Here's the CLI in action:
 
-<video src="https://github.com/user-attachments/assets/49d5d672-1c0e-41e2-a6d8-76c348dc6d5b" controls muted playsinline width="100%"></video>
+<video src="https://github.com/user-attachments/assets/49d5d672-1c0e-41e2-a6d8-76c348dc6d5b" poster="https://github.com/user-attachments/assets/66f701a5-37cc-4ef8-9c2b-c1a8da61a21e" controls muted playsinline width="100%"></video>
 
 ## Install
 
