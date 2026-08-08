@@ -199,7 +199,7 @@ func TestListenerForCallback(t *testing.T) {
 		if got := listener.Addr().String(); !strings.HasPrefix(got, "127.0.0.1:") {
 			t.Errorf("listener bound to %q, want 127.0.0.1", got)
 		}
-		if u.Port() != strconv.Itoa(listenPort) {
+		if u.Port() != strconv.Itoa(int(listenPort)) {
 			t.Errorf("redirect port %q does not match listener port %d", u.Port(), listenPort)
 		}
 		if listenPort < 10000 || listenPort > 10010 {
@@ -227,7 +227,7 @@ func TestListenerForCallback(t *testing.T) {
 		port := listenerPort(t, probe.Addr().String())
 		closeListener(t, probe)
 
-		listener, redirectURI, err := listenerForCallback(t.Context(), uint16(port), uint16(port))
+		listener, redirectURI, err := listenerForCallback(t.Context(), port, port)
 		if err != nil {
 			t.Fatalf("single-port range rejected: %v", err)
 		}
@@ -244,7 +244,7 @@ func TestListenerForCallback(t *testing.T) {
 			t.Fatalf("probe listener: %v", err)
 		}
 		t.Cleanup(func() { closeListener(t, held) })
-		port := uint16(listenerPort(t, held.Addr().String()))
+		port := listenerPort(t, held.Addr().String())
 
 		if listener, _, err := listenerForCallback(t.Context(), port, port); err == nil {
 			closeListener(t, listener)
@@ -826,18 +826,20 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
-// listenerPort reports the port a listener actually bound.
-func listenerPort(t *testing.T, addr string) int {
+// listenerPort reports the port a listener actually bound. It returns uint16 —
+// the type listenerForCallback takes — so callers never have to narrow an int
+// and reason about whether the value fits.
+func listenerPort(t *testing.T, addr string) uint16 {
 	t.Helper()
 	_, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		t.Fatalf("split %q: %v", addr, err)
 	}
-	port, err := strconv.Atoi(portStr)
+	port, err := strconv.ParseUint(portStr, 10, 16)
 	if err != nil {
 		t.Fatalf("parse port %q: %v", portStr, err)
 	}
-	return port
+	return uint16(port)
 }
 
 // closeListener closes a listener, failing the test if it cannot.

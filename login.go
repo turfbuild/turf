@@ -12,7 +12,7 @@ import (
 	"html"
 	"io"
 	"log/slog"
-	mrand "math/rand/v2"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -545,11 +545,19 @@ func listenerForCallback(ctx context.Context, minPort, maxPort uint16) (net.List
 		return nil, "", fmt.Errorf("the host advertises an invalid login port range %d-%d", minPort, maxPort)
 	}
 
-	span := int(maxPort) - int(minPort) + 1
+	span := int64(maxPort) - int64(minPort) + 1
 	tries := span + span/2
 	var lc net.ListenConfig
 	for range tries {
-		port := int(minPort) + mrand.IntN(span)
+		// crypto/rand rather than math/rand: the port is not itself a secret (it
+		// is advertised in redirect_uri), and `state` + PKCE are what actually
+		// secure the callback — but an unguessable port is free defense in depth
+		// against a local process racing to bind or forge on it.
+		n, err := rand.Int(rand.Reader, big.NewInt(span))
+		if err != nil {
+			return nil, "", fmt.Errorf("cannot choose a callback port: %w", err)
+		}
+		port := int64(minPort) + n.Int64()
 		// IPv4 loopback specifically: a host that registered a redirect on
 		// "localhost" may not resolve it to ::1.
 		listener, err := lc.Listen(ctx, "tcp4", fmt.Sprintf("127.0.0.1:%d", port))
