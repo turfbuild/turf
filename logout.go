@@ -46,19 +46,19 @@ func runLogout(host svchost.Hostname, credsPath string, out io.Writer) error {
 	}
 	if !stored {
 		// Not an error: the desired end state already holds.
-		fmt.Fprintf(out, "No credentials for %s are stored.\n", disp)
+		outf(out, "No credentials for %s are stored.\n", disp)
 		return nil
 	}
 
-	fmt.Fprintf(out, "Removing the stored credentials for %s from the following file:\n    %s\n", disp, credsPath)
+	outf(out, "Removing the stored credentials for %s from the following file:\n    %s\n", disp, credsPath)
 	if err := forgetCredential(credsPath, host); err != nil {
 		return err
 	}
 
 	if envVar, ok := envTokenVarForHost(host); ok {
-		fmt.Fprintf(out, "\nNote: the environment variable %s is still set for\n%s and will continue to authenticate requests to it.\n", envVar, disp)
+		outf(out, "\nNote: the environment variable %s is still set for\n%s and will continue to authenticate requests to it.\n", envVar, disp)
 	}
 
-	fmt.Fprintf(out, "\nSuccess! turf has removed the stored API token for %s.\n", disp)
+	outf(out, "\nSuccess! turf has removed the stored API token for %s.\n", disp)
 	return nil
 }

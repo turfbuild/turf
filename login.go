@@ -91,6 +91,14 @@ var stdinIsInteractive = func() bool { return term.IsTerminal(int(stdin.Fd())) }
 // errTokenInvalid reports that the host rejected the supplied token.
 var errTokenInvalid = errors.New("the token is invalid")
 
+// outf writes user-facing output. The write error is dropped deliberately: if
+// the terminal (or the browser callback response) cannot be written to, there is
+// nowhere left to report that, and threading it through every prompt and status
+// line would obscure the errors that actually matter.
+func outf(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
 // loginOptions is the injectable core of the login flow. RunE assembles one
 // from flags and the environment; tests construct one directly with a Disco
 // preloaded via ForceHostServices and an httptest-backed client, so no test
@@ -205,7 +213,7 @@ func runLogin(ctx context.Context, o loginOptions) error {
 		return err
 	}
 	if envVar, ok := envTokenVarForHost(o.host); ok {
-		fmt.Fprintf(o.out, "\nNote: the environment variable %s is set for\n%s and takes precedence over the credentials file. The token\nsaved by turf login will not be used until you unset it.\n", envVar, disp)
+		outf(o.out, "\nNote: the environment variable %s is set for\n%s and takes precedence over the credentials file. The token\nsaved by turf login will not be used until you unset it.\n", envVar, disp)
 	}
 
 	ok, err := consent(o, oauthClient != nil, replacing)
@@ -230,7 +238,7 @@ func runLogin(ctx context.Context, o loginOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(o.out, "\nSuccess! turf has obtained and saved an API token.\n\n"+
+	outf(o.out, "\nSuccess! turf has obtained and saved an API token.\n\n"+
 		"The new API token will be used for any future turf command that must make\nauthenticated requests to %s.\n", disp)
 	return nil
 }
@@ -266,7 +274,7 @@ func loginFromStdin(ctx context.Context, o loginOptions) error {
 	if err := storeCredential(o.credsPath, o.host, token); err != nil {
 		return err
 	}
-	fmt.Fprintf(o.out, "Success! turf has saved an API token for %s.\n", disp)
+	outf(o.out, "Success! turf has saved an API token for %s.\n", disp)
 	return nil
 }
 
@@ -277,18 +285,18 @@ func consent(o loginOptions, oauthBased, replacing bool) (bool, error) {
 	disp := o.host.ForDisplay()
 
 	if oauthBased {
-		fmt.Fprintf(o.out, "\nturf will request an API token for %s using OAuth.\n\n"+
+		outf(o.out, "\nturf will request an API token for %s using OAuth.\n\n"+
 			"This will work only if you are able to use a web browser on this computer to\n"+
 			"complete a login process. If not, you must obtain an API token by another\n"+
 			"means and configure it in the CLI configuration manually.\n", disp)
 	} else {
-		fmt.Fprintf(o.out, "\nturf will request an API token for %s using your browser.\n", disp)
+		outf(o.out, "\nturf will request an API token for %s using your browser.\n", disp)
 	}
 
-	fmt.Fprintf(o.out, "\nIf login is successful, turf will store the token in plain text in\n"+
+	outf(o.out, "\nIf login is successful, turf will store the token in plain text in\n"+
 		"the following file for use by subsequent commands:\n    %s\n", o.credsPath)
 	if replacing {
-		fmt.Fprintf(o.out, "\nThis will replace the token currently stored for %s.\n", disp)
+		outf(o.out, "\nThis will replace the token currently stored for %s.\n", disp)
 	}
 
 	answer, err := promptLine(o.out, "\nDo you want to proceed? Only 'yes' will be accepted to confirm: ")
@@ -383,13 +391,13 @@ func loginByCode(ctx context.Context, o loginOptions, client *disco.OAuthClient)
 	authURL := cfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
 
 	// Print before opening, so the URL is on screen even if the browser fails.
-	fmt.Fprintf(o.out, "\nturf must now open a web browser to the login page for %s.\n\n"+
+	outf(o.out, "\nturf must now open a web browser to the login page for %s.\n\n"+
 		"If a browser does not open this automatically, open the following URL to proceed:\n    %s\n",
 		o.host.ForDisplay(), authURL)
 	if err := openBrowser(ctx, authURL); err != nil {
 		slog.Warn("failed to open the browser for login", "err", err)
 	}
-	fmt.Fprintf(o.out, "\nturf will now wait for the host to signal that login was successful.\n")
+	outf(o.out, "\nturf will now wait for the host to signal that login was successful.\n")
 
 	var code string
 	select {
@@ -426,14 +434,14 @@ func loginByToken(ctx context.Context, o loginOptions, tfeService *url.URL) (str
 	disp := o.host.ForDisplay()
 	pageURL := tokensPageURL(tfeService)
 
-	fmt.Fprintf(o.out, "\n%s\n\nturf must now open a web browser to the tokens page for %s.\n\n"+
+	outf(o.out, "\n%s\n\nturf must now open a web browser to the tokens page for %s.\n\n"+
 		"If a browser does not open this automatically, open the following URL to proceed:\n    %s\n",
 		loginSeparator, disp, pageURL)
 	if err := openBrowser(ctx, pageURL); err != nil {
 		slog.Warn("failed to open the browser for the tokens page", "err", err)
 	}
 
-	fmt.Fprintf(o.out, "\n%s\n\nGenerate a token using your browser, and copy-paste it into this prompt.\n\n"+
+	outf(o.out, "\n%s\n\nGenerate a token using your browser, and copy-paste it into this prompt.\n\n"+
 		"turf will store the token in plain text in the following file\nfor use by subsequent commands:\n    %s\n",
 		loginSeparator, o.credsPath)
 
@@ -453,7 +461,7 @@ func loginByToken(ctx context.Context, o loginOptions, tfeService *url.URL) (str
 		}
 		return "", fmt.Errorf("failed to retrieve user account details: %w", err)
 	}
-	fmt.Fprintf(o.out, "\nRetrieved token for user %s\n", username)
+	outf(o.out, "\nRetrieved token for user %s\n", username)
 
 	return token, nil
 }
@@ -492,7 +500,7 @@ func validateTFEToken(ctx context.Context, client *http.Client, base *url.URL, t
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return "", errTokenInvalid
@@ -564,7 +572,7 @@ func randomState() (string, error) {
 func writeCallbackPage(w http.ResponseWriter, status int, title, detail string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	outf(w, `<!DOCTYPE html>
 <html>
 <head><title>%[1]s</title></head>
 <body style="font-family: system-ui, sans-serif; text-align: center; padding-top: 4rem;">
@@ -578,10 +586,10 @@ func writeCallbackPage(w http.ResponseWriter, status int, title, detail string) 
 // The non-terminal branch is not only a fallback for odd environments: it is
 // also what lets tests drive the prompt through a pipe with no seam.
 func promptSecret(out io.Writer, prompt string) (string, error) {
-	fmt.Fprint(out, prompt)
+	outf(out, "%s", prompt)
 	if term.IsTerminal(int(stdin.Fd())) {
 		line, err := term.ReadPassword(int(stdin.Fd()))
-		fmt.Fprintln(out)
+		outf(out, "\n")
 		if err != nil {
 			return "", fmt.Errorf("cannot read the token: %w", err)
 		}
@@ -591,7 +599,7 @@ func promptSecret(out io.Writer, prompt string) (string, error) {
 }
 
 func promptLine(out io.Writer, prompt string) (string, error) {
-	fmt.Fprint(out, prompt)
+	outf(out, "%s", prompt)
 	return readLine()
 }
 

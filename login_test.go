@@ -44,7 +44,7 @@ func setStdin(t *testing.T, input string) {
 	stdin, stdinLines = f, nil
 	t.Cleanup(func() {
 		stdin, stdinLines = prevFile, prevReader
-		f.Close()
+		_ = f.Close()
 	})
 }
 
@@ -179,7 +179,7 @@ func TestListenerForCallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("listenerForCallback: %v", err)
 		}
-		defer listener.Close()
+		t.Cleanup(func() { closeListener(t, listener) })
 
 		u, err := url.Parse(redirectURI)
 		if err != nil {
@@ -207,28 +207,32 @@ func TestListenerForCallback(t *testing.T) {
 		}
 	})
 
+	// A host must not be able to talk turf into binding a privileged port.
+	t.Run("privileged range rejected", func(t *testing.T) {
+		listener, _, err := listenerForCallback(t.Context(), 0, 0)
+		if err == nil {
+			closeListener(t, listener)
+			t.Fatal("privileged range accepted, want an error")
+		}
+	})
+
 	// tofu computes its span as max-min, so a single-port range yields zero
 	// attempts and a spurious failure. Accepting it is a strict superset.
 	t.Run("single port range", func(t *testing.T) {
-		listener, redirectURI, err := listenerForCallback(t.Context(), 0, 0)
-		if err == nil {
-			listener.Close()
-			t.Fatal("privileged range accepted, want an error")
-		}
-
-		// Find a free port to name as a single-port range.
+		// Bind and release a port so we know one specific port is free.
 		probe, _, err := listenerForCallback(t.Context(), 10000, 10010)
 		if err != nil {
 			t.Fatalf("probe listener: %v", err)
 		}
 		port := listenerPort(t, probe.Addr().String())
-		probe.Close()
+		closeListener(t, probe)
 
-		listener, redirectURI, err = listenerForCallback(t.Context(), uint16(port), uint16(port))
+		listener, redirectURI, err := listenerForCallback(t.Context(), uint16(port), uint16(port))
 		if err != nil {
 			t.Fatalf("single-port range rejected: %v", err)
 		}
-		defer listener.Close()
+		t.Cleanup(func() { closeListener(t, listener) })
+
 		if want := fmt.Sprintf("http://localhost:%d/login", port); redirectURI != want {
 			t.Errorf("redirect URI = %q, want %q", redirectURI, want)
 		}
@@ -239,11 +243,11 @@ func TestListenerForCallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("probe listener: %v", err)
 		}
-		defer held.Close()
+		t.Cleanup(func() { closeListener(t, held) })
 		port := uint16(listenerPort(t, held.Addr().String()))
 
 		if listener, _, err := listenerForCallback(t.Context(), port, port); err == nil {
-			listener.Close()
+			closeListener(t, listener)
 			t.Fatal("bound an already-held port, want an error")
 		}
 	})
@@ -271,7 +275,7 @@ func TestLoginByCodeEndToEnd(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		// A refresh token and expiry are returned deliberately: the login
 		// protocol has no notion of refreshing, so they must be dropped.
-		fmt.Fprint(w, `{"access_token":"the-token","token_type":"bearer","refresh_token":"nope","expires_in":3600}`)
+		_, _ = fmt.Fprint(w, `{"access_token":"the-token","token_type":"bearer","refresh_token":"nope","expires_in":3600}`)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -314,7 +318,7 @@ func TestLoginByCodeEndToEnd(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("callback status = %d, want 200", resp.StatusCode)
 		}
@@ -388,7 +392,7 @@ func TestLoginByCodeReportsAuthorizationError(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("callback status = %d, want 400", resp.StatusCode)
 		}
@@ -439,7 +443,7 @@ func TestLoginByCodeRejectsBadCallbacks(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 				if resp.StatusCode != http.StatusBadRequest {
 					t.Errorf("callback status = %d, want 400", resp.StatusCode)
 				}
@@ -488,7 +492,7 @@ func TestLoginByTokenEndToEnd(t *testing.T) {
 					return
 				}
 				w.Header().Set("Content-Type", "application/vnd.api+json")
-				fmt.Fprint(w, `{"data":{"attributes":{"username":"alice"}}}`)
+				_, _ = fmt.Fprint(w, `{"data":{"attributes":{"username":"alice"}}}`)
 			})
 			srv := httptest.NewServer(mux)
 			defer srv.Close()
@@ -675,7 +679,7 @@ func TestLoginRequiresInteractiveStdin(t *testing.T) {
 	t.Run("token-stdin stores without prompting", func(t *testing.T) {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/api/v2/account/details", func(w http.ResponseWriter, _ *http.Request) {
-			fmt.Fprint(w, `{"data":{"attributes":{"username":"alice"}}}`)
+			_, _ = fmt.Fprint(w, `{"data":{"attributes":{"username":"alice"}}}`)
 		})
 		srv := httptest.NewServer(mux)
 		defer srv.Close()
@@ -732,7 +736,7 @@ func TestLoginWarnsAboutEnvShadowing(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v2/account/details", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `{"data":{"attributes":{"username":"alice"}}}`)
+		_, _ = fmt.Fprint(w, `{"data":{"attributes":{"username":"alice"}}}`)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -777,7 +781,7 @@ func TestValidateTFEToken(t *testing.T) {
 					t.Errorf("Accept = %q, want application/vnd.api+json", got)
 				}
 				w.WriteHeader(tc.status)
-				fmt.Fprint(w, tc.body)
+				_, _ = fmt.Fprint(w, tc.body)
 			})
 			srv := httptest.NewServer(mux)
 			defer srv.Close()
@@ -834,4 +838,12 @@ func listenerPort(t *testing.T, addr string) int {
 		t.Fatalf("parse port %q: %v", portStr, err)
 	}
 	return port
+}
+
+// closeListener closes a listener, failing the test if it cannot.
+func closeListener(t *testing.T, l net.Listener) {
+	t.Helper()
+	if err := l.Close(); err != nil {
+		t.Errorf("close listener: %v", err)
+	}
 }
