@@ -120,7 +120,7 @@ func newLoginCmd() *cobra.Command {
 		Short: "Obtain and save an API token for a remote host",
 		Long: "Obtain and save an API token for a Terraform-compatible host, such as a private module registry or a TFE-compatible backend.\n\n" +
 			"The token is written to credentials.tfrc.json in your OpenTofu/Terraform CLI configuration directory (~/.terraform.d on macOS and Linux), so tofu and terraform read the same credentials turf stores.\n\n" +
-			"Note that turf itself does not yet use these credentials for its own registry and backend requests; today they serve a co-installed tofu or terraform.\n\n" +
+			"turf uses these credentials for its own host-facing requests too — remote-protocol state backends (HCP Terraform, Scalr, TFE) and the provider registry. That consumption lives in turf-mcp-server and landed after v0.11.1; against an older server the file is still written and still serves tofu/terraform, but the server authenticates anonymously.\n\n" +
 			"A TF_TOKEN_<hostname> environment variable, and any credentials block in .terraformrc or .tofurc, take precedence over the file this command writes.",
 		Args: exactlyOneHost("login", "log in to"),
 		RunE: func(cmd *cobra.Command, args []string) error {

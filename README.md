@@ -128,8 +128,14 @@ versa):
 The file is written with mode `0600`, and any unrelated settings already in it
 (`plugin_cache_dir`, `provider_installation`, other hosts) are preserved.
 
-> **Note:** turf does not yet use these credentials for its *own* registry and
-> backend requests — today they serve a co-installed `tofu` or `terraform`.
+turf uses these credentials for its own host-facing requests too — `remote`-protocol
+state backends (HCP Terraform, Scalr, TFE) and the provider registry — so one
+`turf login` covers turf and a co-installed `tofu`/`terraform` alike.
+
+> **Note:** that consumption lives in `turf-mcp-server` and landed after **v0.11.1**.
+> Against v0.11.1 or earlier the file is still written correctly and still serves
+> `tofu`/`terraform`, but the server itself authenticates anonymously. Check with
+> `turf-mcp-server --version`.
 
 Most hosts, including HCP Terraform and Scalr, do not implement the OAuth login
 protocol, so `turf login` opens their user-token page and reads back the token
