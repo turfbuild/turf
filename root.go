@@ -113,6 +113,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newDestroyCmd())
 	cmd.AddCommand(newChatCmd())
 	cmd.AddCommand(newExecCmd())
+	cmd.AddCommand(newLoginCmd())
+	cmd.AddCommand(newLogoutCmd())
 	cmd.AddCommand(newVersionCmd())
 
 	return cmd

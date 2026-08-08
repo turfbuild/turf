@@ -10,7 +10,10 @@ require (
 	github.com/docker/docker-agent v1.118.0-turf.1
 	github.com/goccy/go-yaml v1.19.2
 	github.com/mattn/go-isatty v0.0.24
+	github.com/opentofu/svchost v0.0.0-20250610175836-86c9e5e3d8c8
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/oauth2 v0.36.0
+	golang.org/x/term v0.45.0
 )
 
 require (
@@ -145,10 +148,8 @@ require (
 	golang.org/x/image v0.44.0 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect

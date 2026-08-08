@@ -79,6 +79,10 @@ turf --model dmr/ai/qwen3 chat
 
 # Run a one-shot request without the TUI (see Scripting with exec)
 turf exec "what workspaces exist?"
+
+# Authenticate to a private registry or TFE-compatible host (see Credentials)
+turf login app.terraform.io
+turf logout app.terraform.io
 ```
 
 Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers workspaces, remote backends, registry modules, Terraform Actions, and a live Kubernetes stack converged via deferrals. **Showcase** is the recommended starting point — a fast, cross-cutting grand tour — but you can jump straight to any deep-dive topic (`/demo actions`, `/demo deferrals`, etc.).
@@ -102,6 +106,58 @@ Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers work
 | `--theme`             | `TURF_THEME`       | `meadow`                      | TUI theme name; overrides the saved choice for this run |
 
 The three `--log-*` flags are pass-throughs to the `turf-mcp-server` subprocess. When unset, the `TF_LOG_*` env vars (matching OpenTofu's convention) reach the server through environment inheritance. Provider plugins also inherit these vars, so `TF_LOG_PROVIDER=DEBUG` enables plugin-side debug logging into the same sink as the server.
+
+### Credentials
+
+`turf login <hostname>` obtains an API token for a Terraform-compatible host — a
+private module registry, or a TFE-compatible backend such as HCP Terraform or
+Scalr — and `turf logout <hostname>` removes it again. Like `tofu login`, both
+require an explicit hostname; neither guesses a default.
+
+The token is written to **`credentials.tfrc.json` in your OpenTofu/Terraform CLI
+configuration directory**, in the same format those tools write, so a
+co-installed `tofu` or `terraform` reads exactly what turf stores (and vice
+versa):
+
+| Platform | Path |
+|---|---|
+| macOS, Linux | `~/.terraform.d/credentials.tfrc.json` |
+| Linux, fresh install with `XDG_CONFIG_HOME` set and no `~/.terraform.d` | `$XDG_CONFIG_HOME/opentofu/credentials.tfrc.json` |
+| Windows | `%APPDATA%\terraform.d\credentials.tfrc.json` |
+
+The file is written with mode `0600`, and any unrelated settings already in it
+(`plugin_cache_dir`, `provider_installation`, other hosts) are preserved.
+
+> **Note:** turf does not yet use these credentials for its *own* registry and
+> backend requests — today they serve a co-installed `tofu` or `terraform`.
+
+Most hosts, including HCP Terraform and Scalr, do not implement the OAuth login
+protocol, so `turf login` opens their user-token page and reads back the token
+you paste. Hosts that do advertise a `login.v1` service get a full OAuth 2.0
+authorization-code flow with PKCE instead. Either way turf shows you where the
+token will be stored and asks for confirmation before writing it.
+
+For CI, pipe the token instead of typing it:
+
+```sh
+echo "$TFE_TOKEN" | turf login --token-stdin tfe.example.com
+```
+
+Prefer a pipe over a herestring (`<<<`), which materializes the token in a
+temporary file in some shells. Without `--token-stdin`, `turf login` refuses to
+run with stdin redirected rather than hanging on a prompt nobody can answer.
+
+Precedence when a host is configured more than once follows OpenTofu's: a
+`TF_TOKEN_<hostname>` environment variable wins over the credentials file, which
+wins over a credentials helper. `turf login` warns when the token it is about to
+write would be shadowed by such a variable, and `turf logout` warns when one will
+keep authenticating you after the stored token is gone.
+
+Two limitations relative to `tofu login`: turf does not detect a `credentials`
+block hand-written in `.terraformrc`/`.tofurc` (such a block silently keeps
+winning over the file turf writes), and it does not support credentials helpers.
+Note also that `turf logout` only forgets the token locally — it does not revoke
+it on the host, so revoke it there if it has leaked.
 
 ### Scripting with `exec`
 
