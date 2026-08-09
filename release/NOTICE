@@ -8,9 +8,9 @@ This archive distributes two binaries:
   * turf            — the reference Turf CLI. Open source under the Mozilla
     Public License 2.0 (MPL-2.0).
 
-On Linux, the turf CLI is built without CGO, so its voice/audio capture is
-inactive; text chat and all MCP tooling are unaffected. Voice capture is
-available in the macOS build.
+The released turf CLI is built without CGO on every platform, so its
+voice/audio capture is inactive in these binaries; text chat and all MCP
+tooling are unaffected.
 
 Source for the MPL-2.0 turf CLI is available on request: contact
 eronwright@gmail.com.
@@ -26,7 +26,7 @@ Mozilla Public License 2.0 (MPL-2.0)
 ------------------------------------
 
   * OpenTofu (downstream fork)
-      https://github.com/turfbuild/opentofu  (tag v1.12.3-turf.3)
+      https://github.com/turfbuild/opentofu  (tag v1.12.3-turf.6)
       Upstream: https://github.com/opentofu/opentofu
       Copyright (c) The OpenTofu Authors; Copyright (c) 2014 HashiCorp, Inc.
       The fork additionally carries x/ ("OpenTofu extensions"), a library
@@ -49,7 +49,7 @@ Permissive licenses (MIT, Apache-2.0, BSD)
   * Docker Agent (formerly cagent), downstream fork — the LLM runtime embedded
     by the turf CLI
       github.com/docker/docker-agent  (Apache License 2.0)
-      https://github.com/turfbuild/docker-agent  (tag v1.118.0-turf.1)
+      https://github.com/turfbuild/docker-agent  (tag v1.118.0-turf.2)
       Upstream: https://github.com/docker/docker-agent
       Copyright (c) Docker Inc. and the Docker Agent authors
 
