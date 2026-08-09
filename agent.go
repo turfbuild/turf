@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/memory/database/sqlite"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
 	"github.com/docker/docker-agent/pkg/permissions"
@@ -268,26 +269,54 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 			}
 		}
 	}()
+	// ${VAR} / ${env.VAR} in mcps: values expand with the same default provider
+	// turf uses for models: (models.go) — keeps env-expansion uniform across
+	// turf.yaml and matches cagent's own MCP config loader (pkg/tools/mcp/mcp.go).
+	mcpEnv := environment.NewDefaultProvider()
 	for _, name := range slices.Sorted(maps.Keys(turfCfg.MCPs)) {
 		m := turfCfg.MCPs[name]
 		var ts *mcp.Toolset
 		switch {
 		case m.Command != "":
-			// Forward turf's environment to the subprocess so a `docker run --env
-			// NAME` (no value) carries NAME from here into the container — how
-			// SCALR_API_TOKEN reaches the Scalr MCP server without living in
-			// turf.yaml. Per-server `env:` entries override.
-			env := os.Environ()
-			for k, v := range m.Env {
-				env = append(env, k+"="+v)
+			// Declared env: first, ambient os.Environ() last — ambient wins on a
+			// key collision (cmd.Env is last-wins), matching cagent. This is also
+			// what lets `docker run --env NAME` (no value) forward NAME from
+			// turf's env into the container, so a token like SCALR_API_TOKEN never
+			// lives in turf.yaml. The stdio client replaces the process env
+			// (cmd.Env = env), so os.Environ() must be included.
+			env, err := mcpStdioEnv(ctx, m, mcpEnv, os.Environ())
+			if err != nil {
+				_ = mcpToolset.Stop(ctx)
+				return nil, nil, nil, nil, fmt.Errorf("mcps.%s: expanding env: %w", name, err)
 			}
 			ts = mcp.NewToolsetCommand(name, m.Command, m.Args, env, cwd)
 		case m.URL != "":
+			// Expand ${VAR} in the URL and header values up front, as cagent does.
+			// (Unlike cagent, the public NewRemoteToolset can't re-expand headers
+			// per request, so a rotating-token header is fixed at startup here —
+			// fine for a static token.)
+			remoteURL, err := environment.Expand(ctx, m.URL, mcpEnv)
+			if err != nil {
+				_ = mcpToolset.Stop(ctx)
+				return nil, nil, nil, nil, fmt.Errorf("mcps.%s: expanding url: %w", name, err)
+			}
+			var headers map[string]string
+			if len(m.Headers) > 0 {
+				headers = make(map[string]string, len(m.Headers))
+				for k, v := range m.Headers {
+					hv, err := environment.Expand(ctx, v, mcpEnv)
+					if err != nil {
+						_ = mcpToolset.Stop(ctx)
+						return nil, nil, nil, nil, fmt.Errorf("mcps.%s: expanding header %q: %w", name, k, err)
+					}
+					headers[k] = hv
+				}
+			}
 			transport := m.Transport
 			if transport == "" {
 				transport = "streamable"
 			}
-			ts = mcp.NewRemoteToolset(name, m.URL, transport, m.Headers, nil)
+			ts = mcp.NewRemoteToolset(name, remoteURL, transport, headers, nil)
 		default:
 			_ = mcpToolset.Stop(ctx)
 			return nil, nil, nil, nil, fmt.Errorf("mcps.%s: set either 'command' (stdio) or 'url' (remote)", name)

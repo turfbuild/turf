@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/goccy/go-yaml"
 )
 
@@ -51,11 +53,14 @@ type turfConfig struct {
 
 // mcpServerConfig declares one external MCP server for the `mcps:` overlay.
 // Exactly one transport is used: stdio (a local subprocess via Command+Args) or
-// remote (URL). Env is forwarded to a stdio subprocess — so a `docker run --env
-// NAME` (no value) can forward NAME from turf's own environment into the
-// container, which is how a token reaches the server without being written here.
-// Headers/Transport apply to the remote transport ("streamable" — the default —
-// or "sse").
+// remote (URL). Values in Env/URL/Headers may reference ${VAR} / ${env.VAR},
+// expanded with the same default provider turf uses for models: (see
+// mcpStdioEnv) — matching cagent's own MCP config loader. For a stdio server the
+// ambient environment is propagated to the subprocess, so a `docker run --env
+// NAME` (no value) forwards NAME from turf's environment into the container —
+// how a token reaches the server without being written here; on a key collision
+// the ambient value wins over Env. Headers/Transport apply to the remote
+// transport ("streamable" — the default — or "sse").
 type mcpServerConfig struct {
 	Command   string            `yaml:"command,omitempty"`
 	Args      []string          `yaml:"args,omitempty"`
@@ -63,6 +68,21 @@ type mcpServerConfig struct {
 	URL       string            `yaml:"url,omitempty"`
 	Transport string            `yaml:"transport,omitempty"`
 	Headers   map[string]string `yaml:"headers,omitempty"`
+}
+
+// mcpStdioEnv assembles the environment for a stdio MCP subprocess: the server's
+// declared Env (with ${VAR} / ${env.VAR} expanded via provider) FIRST, then the
+// ambient environment LAST. cmd.Env is last-wins on duplicate keys (see the
+// stdio client's cmd.Env = env), so the ambient environment overrides a
+// colliding declared key — the same precedence and expansion as cagent's config
+// loader (pkg/tools/mcp/mcp.go). Passing ambient in (rather than reading
+// os.Environ here) keeps the precedence unit-testable.
+func mcpStdioEnv(ctx context.Context, m mcpServerConfig, provider environment.Provider, ambient []string) ([]string, error) {
+	declared, err := environment.ExpandAll(ctx, environment.ToValues(m.Env), provider)
+	if err != nil {
+		return nil, err
+	}
+	return append(declared, ambient...), nil
 }
 
 // loadTurfConfig reads and merges turf's config file from two locations, in

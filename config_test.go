@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/docker/docker-agent/pkg/environment"
 )
 
 // writeFile is a tiny helper that creates parent dirs and writes a file.
@@ -167,6 +171,39 @@ mcps:
 	}
 	if ro := cfg.MCPs["remote-only"]; ro.URL != "https://example.com/mcp" || ro.Transport != "sse" {
 		t.Errorf("remote-only = %+v, want url+sse to survive the merge", ro)
+	}
+}
+
+// TestMCPStdioEnvExpandsAndAmbientWins confirms mcpStdioEnv (1) expands
+// ${VAR} in declared env: values and (2) appends the ambient environment LAST,
+// so on a colliding key exec's last-wins semantics pick the ambient value —
+// matching cagent's MCP config loader.
+func TestMCPStdioEnvExpandsAndAmbientWins(t *testing.T) {
+	provider := environment.NewMapEnvProvider(map[string]string{"HOST": "example.scalr.io"})
+	m := mcpServerConfig{Env: map[string]string{
+		"SCALR_API_URL": "https://${HOST}/api",
+		"SHARED":        "from-config",
+	}}
+	ambient := []string{"PATH=/usr/bin", "SHARED=from-ambient"}
+
+	env, err := mcpStdioEnv(context.Background(), m, provider, ambient)
+	if err != nil {
+		t.Fatalf("mcpStdioEnv: %v", err)
+	}
+
+	// (1) ${HOST} resolved from the provider.
+	if !slices.Contains(env, "SCALR_API_URL=https://example.scalr.io/api") {
+		t.Errorf("expected expanded SCALR_API_URL, got %v", env)
+	}
+	// (2) declared SHARED precedes ambient SHARED, so the ambient value wins.
+	iDecl := slices.Index(env, "SHARED=from-config")
+	iAmb := slices.Index(env, "SHARED=from-ambient")
+	if iDecl < 0 || iAmb < 0 || iDecl > iAmb {
+		t.Errorf("ambient SHARED must come after declared (decl=%d amb=%d): %v", iDecl, iAmb, env)
+	}
+	// Ambient entries are carried through to the subprocess.
+	if !slices.Contains(env, "PATH=/usr/bin") {
+		t.Errorf("ambient PATH should be present, got %v", env)
 	}
 }
 
