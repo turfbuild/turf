@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/goccy/go-yaml"
 )
 
@@ -40,8 +42,47 @@ type turfConfig struct {
 	// supplied by the gateway).
 	ModelsGateway string `yaml:"models_gateway,omitempty"`
 
-	// Reserved for later overlay sections (custom MCP servers, inline/remote
-	// skills, permission overlays). Not read yet; see CLAUDE.md.
+	// MCPs are external MCP servers wired as additional agent toolsets, each
+	// under its own name. cagent prefixes a toolset's tools with "<name>_", so a
+	// server named `scalr` exposes `scalr_*` and `opa` exposes `opa_*`, disjoint
+	// from turf's own `turf_*`. The remaining reserved overlay sections
+	// (inline/remote skills, permission overlays) are still future work; see
+	// CLAUDE.md.
+	MCPs map[string]mcpServerConfig `yaml:"mcps,omitempty"`
+}
+
+// mcpServerConfig declares one external MCP server for the `mcps:` overlay.
+// Exactly one transport is used: stdio (a local subprocess via Command+Args) or
+// remote (URL). Values in Env/URL/Headers may reference ${VAR} / ${env.VAR},
+// expanded with the same default provider turf uses for models: (see
+// mcpStdioEnv) — matching cagent's own MCP config loader. For a stdio server the
+// ambient environment is propagated to the subprocess, so a `docker run --env
+// NAME` (no value) forwards NAME from turf's environment into the container —
+// how a token reaches the server without being written here; on a key collision
+// the ambient value wins over Env. Headers/Transport apply to the remote
+// transport ("streamable" — the default — or "sse").
+type mcpServerConfig struct {
+	Command   string            `yaml:"command,omitempty"`
+	Args      []string          `yaml:"args,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"`
+	URL       string            `yaml:"url,omitempty"`
+	Transport string            `yaml:"transport,omitempty"`
+	Headers   map[string]string `yaml:"headers,omitempty"`
+}
+
+// mcpStdioEnv assembles the environment for a stdio MCP subprocess: the server's
+// declared Env (with ${VAR} / ${env.VAR} expanded via provider) FIRST, then the
+// ambient environment LAST. cmd.Env is last-wins on duplicate keys (see the
+// stdio client's cmd.Env = env), so the ambient environment overrides a
+// colliding declared key — the same precedence and expansion as cagent's config
+// loader (pkg/tools/mcp/mcp.go). Passing ambient in (rather than reading
+// os.Environ here) keeps the precedence unit-testable.
+func mcpStdioEnv(ctx context.Context, m mcpServerConfig, provider environment.Provider, ambient []string) ([]string, error) {
+	declared, err := environment.ExpandAll(ctx, environment.ToValues(m.Env), provider)
+	if err != nil {
+		return nil, err
+	}
+	return append(declared, ambient...), nil
 }
 
 // loadTurfConfig reads and merges turf's config file from two locations, in
@@ -58,6 +99,7 @@ func loadTurfConfig(cwd string) (turfConfig, error) {
 	merged := turfConfig{
 		Models:    map[string]latest.ModelConfig{},
 		Providers: map[string]latest.ProviderConfig{},
+		MCPs:      map[string]mcpServerConfig{},
 	}
 	for _, path := range []string{
 		filepath.Join(turfHome(), turfConfigFileName),
@@ -103,4 +145,5 @@ func mergeTurfConfig(dst *turfConfig, src turfConfig) {
 	}
 	maps.Copy(dst.Models, src.Models)
 	maps.Copy(dst.Providers, src.Providers)
+	maps.Copy(dst.MCPs, src.MCPs)
 }

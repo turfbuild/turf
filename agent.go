@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/memory/database/sqlite"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
 	"github.com/docker/docker-agent/pkg/permissions"
@@ -250,6 +253,82 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		tools.WithName(todo.New(), "todo"),
 	}
 
+	// External MCP servers from the turf.yaml `mcps:` overlay. Each is wired as
+	// an additional toolset under its config name; cagent prefixes that server's
+	// tools with "<name>_" (scalr_list_variables, opa_rego_eval, …) — the same
+	// namespacing that gives the built-in server its turf_ prefix — so the three
+	// servers' tools stay collision-free. Sorted for deterministic tool ordering.
+	// On success, ownership of each started server passes to the returned cleanup;
+	// the defer stops any we started if a later setup step fails first.
+	var extToolsets []*mcp.Toolset
+	extSuccess := false
+	defer func() {
+		if !extSuccess {
+			for _, ts := range extToolsets {
+				_ = ts.Stop(context.WithoutCancel(ctx))
+			}
+		}
+	}()
+	// ${VAR} / ${env.VAR} in mcps: values expand with the same default provider
+	// turf uses for models: (models.go) — keeps env-expansion uniform across
+	// turf.yaml and matches cagent's own MCP config loader (pkg/tools/mcp/mcp.go).
+	mcpEnv := environment.NewDefaultProvider()
+	for _, name := range slices.Sorted(maps.Keys(turfCfg.MCPs)) {
+		m := turfCfg.MCPs[name]
+		var ts *mcp.Toolset
+		switch {
+		case m.Command != "":
+			// Declared env: first, ambient os.Environ() last — ambient wins on a
+			// key collision (cmd.Env is last-wins), matching cagent. This is also
+			// what lets `docker run --env NAME` (no value) forward NAME from
+			// turf's env into the container, so a token like SCALR_API_TOKEN never
+			// lives in turf.yaml. The stdio client replaces the process env
+			// (cmd.Env = env), so os.Environ() must be included.
+			env, err := mcpStdioEnv(ctx, m, mcpEnv, os.Environ())
+			if err != nil {
+				_ = mcpToolset.Stop(ctx)
+				return nil, nil, nil, nil, fmt.Errorf("mcps.%s: expanding env: %w", name, err)
+			}
+			ts = mcp.NewToolsetCommand(name, m.Command, m.Args, env, cwd)
+		case m.URL != "":
+			// Expand ${VAR} in the URL and header values up front, as cagent does.
+			// (Unlike cagent, the public NewRemoteToolset can't re-expand headers
+			// per request, so a rotating-token header is fixed at startup here —
+			// fine for a static token.)
+			remoteURL, err := environment.Expand(ctx, m.URL, mcpEnv)
+			if err != nil {
+				_ = mcpToolset.Stop(ctx)
+				return nil, nil, nil, nil, fmt.Errorf("mcps.%s: expanding url: %w", name, err)
+			}
+			var headers map[string]string
+			if len(m.Headers) > 0 {
+				headers = make(map[string]string, len(m.Headers))
+				for k, v := range m.Headers {
+					hv, err := environment.Expand(ctx, v, mcpEnv)
+					if err != nil {
+						_ = mcpToolset.Stop(ctx)
+						return nil, nil, nil, nil, fmt.Errorf("mcps.%s: expanding header %q: %w", name, k, err)
+					}
+					headers[k] = hv
+				}
+			}
+			transport := m.Transport
+			if transport == "" {
+				transport = "streamable"
+			}
+			ts = mcp.NewRemoteToolset(name, remoteURL, transport, headers, nil)
+		default:
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, nil, fmt.Errorf("mcps.%s: set either 'command' (stdio) or 'url' (remote)", name)
+		}
+		if err := ts.Start(ctx); err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, nil, fmt.Errorf("starting mcp server %q: %w", name, err)
+		}
+		extToolsets = append(extToolsets, ts)
+		toolsets = append(toolsets, ts)
+	}
+
 	// user_prompt lets the agent pause and ask the user a structured question
 	// (free-text, enum, or object schema) — useful for agent-driven remediation
 	// decisions where the model needs a choice the MCP workflow can't anticipate.
@@ -418,10 +497,14 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// The runtime never closes an embedder-owned session store, so cleanup does.
 	cleanup := func() {
 		_ = mcpToolset.Stop(context.WithoutCancel(ctx))
+		for _, ts := range extToolsets {
+			_ = ts.Stop(context.WithoutCancel(ctx))
+		}
 		if sessStore != nil {
 			_ = sessStore.Close()
 		}
 	}
+	extSuccess = true // ownership of the external servers now belongs to cleanup
 
 	return rt, sessStore, titleCurator, cleanup, nil
 }
