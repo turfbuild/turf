@@ -159,6 +159,11 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	// Publish the co-branding overlay for the rest of the run. This must happen
+	// before the theme is applied and before either TUI is built — both read it
+	// through the package-level accessors (see branding.go) — which holds because
+	// every run command calls createAgentRuntime before runTUI.
+	setBranding(turfCfg.Branding)
 	modelRegistry := providers.NewDefaultRegistry()
 	modelPick := pickModel(opts.model, turfCfg)
 	llm, resolved, err := resolveModel(ctx, turfCfg, modelPick, opts.baseURL, modelRegistry)
@@ -402,10 +407,17 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		// "Secret handling" note in CLAUDE.md.
 		agent.WithRedactSecrets(false),
 	}
+	// Only commands that already show a welcome pass one (chat does; up/destroy
+	// don't), so branding replaces the text without changing where it appears.
 	if opts.welcomeMessage != "" {
-		agentOptsList = append(agentOptsList, agent.WithWelcomeMessage(opts.welcomeMessage))
+		agentOptsList = append(agentOptsList, agent.WithWelcomeMessage(brandWelcomeMessage(opts.welcomeMessage)))
 	}
-	a := agent.New("turf", workflowInstructions, agentOptsList...)
+	// The agent name is turf's own and is not brandable (see brandingConfig): it
+	// renders as the badge above each reply and in the lean status bar, so a
+	// co-branded turf still identifies itself as turf. Keep it in lock-step with
+	// turfAgentName (models.go), which keys the model-switcher's per-agent default
+	// and scopes first_available resolution. Only the instructions are branded.
+	a := agent.New(turfAgentName, brandInstructions(), agentOptsList...)
 
 	// Open the SQLite session-history store (unless disabled) and wire it into
 	// the runtime. cagent auto-registers a PersistenceObserver for a configured

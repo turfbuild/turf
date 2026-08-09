@@ -25,7 +25,9 @@ const (
 	// `model:` is set.
 	defaultModelRef = autoModelRef
 	// turfAgentName is the single agent's name; it keys the model-switcher's
-	// per-agent default and scopes first_available resolution.
+	// per-agent default and scopes first_available resolution, so it must match
+	// the name agent.New is given in createAgentRuntime. Deliberately a constant:
+	// branding does not rename the agent (see brandingConfig).
 	turfAgentName = "turf"
 )
 

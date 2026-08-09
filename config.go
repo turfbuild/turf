@@ -49,6 +49,41 @@ type turfConfig struct {
 	// (inline/remote skills, permission overlays) are still future work; see
 	// CLAUDE.md.
 	MCPs map[string]mcpServerConfig `yaml:"mcps,omitempty"`
+
+	// Branding is the co-branding overlay: it lets a distributor (e.g. a TACO
+	// vendor) restyle and re-voice turf without forking it. See brandingConfig.
+	Branding brandingConfig `yaml:"branding,omitempty"`
+}
+
+// brandingConfig re-skins and re-voices turf for a distributor. Every field is
+// display or prompt surface only: none of them moves the `turf_` tool namespace
+// (that comes from the appName the MCP toolset is registered under, see
+// agent.go) or relaxes a permission gate (preApprovedTools() and the filesystem
+// *os.Root sandbox are code-level). See branding.go for the accessors and
+// CLAUDE.md for the whole picture.
+//
+// There is deliberately NO name field: turf keeps its own name everywhere it
+// identifies itself — the binary, the TUI status bar, the agent badge — so a
+// co-branded turf is still recognizably turf. Branding changes how it looks and
+// what it knows, not what it is called.
+type brandingConfig struct {
+	// Theme is the default theme ref — a turf terrain theme or a user theme
+	// dropped in <TURF_HOME>/themes/<ref>.yaml. It sets the *default*: a saved
+	// /theme choice and --theme both still win (see applyTurfTheme).
+	Theme string `yaml:"theme,omitempty"`
+	// Banner is a path to an ANSI/text art file shown as the lean TUI's welcome
+	// banner. Relative paths resolve against the directory of the turf.yaml that
+	// declared them (see resolveBrandingPaths), so a global banner keeps
+	// resolving against <TURF_HOME> even when a project file wins on other keys.
+	Banner string `yaml:"banner,omitempty"`
+	// WelcomeMessage replaces turf's built-in chat welcome text. It applies only
+	// where turf already shows one (chat), not to up/destroy.
+	WelcomeMessage string `yaml:"welcome_message,omitempty"`
+	// AdditionalInstructions is appended to turf's persona as extra system
+	// guidance (deployment conventions, house style). It is prompt content from a
+	// user-owned config file, so it can steer the agent — but it changes nothing
+	// structural; see the trust note in README.md.
+	AdditionalInstructions string `yaml:"additional_instructions,omitempty"`
 }
 
 // mcpServerConfig declares one external MCP server for the `mcps:` overlay.
@@ -130,7 +165,36 @@ func readTurfConfigFile(path string) (turfConfig, bool, error) {
 	if err := yaml.Unmarshal(data, &c); err != nil {
 		return turfConfig{}, false, fmt.Errorf("parsing turf config %s: %w", path, err)
 	}
+	resolveBrandingPaths(&c.Branding, filepath.Dir(path))
 	return c, true, nil
+}
+
+// resolveBrandingPaths rewrites branding's file references to absolute paths
+// against dir, the directory of the turf.yaml that declared them.
+//
+// Two reasons this happens at read time. First, before the merge: a global
+// `banner: banner.ansi` must keep pointing into <TURF_HOME> even when the
+// project file wins on other keys, and after merging there is no record of which
+// file a value came from. Second, the result is made absolute rather than merely
+// dir-joined, because the value is consumed much later (brandBanner, at TUI
+// construction) and must not depend on the cwd then. dir is usually already
+// absolute — the project path is built from os.Getwd() — but turfHome() can
+// return a relative path ("$TURF_HOME=./x", or the ".turf" fallback when the
+// home dir is unresolvable), and every chdir turf performs (--chdir, --worktree)
+// is complete by the time the config is loaded. Anchoring here freezes the path
+// against the right directory.
+func resolveBrandingPaths(b *brandingConfig, dir string) {
+	if b.Banner == "" {
+		return
+	}
+	if !filepath.IsAbs(b.Banner) {
+		b.Banner = filepath.Join(dir, b.Banner)
+	}
+	// Best-effort: if Abs fails (only when the cwd is unreadable) keep the joined
+	// path — brandBanner degrades to turf's own banner rather than failing.
+	if abs, err := filepath.Abs(b.Banner); err == nil {
+		b.Banner = abs
+	}
 }
 
 // mergeTurfConfig overlays src onto dst. Scalars override when set; the Models
@@ -146,4 +210,21 @@ func mergeTurfConfig(dst *turfConfig, src turfConfig) {
 	maps.Copy(dst.Models, src.Models)
 	maps.Copy(dst.Providers, src.Providers)
 	maps.Copy(dst.MCPs, src.MCPs)
+	mergeBranding(&dst.Branding, src.Branding)
+}
+
+// mergeBranding overlays src onto dst per field, so a project turf.yaml can
+// override one branding key (say the theme) while inheriting the rest of a
+// global brand — rather than replacing the section wholesale.
+func mergeBranding(dst *brandingConfig, src brandingConfig) {
+	for _, f := range []struct{ dst, src *string }{
+		{&dst.Theme, &src.Theme},
+		{&dst.Banner, &src.Banner},
+		{&dst.WelcomeMessage, &src.WelcomeMessage},
+		{&dst.AdditionalInstructions, &src.AdditionalInstructions},
+	} {
+		if *f.src != "" {
+			*f.dst = *f.src
+		}
+	}
 }

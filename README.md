@@ -319,7 +319,8 @@ providers:
 
 The `models:` and `providers:` values follow docker-agent's model/provider
 schema, so per-model tuning fields (`temperature`, `max_tokens`, …) and a
-top-level `models_gateway:` work here too. For a complete project, see the
+top-level `models_gateway:` work here too. The same file also carries the
+[`branding:`](#co-branding) overlay. For a complete project, see the
 [CLI configuration example](https://github.com/turfbuild/turf-examples/tree/main/integrations/turf-cli).
 
 [docker-agent]: https://docs.docker.com/ai/docker-agent/
@@ -401,6 +402,53 @@ markdown:
   heading: "#7AA2F7"
   link: "#7AA2F7"
 ```
+
+## Co-branding
+
+A distributor can give turf their own look and voice without forking it, using a
+`branding:` section in [`turf.yaml`](#configuration-file-turfyaml). It merges
+from the same two locations, so a brand can be set once per machine
+(`~/.turf/turf.yaml`) or per project (`<project>/.turf/turf.yaml`), and a project
+file can override a single key while inheriting the rest.
+
+```yaml
+branding:
+  # Default theme — a theme *ref*, not a path: one of turf's terrain themes, or
+  # your own dropped at ~/.turf/themes/<name>.yaml (see Theming).
+  theme: surf
+
+  # Welcome banner for the lean TUI, as a path relative to this turf.yaml.
+  # Plain text is fine — each line is drawn in the theme's accent color.
+  banner: taco-banner.txt
+
+  # Replaces turf's built-in chat welcome text.
+  welcome_message: |
+    Welcome to Taco — infrastructure management with governance built in.
+
+  # Appended to turf's persona as extra standing guidance.
+  additional_instructions: |
+    Treat platform policy as a gate: evaluate the plan against the workspace's
+    policy set before asking the user to approve it.
+```
+
+Branding is **look and voice only — it does not rename turf.** There is no `name`
+key: the binary, the TUI status bar, and the agent badge all still say `turf`, so
+a co-branded turf is still recognizably turf. The tool namespace is likewise
+fixed at `turf_*` (the timeline renderers, the `/tools` grouping, and the
+pre-approval allow-list all depend on it), and no gate is relaxed — the
+pre-approved tool list, the mutation confirmations, and the filesystem sandbox
+are all in code.
+
+Two things worth knowing. `theme:` sets the *default* — a saved `/theme` choice
+and `--theme` both still win, so a user keeps control of their own look. And
+`additional_instructions` is prompt content from a config file: it can steer the
+agent's behavior, so treat a `turf.yaml` from an untrusted source with the same
+care as any script you would run. A misconfigured brand degrades rather than
+fails — an unreadable banner or theme falls back to turf's own with a warning.
+
+For worked examples, see the
+[integrations](https://github.com/turfbuild/turf-examples/tree/main/integrations)
+in the examples repo.
 
 ## Skills
 

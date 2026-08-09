@@ -83,6 +83,34 @@ func TestApplyTurfThemeFlagOverride(t *testing.T) {
 	}
 }
 
+// TestApplyTurfThemeBrandingDefault verifies where a co-brand's theme sits in the
+// precedence chain: it overrides turf's brand default, but --theme still wins, so
+// a distributor sets the default look without taking the choice away.
+func TestApplyTurfThemeBrandingDefault(t *testing.T) {
+	t.Setenv("TURF_HOME", t.TempDir())
+
+	const branded = "surf"
+	if branded == defaultThemeRef {
+		t.Fatalf("test needs a branded theme distinct from defaultThemeRef %q", defaultThemeRef)
+	}
+	withBranding(t, brandingConfig{Theme: branded})
+
+	applyTurfTheme()
+	if got := styles.CurrentTheme().Ref; got != branded {
+		t.Fatalf("applied theme ref = %q, want the branded %q", got, branded)
+	}
+
+	// --theme still overrides the co-brand.
+	const override = "tokyo-night"
+	flagTheme = override
+	t.Cleanup(func() { flagTheme = "" })
+
+	applyTurfTheme()
+	if got := styles.CurrentTheme().Ref; got != override {
+		t.Fatalf("applied theme ref = %q, want --theme %q to beat branding", got, override)
+	}
+}
+
 // TestTurfHome confirms the config-home resolution honors TURF_HOME.
 func TestTurfHome(t *testing.T) {
 	t.Setenv("TURF_HOME", "/custom/turf")

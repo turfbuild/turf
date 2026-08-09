@@ -170,7 +170,7 @@ func runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, 
 		// Lean mode's status footer has no version slot, so fold the active
 		// worktree branch into the app name instead (e.g. "turf · worktree-...").
 		AppName: appNameWithBranch(worktreeBranch),
-		Banner:  turfBanner,
+		Banner:  brandBanner(),
 	}
 	if firstMessage != "" {
 		cfg.FirstMessage = &firstMessage // leantui reads this, not app.WithFirstMessage
@@ -198,7 +198,7 @@ type execConfig struct {
 func runExecWith(ctx context.Context, rt runtime.Runtime, sess *session.Session, cfg execConfig) error {
 	out := cli.NewPrinter(os.Stdout)
 	return cli.Run(ctx, out, cli.Config{
-		AppName:       "turf",
+		AppName:       appName,
 		AutoApprove:   cfg.autoApprove,
 		OutputJSON:    cfg.outputJSON,
 		HideToolCalls: cfg.hideToolCalls,
