@@ -82,11 +82,20 @@ func applyTurfTheme() {
 		slog.Warn("turf: could not create themes directory", "dir", styles.ThemesDir(), "error", err)
 	}
 
-	// Precedence (low to high): (a) turf's brand default, (b) a real saved /theme
-	// choice, (c) an explicit --theme launch override for this run.
+	// Precedence (low to high): (a) turf's brand default, (b) a co-brand's
+	// `branding.theme` from turf.yaml, (c) a real saved /theme choice, (d) an
+	// explicit --theme launch override for this run.
 	// GetPersistedThemeRef() returns DefaultThemeRef ("default") when unset, so treat
 	// that as "no real choice" and fall through to turf's default instead.
+	//
+	// A co-brand sets only the *default* look: the user's own /theme pick still
+	// wins over it. The ref is resolved the same way as any other — LoadTheme
+	// rejects paths, so a distributor ships its theme YAML into <TURF_HOME>/themes
+	// and names it here, which also makes it selectable in the /theme picker.
 	ref := defaultThemeRef
+	if brand := brandThemeRef(); brand != "" {
+		ref = brand
+	}
 	if persisted := styles.GetPersistedThemeRef(); persisted != "" && persisted != styles.DefaultThemeRef {
 		ref = persisted
 	}
