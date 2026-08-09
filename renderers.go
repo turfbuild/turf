@@ -104,6 +104,7 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_workspace_delete":   builder(renderWorkspaceDelete),
 		"turf_plan_new":           builder(renderPlanNew),
 		"turf_plan_cancel":        builder(renderPlanCancel),
+		"turf_plan_export":        builder(renderPlanExport),
 		"turf_plan_approve":       builder(renderPlanApprove),
 		"turf_config_init":        builder(renderConfigInit),
 		"turf_config_show":        builder(renderConfigShow),
@@ -1633,6 +1634,32 @@ func renderPlanCancel(msg *types.Message, s spinner.Spinner, ss service.SessionS
 		detail = append(detail, muted(p.Message))
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_plan_export -------------------------------------------------------
+//
+// The result is the raw `tofu show -json` plan document (fed to an external policy
+// engine as input.tfplan). We don't dump it; we summarize with the resource-change
+// count, falling back to a byte tally when the shape is unexpected.
+
+type planExportView struct {
+	ResourceChanges []struct {
+		Address string `json:"address"`
+	} `json:"resource_changes"`
+}
+
+func renderPlanExport(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, "", width)
+	}
+	var p planExportView
+	if !parseContent(msg, &p) {
+		// A successful export is always valid JSON, so an unparseable body is an
+		// error result — let fallbackLine surface the framework error text.
+		return fallbackLine(msg, s, ss, width)
+	}
+	summary := muted("exported plan JSON") + dot() + muted(fmt.Sprintf("%d resource changes", len(p.ResourceChanges)))
+	return lineWithDetail(msg, s, ss, summary, nil, width)
 }
 
 // --- turf_config_init / turf_module_init ------------------------------------

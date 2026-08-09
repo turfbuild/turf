@@ -82,6 +82,7 @@ var preApprovedTurfTools = []string{
 	"turf_plan_new",
 	"turf_plan_cancel",
 	"turf_plan_approve",
+	"turf_plan_export",
 	"turf_replan",
 	"turf_effect_apply",
 	"turf_effect_cancel",

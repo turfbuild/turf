@@ -40,8 +40,29 @@ type turfConfig struct {
 	// supplied by the gateway).
 	ModelsGateway string `yaml:"models_gateway,omitempty"`
 
-	// Reserved for later overlay sections (custom MCP servers, inline/remote
-	// skills, permission overlays). Not read yet; see CLAUDE.md.
+	// MCPs are external MCP servers wired as additional agent toolsets, each
+	// under its own name. cagent prefixes a toolset's tools with "<name>_", so a
+	// server named `scalr` exposes `scalr_*` and `opa` exposes `opa_*`, disjoint
+	// from turf's own `turf_*`. The remaining reserved overlay sections
+	// (inline/remote skills, permission overlays) are still future work; see
+	// CLAUDE.md.
+	MCPs map[string]mcpServerConfig `yaml:"mcps,omitempty"`
+}
+
+// mcpServerConfig declares one external MCP server for the `mcps:` overlay.
+// Exactly one transport is used: stdio (a local subprocess via Command+Args) or
+// remote (URL). Env is forwarded to a stdio subprocess — so a `docker run --env
+// NAME` (no value) can forward NAME from turf's own environment into the
+// container, which is how a token reaches the server without being written here.
+// Headers/Transport apply to the remote transport ("streamable" — the default —
+// or "sse").
+type mcpServerConfig struct {
+	Command   string            `yaml:"command,omitempty"`
+	Args      []string          `yaml:"args,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"`
+	URL       string            `yaml:"url,omitempty"`
+	Transport string            `yaml:"transport,omitempty"`
+	Headers   map[string]string `yaml:"headers,omitempty"`
 }
 
 // loadTurfConfig reads and merges turf's config file from two locations, in
@@ -58,6 +79,7 @@ func loadTurfConfig(cwd string) (turfConfig, error) {
 	merged := turfConfig{
 		Models:    map[string]latest.ModelConfig{},
 		Providers: map[string]latest.ProviderConfig{},
+		MCPs:      map[string]mcpServerConfig{},
 	}
 	for _, path := range []string{
 		filepath.Join(turfHome(), turfConfigFileName),
@@ -103,4 +125,5 @@ func mergeTurfConfig(dst *turfConfig, src turfConfig) {
 	}
 	maps.Copy(dst.Models, src.Models)
 	maps.Copy(dst.Providers, src.Providers)
+	maps.Copy(dst.MCPs, src.MCPs)
 }

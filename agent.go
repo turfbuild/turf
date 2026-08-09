@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -250,6 +252,54 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		tools.WithName(todo.New(), "todo"),
 	}
 
+	// External MCP servers from the turf.yaml `mcps:` overlay. Each is wired as
+	// an additional toolset under its config name; cagent prefixes that server's
+	// tools with "<name>_" (scalr_list_variables, opa_rego_eval, …) — the same
+	// namespacing that gives the built-in server its turf_ prefix — so the three
+	// servers' tools stay collision-free. Sorted for deterministic tool ordering.
+	// On success, ownership of each started server passes to the returned cleanup;
+	// the defer stops any we started if a later setup step fails first.
+	var extToolsets []*mcp.Toolset
+	extSuccess := false
+	defer func() {
+		if !extSuccess {
+			for _, ts := range extToolsets {
+				_ = ts.Stop(context.WithoutCancel(ctx))
+			}
+		}
+	}()
+	for _, name := range slices.Sorted(maps.Keys(turfCfg.MCPs)) {
+		m := turfCfg.MCPs[name]
+		var ts *mcp.Toolset
+		switch {
+		case m.Command != "":
+			// Forward turf's environment to the subprocess so a `docker run --env
+			// NAME` (no value) carries NAME from here into the container — how
+			// SCALR_API_TOKEN reaches the Scalr MCP server without living in
+			// turf.yaml. Per-server `env:` entries override.
+			env := os.Environ()
+			for k, v := range m.Env {
+				env = append(env, k+"="+v)
+			}
+			ts = mcp.NewToolsetCommand(name, m.Command, m.Args, env, cwd)
+		case m.URL != "":
+			transport := m.Transport
+			if transport == "" {
+				transport = "streamable"
+			}
+			ts = mcp.NewRemoteToolset(name, m.URL, transport, m.Headers, nil)
+		default:
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, nil, fmt.Errorf("mcps.%s: set either 'command' (stdio) or 'url' (remote)", name)
+		}
+		if err := ts.Start(ctx); err != nil {
+			_ = mcpToolset.Stop(ctx)
+			return nil, nil, nil, nil, fmt.Errorf("starting mcp server %q: %w", name, err)
+		}
+		extToolsets = append(extToolsets, ts)
+		toolsets = append(toolsets, ts)
+	}
+
 	// user_prompt lets the agent pause and ask the user a structured question
 	// (free-text, enum, or object schema) — useful for agent-driven remediation
 	// decisions where the model needs a choice the MCP workflow can't anticipate.
@@ -418,10 +468,14 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// The runtime never closes an embedder-owned session store, so cleanup does.
 	cleanup := func() {
 		_ = mcpToolset.Stop(context.WithoutCancel(ctx))
+		for _, ts := range extToolsets {
+			_ = ts.Stop(context.WithoutCancel(ctx))
+		}
 		if sessStore != nil {
 			_ = sessStore.Close()
 		}
 	}
+	extSuccess = true // ownership of the external servers now belongs to cleanup
 
 	return rt, sessStore, titleCurator, cleanup, nil
 }

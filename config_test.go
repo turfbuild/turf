@@ -119,6 +119,57 @@ models:
 	}
 }
 
+// TestLoadTurfConfigParsesMCPs confirms the `mcps:` overlay parses both the
+// stdio (command/args/env) and remote (url/transport) shapes, and merges with
+// project precedence per server name (a same-named project entry replaces the
+// global one wholesale; distinct servers from both files coexist).
+func TestLoadTurfConfigParsesMCPs(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("TURF_HOME", home)
+
+	writeFile(t, filepath.Join(home, turfConfigFileName), `
+mcps:
+  scalr:
+    command: docker
+    args: [run, --rm, -i, scalr/mcp-server:latest]
+    env:
+      SCALR_API_URL: https://global.scalr.io
+  remote-only:
+    url: https://example.com/mcp
+    transport: sse
+`)
+	writeFile(t, filepath.Join(cwd, ".turf", turfConfigFileName), `
+mcps:
+  scalr:
+    command: docker
+    args: [run, --rm, -i, --env, SCALR_API_TOKEN, scalr/mcp-server:latest]
+  opa:
+    command: docker
+    args: [run, --rm, -i, orygn/opa-mcp:latest]
+`)
+
+	cfg, err := loadTurfConfig(cwd)
+	if err != nil {
+		t.Fatalf("loadTurfConfig: %v", err)
+	}
+	// The project 'scalr' replaces the global one wholesale (per-key map merge).
+	scalr := cfg.MCPs["scalr"]
+	if scalr.Command != "docker" || len(scalr.Args) != 6 || scalr.Args[3] != "--env" {
+		t.Errorf("scalr.args = %v, want the project (6-arg) form", scalr.Args)
+	}
+	if len(scalr.Env) != 0 {
+		t.Errorf("scalr.env = %v, want empty (project entry replaced global wholesale)", scalr.Env)
+	}
+	// The project-only server and the global-only remote server both survive.
+	if _, ok := cfg.MCPs["opa"]; !ok {
+		t.Error("opa (project-only) should be present after the merge")
+	}
+	if ro := cfg.MCPs["remote-only"]; ro.URL != "https://example.com/mcp" || ro.Transport != "sse" {
+		t.Errorf("remote-only = %+v, want url+sse to survive the merge", ro)
+	}
+}
+
 // TestLoadTurfConfigMalformed confirms a malformed file surfaces an error.
 func TestLoadTurfConfigMalformed(t *testing.T) {
 	home := t.TempDir()

@@ -99,6 +99,7 @@ var turfToolInfo = map[string]struct {
 	"plan_new":         {"plan", "Start Draft"},
 	"plan_cancel":      {"plan", "Cancel Draft"},
 	"plan_approve":     {"plan", "Approve Plan"},
+	"plan_export":      {"plan", "Export Plan JSON"},
 	"replan":           {"plan", "Replan Config"},
 	"module_init":      {"plan", "Init Module"},
 	"declare_module":   {"plan", "Declare Module"},
