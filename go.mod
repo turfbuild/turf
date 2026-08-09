@@ -7,7 +7,7 @@ replace github.com/docker/docker-agent => ./docker-agent
 require (
 	charm.land/bubbletea/v2 v2.0.8
 	github.com/charmbracelet/x/ansi v0.11.7
-	github.com/docker/docker-agent v1.118.0-turf.1
+	github.com/docker/docker-agent v1.118.0-turf.2
 	github.com/goccy/go-yaml v1.19.2
 	github.com/mattn/go-isatty v0.0.24
 	github.com/opentofu/svchost v0.0.0-20250610175836-86c9e5e3d8c8
