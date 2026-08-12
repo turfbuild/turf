@@ -74,9 +74,6 @@ turf -C ./examples/azure-storage-container destroy
 # Use a specific model
 turf --model anthropic/claude-sonnet-5 chat
 
-# Run a local model — no API key, no cost (see Model providers)
-turf --model dmr/ai/qwen3 chat
-
 # Run a one-shot request without the TUI (see Scripting with exec)
 turf exec "what workspaces exist?"
 
@@ -229,24 +226,56 @@ the full matrix and each provider's exact configuration.
 
 ### Local models — no API key, no cost
 
-Run the model entirely on your own machine. This is the fastest way to try turf,
-and it keeps your infrastructure prompts off third-party APIs.
+Run the model entirely on your own machine — no API key, no cost, and your
+infrastructure prompts stay off third-party APIs. Local models need two things
+configured that cloud models do not: a **tool-capable** model, and a **context
+window large enough for turf's prompt**.
 
-**Docker Model Runner** (bundled with Docker Desktop):
+> **turf's prompt is ~27k tokens before you type anything.** turf exposes
+> ~40 infrastructure tools plus their workflow instructions, and that goes in
+> every request. Docker Model Runner's default window is far smaller, so an
+> unconfigured local model rejects turf's very first message with
+> `exceeds the available context size`. Set `context_size` and it works.
+
+**Docker Model Runner** (bundled with Docker Desktop) — pull the model, then
+declare it in a [`turf.yaml`](#configuration-file-turfyaml):
 
 ```sh
 docker model pull ai/qwen3     # once — fetch the model
-turf --model dmr/ai/qwen3      # run turf against it
 ```
 
-turf discovers the local Model Runner automatically; set `MODEL_RUNNER_HOST` to
-point at a remote runner. See Docker's [Model Runner guide][dmr].
+```yaml
+# ~/.turf/turf.yaml (global) or <project>/.turf/turf.yaml
+model: local
+
+models:
+  local:
+    provider: dmr
+    model: ai/qwen3
+    provider_opts:
+      # turf's own prompt is ~27k tokens, so Model Runner's default window
+      # rejects the first request. 64k leaves working room for plan and state
+      # tool results. Lower it if the model won't fit in memory — the engine
+      # reserves cache for the whole window up front, so memory use scales
+      # with this number.
+      context_size: 65536
+```
+
+Then just `turf chat`. The config file is required for this: `context_size` is a
+per-model setting, so **`--model dmr/ai/qwen3` on its own cannot carry it** and
+will fall back to the runner's default window. turf discovers the local Model
+Runner automatically; set `MODEL_RUNNER_HOST` to point at a remote runner. See
+Docker's [Model Runner guide][dmr].
 
 **Ollama** (if you already run it):
 
 ```sh
 turf --model ollama/llama3.2   # defaults to http://localhost:11434
 ```
+
+Ollama has the same context problem but a different knob — `provider_opts` does
+not reach it. Size its window with `OLLAMA_CONTEXT_LENGTH` (or `num_ctx` in a
+Modelfile) before starting the server.
 
 Pick a **tool-capable** local model — DMR's `ai/qwen3`, or on Ollama one of
 `llama3.1`/`llama3.2`, `qwen2.5`, or the `mistral` family. Older or smaller
@@ -297,12 +326,22 @@ Overall model precedence is `--model` / `TURF_MODEL` > `turf.yaml` `model:` >
 model: smart
 
 models:
-  # Try each candidate in order; pick the first whose credentials are set.
+  # Try each candidate in order; pick the first whose credentials are set. A
+  # candidate is an inline provider/model OR the name of another entry here —
+  # which is how the local fallback below keeps its provider_opts.
   smart:
     first_available:
       - anthropic/claude-sonnet-5
       - openai/gpt-4o
-      - dmr/ai/qwen3          # keyless local fallback
+      - local                 # keyless local fallback (defined below)
+  # Docker Model Runner. context_size is required for local models: turf's own
+  # prompt is ~27k tokens and the runner's default window is far smaller. See
+  # Local models above.
+  local:
+    provider: dmr
+    model: ai/qwen3
+    provider_opts:
+      context_size: 65536
   # A named model that targets a custom provider (defined below).
   house:
     provider: myhouse
@@ -332,16 +371,14 @@ top-level `models_gateway:` work here too. The same file also carries the
 ### turf won't start
 
 **`could not start the model … API key … is required`** — turf could not reach an
-LLM. Either set the key for your provider (see [Model providers](#model-providers))
-or switch to a keyless local model:
+LLM. Either set the key for your provider, or switch to a keyless local model —
+which needs a `turf.yaml`, not just a `--model` flag (see
+[Local models](#local-models--no-api-key-no-cost)).
 
-```sh
-turf --model dmr/ai/qwen3
-```
-
-**`unknown provider …` / `invalid model format …`** — `--model` must be
-`provider/model` (e.g. `anthropic/claude-sonnet-5`, `dmr/ai/qwen3`). Check the
-prefix against the [providers overview].
+**`unknown provider …` / `invalid model format …`** — `--model` must be a named
+model from `turf.yaml` or a `provider/model` ref (e.g.
+`anthropic/claude-sonnet-5`, `google/gemini-pro-latest`). Check the prefix
+against the [providers overview].
 
 **`turf-mcp-server not found on PATH`** — the CLI launches the server as a
 subprocess and must find it. Install it and put it on `PATH`, or point at it
@@ -357,6 +394,37 @@ turf drives everything through tools, so the model must support tool (function)
 calling — many local models don't. Switch to a tool-capable model: DMR's
 `ai/qwen3`, or on Ollama one of `llama3.1`/`llama3.2`, `qwen2.5`, or `mistral`
 rather than plain `llama3`. See [Model providers](#model-providers).
+
+### `model failed: … exceeds the available context size`
+
+A local model is running with a context window smaller than turf's prompt. turf
+sends ~27k tokens before you type anything (roughly 40 infrastructure tools and
+their workflow instructions), and Docker Model Runner's default window is far
+smaller — so the very first message is rejected.
+
+Declare the model in a `turf.yaml` with a `context_size` that fits, then run
+`turf chat` with no `--model` flag — the setting is per-model, so
+`--model dmr/ai/qwen3` alone cannot carry it:
+
+```yaml
+model: local
+models:
+  local:
+    provider: dmr
+    model: ai/qwen3
+    provider_opts:
+      context_size: 65536
+```
+
+See [Local models](#local-models--no-api-key-no-cost). On Ollama the equivalent
+knob is `OLLAMA_CONTEXT_LENGTH`.
+
+### The machine bogs down while a local model runs
+
+The inference engine reserves cache for the whole context window up front, so
+memory use scales with `context_size` — a large window on a large model can
+exhaust RAM and push the machine into swap. Lower `context_size` (32768 is the
+practical floor given turf's ~27k prompt) or pick a smaller model.
 
 ## Theming
 

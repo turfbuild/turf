@@ -85,7 +85,7 @@ func newRootCmd() *cobra.Command {
 	// pickModel distinguish "user set --model" from "unset", so a config-file
 	// default isn't silently overridden by a flag default. TURF_MODEL still acts
 	// as the flag's default, preserving "CLI --model > TURF_MODEL env" precedence.
-	cmd.PersistentFlags().StringVar(&flagModel, "model", os.Getenv("TURF_MODEL"), "LLM model: a named model from turf.yaml, an inline provider/model (e.g. anthropic/claude-sonnet-5, keyless dmr/ai/qwen3), or 'auto' to pick the first provider with credentials. Default: turf.yaml model:, else auto (env: TURF_MODEL)")
+	cmd.PersistentFlags().StringVar(&flagModel, "model", os.Getenv("TURF_MODEL"), "LLM model: a named model from turf.yaml, an inline provider/model (e.g. anthropic/claude-sonnet-5), or 'auto' to pick the first provider with credentials. Local models need a named turf.yaml entry, not an inline ref, so they can set provider_opts.context_size. Default: turf.yaml model:, else auto (env: TURF_MODEL)")
 	cmd.PersistentFlags().StringVar(&flagModelBaseURL, "base-url", os.Getenv("TURF_MODEL_BASE_URL"), "Override the model API endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways); DMR/Ollama resolve their own (env: TURF_MODEL_BASE_URL)")
 	cmd.PersistentFlags().StringVar(&flagTmpDir, "tmp-dir", os.Getenv("TURF_TMP_DIR"), "Per-run scratch dir for the server (provider target + phase dirs); for the persistent plugin cache use --plugin-cache-dir (env: TURF_TMP_DIR)")
 	cmd.PersistentFlags().StringVar(&flagPluginCacheDir, "plugin-cache-dir", os.Getenv("TURF_PLUGIN_CACHE_DIR"), "Shared provider plugin cache, persisted across runs (env: TURF_PLUGIN_CACHE_DIR; default: <user cache>/turf/plugins; 'off' disables)")

@@ -70,7 +70,9 @@ func TestNewModelProvider(t *testing.T) {
 // TestModelProviderError locks in the actionable guidance shown when the model
 // fails to start (most often a missing API key at launch): it must name the
 // model, keep the underlying cause, feature the keyless local option, and link
-// the provider docs.
+// the provider docs. The local recipe must show the turf.yaml form WITH a
+// context_size — a bare "--model dmr/…" cannot carry that per-model setting, and
+// without it the runner's default window rejects turf's ~27k-token prompt.
 func TestModelProviderError(t *testing.T) {
 	cause := errors.New("GOOGLE_API_KEY or GEMINI_API_KEY environment variable is required")
 	msg := modelProviderError("google/gemini-pro-latest", cause).Error()
@@ -78,7 +80,8 @@ func TestModelProviderError(t *testing.T) {
 	for _, want := range []string{
 		"google/gemini-pro-latest", // names the selected model
 		cause.Error(),              // preserves the underlying cause
-		"dmr/ai/qwen3",             // features the keyless local option
+		"ai/qwen3",                 // features the keyless local option
+		"context_size",             // ... configured so it can actually run turf
 		"https://docs.docker.com/ai/docker-agent/providers/overview/", // links the docs
 	} {
 		if !strings.Contains(msg, want) {

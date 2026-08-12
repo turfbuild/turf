@@ -526,13 +526,29 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 // selected provider, so the hint names the model, then points at two ways
 // forward — set a key, or (featured) run a keyless local model — plus the Docker
 // docs that enumerate every provider.
+//
+// The local-model hint deliberately shows the turf.yaml form rather than a bare
+// --model dmr/…: a local model needs a context_size large enough for turf's own
+// ~27k-token prompt, and context_size is a per-model provider_opts setting an
+// inline model reference cannot carry (docker-agent takes no position on it —
+// there is no flag and no default, so an unconfigured runner uses its own small
+// window and rejects turf's first request).
 func modelProviderError(modelRef string, err error) error {
 	return fmt.Errorf(`could not start the model %q: %w
 
 turf needs an LLM to run. Either:
   • set your provider's API key, e.g. export ANTHROPIC_API_KEY=… (or OPENAI_API_KEY, GEMINI_API_KEY, …), or
-  • run a local model with Docker Model Runner — no API key, no cost:
-        turf --model dmr/ai/qwen3
+  • run a local model with Docker Model Runner — no API key, no cost. After
+    "docker model pull ai/qwen3", declare it in ~/.turf/turf.yaml so it gets a
+    context window big enough for turf's prompt:
+
+        model: local
+        models:
+          local:
+            provider: dmr
+            model: ai/qwen3
+            provider_opts:
+              context_size: 65536
 
 Choosing a provider: https://docs.docker.com/ai/docker-agent/providers/overview/`, modelRef, err)
 }
