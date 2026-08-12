@@ -80,6 +80,43 @@ func TestSelectModelConfigFirstAvailable(t *testing.T) {
 	})
 }
 
+// TestSelectModelConfigFirstAvailableNamedCandidate pins the mechanism turf's
+// local-model docs are built on: a first_available candidate may NAME another
+// entry in models: (rather than being an inline "provider/model" ref), and the
+// named entry's provider_opts survive selection.
+//
+// This matters because a local model is unusable without
+// provider_opts.context_size — turf's prompt is ~27k tokens and Docker Model
+// Runner's default window is far smaller — and an inline ref cannot carry
+// per-model options. Naming the entry is therefore the ONLY way to keep the
+// keyless-fallback idiom while configuring the window, which is exactly what
+// README.md and the turf-examples gallery now tell users to write.
+func TestSelectModelConfigFirstAvailableNamedCandidate(t *testing.T) {
+	ctx := context.Background()
+	cfg := turfConfig{Models: map[string]latest.ModelConfig{
+		"default": {FirstAvailable: []string{"anthropic/claude-x", "local"}},
+		"local": {
+			Provider:     "dmr",
+			Model:        "ai/qwen3",
+			ProviderOpts: map[string]any{"context_size": 65536},
+		},
+	}}
+
+	env := stubEnv{} // no keys → the keyless local entry wins
+	mc, err := selectModelConfig(ctx, cfg, "default", env)
+	if err != nil {
+		t.Fatalf("selectModelConfig(default): %v", err)
+	}
+	if mc.Provider != "dmr" || mc.Model != "ai/qwen3" {
+		t.Fatalf("resolved = %q/%q, want dmr/ai/qwen3", mc.Provider, mc.Model)
+	}
+	// Read it back the way cagent does everywhere it consumes the setting (the
+	// DMR _configure call, the max_tokens clamp, resolveContextLimit).
+	if got := latest.ContextSizeFromProviderOpts(mc.ProviderOpts); got != 65536 {
+		t.Errorf("context_size = %d, want 65536 (provider_opts lost through first_available)", got)
+	}
+}
+
 func TestSelectModelConfigInline(t *testing.T) {
 	ctx := context.Background()
 	env := stubEnv{}
