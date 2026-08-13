@@ -73,8 +73,12 @@ var preApprovedTurfTools = []string{
 	"turf_module_outputs",
 	"turf_resource_import",
 	"turf_resource_refresh",
-	// Data source: read-only.
+	// Data sources. datasource_read is a read-only lookup that writes nothing;
+	// declare_datasource is a declare-family tool that authors a `data` block into
+	// the plot and reads it in the same call, so it is pre-approved on the same
+	// terms as the rest of the declare family below.
 	"turf_datasource_read",
+	"turf_declare_datasource",
 	// Draft / phase lifecycle. plan_approve seals the Draft into an Execution and
 	// effect_apply/effect_cancel run the approved effects — their confirmation is
 	// the single phase-level user_prompt the persona seeks before plan_approve, not

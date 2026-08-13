@@ -47,6 +47,30 @@ func TestTurfToolInfoMatchesPermissionLists(t *testing.T) {
 	}
 }
 
+// TestTurfRenderersAreKnownTools ties the third map — the TUI renderer table in
+// renderers.go — to the same tool set as the other two. A renderer keyed to a name
+// no tool has is dead code the TUI will never reach (typo, or a tool that was
+// renamed server-side).
+//
+// This is the local half of the guard. The completeness half — "did the server grow
+// a tool none of these maps mention?" — belongs to
+// TestPermissionListsMatchServerAnnotations, which reads the real tool list off a
+// running server. That one *skips* when no turf-mcp-server is resolvable (so it is a
+// no-op in CI) and otherwise tests whatever binary is on PATH, which is typically the
+// last *release*. Build the server from source and put it on PATH (or set
+// TURF_MCP_SERVER) before trusting it to catch a newly added tool.
+func TestTurfRenderersAreKnownTools(t *testing.T) {
+	known := toolSet(allTurfPermissionTools())
+	for prefixed := range turfToolRenderers() {
+		if !strings.HasPrefix(prefixed, appName+"_") {
+			continue // non-turf renderer (e.g. cagent's built-in think)
+		}
+		if _, ok := known[prefixed]; !ok {
+			t.Errorf("renderer registered for %q, which is not a known turf tool (stale entry or typo)", prefixed)
+		}
+	}
+}
+
 // TestTurfCategoryFallback: an unknown tool lands in the plain "turf" bucket and
 // keeps its bare name for display, rather than being dropped or panicking.
 func TestTurfCategoryFallback(t *testing.T) {

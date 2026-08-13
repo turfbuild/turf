@@ -107,6 +107,9 @@ var turfToolInfo = map[string]struct {
 	"declare_var":      {"plan", "Declare Variable"},
 	"declare_action":   {"plan", "Declare Action"},
 	"declare_outputs":  {"plan", "Declare Outputs"},
+	// declare_datasource groups with the declare family rather than with
+	// datasource_read below: it requires an open Draft and writes configuration.
+	"declare_datasource": {"plan", "Declare Data Source"},
 	// apply — executing approved effects & imperative actions
 	"effect_apply":  {"apply", "Apply Effect"},
 	"effect_cancel": {"apply", "Cancel Effect"},

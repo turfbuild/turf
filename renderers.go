@@ -127,6 +127,7 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_effect_cancel":      builder(renderEffectCancel),
 		"turf_state_list":         builder(renderStateList),
 		"turf_datasource_read":    builder(renderDatasourceRead),
+		"turf_declare_datasource": builder(renderDeclareDatasource),
 		"turf_provider_search":    builder(renderProviderSearch),
 		"turf_provider_load":      builder(renderProviderLoad),
 		"turf_provider_describe":  builder(renderProviderDescribe),
@@ -298,6 +299,7 @@ var turfToolTargetArgs = map[string][]string{
 	"resource_import":    {"resource_addr"},
 	"resource_refresh":   {"resource_addr"},
 	"datasource_read":    {"resource_addr"},
+	"declare_datasource": {"resource_addr"},
 	"config_init":        {"path"},
 	"config_show":        {"address"},
 	"declare_backend":    {"type"},
@@ -1292,6 +1294,72 @@ func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.Sess
 	if len(r.Replan) > 0 {
 		detail = append(detail, section("replan"))
 		detail = append(detail, listLines(r.Replan, "  ", 20)...)
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_declare_datasource --------------------------------------------------
+//
+// declare_datasource is the declarative counterpart of datasource_read: it writes a
+// `data` block into the bound configuration *and* reads it in the same call, so the
+// result carries both the declaration outcome (declared / removed) and the read
+// state. A query that references something the phase hasn't applied yet still
+// declares, and comes back `deferred` instead of a value — rendered the same way
+// declare_resource renders a deferred change.
+
+type declareDatasourceView struct {
+	ResourceAddr string         `json:"resource_addr"`
+	ResourceType string         `json:"resource_type"`
+	Declared     bool           `json:"declared"`
+	Removed      bool           `json:"removed"`
+	State        map[string]any `json:"state"`
+	Replan       []string       `json:"replan"`
+	Deferred     *struct {
+		Reason string `json:"reason"`
+	} `json:"deferred,omitempty"`
+}
+
+func renderDeclareDatasource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, addr(argString(msg, "resource_addr")), width)
+	}
+	var d declareDatasourceView
+	if !parseContent(msg, &d) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	target := d.ResourceAddr
+	if target == "" {
+		target = argString(msg, "resource_addr")
+	}
+	summary := addr(target)
+	switch {
+	case d.Removed:
+		summary += dot() + bold("removed", styles.Success)
+	case d.Declared:
+		summary += dot() + bold("declared", styles.Success)
+	}
+	switch {
+	case d.Deferred != nil:
+		summary += dot() + bold("deferred", styles.Warning)
+	case len(d.State) > 0:
+		summary += dot() + muted(fmt.Sprintf("%d attr(s)", len(d.State)))
+	}
+	if n := len(d.Replan); n > 0 {
+		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
+	}
+
+	var detail []string
+	if d.Deferred != nil {
+		reason := d.Deferred.Reason
+		if reason == "" {
+			reason = "blocked on upstream changes"
+		}
+		detail = append(detail, styles.WarningStyle.Render("deferred: "+reason))
+	}
+	detail = append(detail, kvLines(d.State, "  ", 30)...)
+	if len(d.Replan) > 0 {
+		detail = append(detail, section("replan"))
+		detail = append(detail, listLines(d.Replan, "  ", 20)...)
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
