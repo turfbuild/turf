@@ -765,7 +765,11 @@ type planSummaryView struct {
 	TopologicalOrder []string            `json:"topological_order"`
 	Deferred         []json.RawMessage   `json:"deferred,omitempty"`
 	Outputs          json.RawMessage     `json:"outputs,omitempty"`
-	Warnings         []string            `json:"warnings,omitempty"`
+	// Reads classifies every declared data source the walk touched, the same
+	// data_source_reads[] shape declare_datasource reports for the one declaration
+	// it writes. A walk reads them all, so this is the whole configuration's worth.
+	Reads    []dataSourceReadEntry `json:"data_source_reads,omitempty"`
+	Warnings []string              `json:"warnings,omitempty"`
 }
 
 func renderDeclareModule(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -796,7 +800,7 @@ func renderPlanSummary(msg *types.Message, s spinner.Spinner, ss service.Session
 
 // planSummaryLine renders a parsed walk summary (shared by declare_module,
 // replan, and plan_new): the action tally headline plus the per-resource diff
-// expansion, evaluated outputs, and warnings.
+// expansion, the data sources the walk read, evaluated outputs, and warnings.
 func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, head string, p planSummaryView) string {
 	summary := planTally(p.Resources)
 	if head != "" {
@@ -805,12 +809,17 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 	if n := len(p.Deferred); n > 0 {
 		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", n))
 	}
+	if issues := dataReadIssueTally(p.Reads); issues != "" {
+		summary += dot() + issues
+	}
 	if n := outputsCount(p.Outputs); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
 	}
 
-	// Expanded: each resource as a header + its full attribute diff, then the
-	// evaluated outputs and any warnings.
+	// Expanded: each resource as a header + its full attribute diff, then the data
+	// source reads, the evaluated outputs, and any warnings. The resource diffs stay
+	// first — they are what the expansion is opened to read — so the reads trail them
+	// even though the walk performs reads earlier.
 	var detail []string
 	const maxRows = 25
 	for i, r := range p.Resources {
@@ -825,6 +834,10 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 		}
 		detail = append(detail, header)
 		detail = append(detail, attrDiff(r.Before, r.After, "  ")...)
+	}
+	if len(p.Reads) > 0 {
+		detail = append(detail, section("data sources"))
+		detail = append(detail, dataReadLines(p.Reads, "  ", 20)...)
 	}
 	if outs := outputsLines(p.Outputs); len(outs) > 0 {
 		detail = append(detail, section("outputs"))
@@ -1400,12 +1413,60 @@ func dataReadTally(reads []dataSourceReadEntry) string {
 		}
 	}
 	// Anything planAction mapped elsewhere (an action word this CLI predates) still
-	// gets counted rather than silently dropped.
-	for a, n := range counts {
-		_, c, _ := planAction(a, false, nil)
-		parts = append(parts, bold(fmt.Sprintf("%d %s", n, a), c))
-	}
+	// gets counted rather than silently dropped. Sorted, so the line is stable.
+	parts = append(parts, leftoverActionTally(counts, "%d %s")...)
 	return strings.Join(parts, dot())
+}
+
+// dataReadIssueTally is the plan-summary counterpart of dataReadTally: it counts
+// only the verdicts worth interrupting the action tally for.
+//
+// The difference from dataReadTally is the caller's scope. declare_datasource
+// reports one declaration's instances, where "read" is the outcome being asked
+// about; a walk reads *every* declared data source, so a "read" count there would
+// almost always just say "all of them" — the signal is what did not resolve. The
+// "data" noun keeps it apart from the resource `N deferred` count beside it, which
+// counts a different thing entirely. Empty when everything read, which is the
+// ordinary case and should cost the line nothing.
+func dataReadIssueTally(reads []dataSourceReadEntry) string {
+	counts := map[string]int{}
+	for _, r := range reads {
+		if label, _, _ := planAction(r.Action, false, nil); label != "read" {
+			counts[label]++
+		}
+	}
+	var parts []string
+	for _, a := range []string{"deferred", "error"} {
+		if n := counts[a]; n > 0 {
+			_, c, _ := planAction(a, false, nil)
+			parts = append(parts, bold(fmt.Sprintf("%d data %s", n, a), c))
+			delete(counts, a)
+		}
+	}
+	// Same discipline as dataReadTally: an action word this CLI predates is reported
+	// rather than dropped, since dropping it here would hide the very thing the
+	// non-read filter exists to surface.
+	parts = append(parts, leftoverActionTally(counts, "%d data %s")...)
+	return strings.Join(parts, dot())
+}
+
+// leftoverActionTally renders the buckets a caller's fixed action order did not
+// claim, in sorted order so the line does not shuffle between renders of the same
+// result. Normally empty: the server emits only read/deferred/error, and both
+// callers enumerate those explicitly — this is what keeps a fourth action word
+// visible instead of silently absent.
+func leftoverActionTally(counts map[string]int, format string) []string {
+	rest := make([]string, 0, len(counts))
+	for a := range counts {
+		rest = append(rest, a)
+	}
+	sort.Strings(rest)
+	out := make([]string, 0, len(rest))
+	for _, a := range rest {
+		_, c, _ := planAction(a, false, nil)
+		out = append(out, bold(fmt.Sprintf(format, counts[a], a), c))
+	}
+	return out
 }
 
 // dataReadLines renders each instance's verdict as "<glyph> <address> · <action>",

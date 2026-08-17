@@ -417,6 +417,63 @@ func TestModulePlan_Tally(t *testing.T) {
 	}
 }
 
+// TestPlanSummary_DataSourceReads covers data_source_reads[] on the shared walk
+// summary — plan_new, replan and declare_module all return it. Unlike
+// declare_datasource, a walk reads every declared data source, so the one-line view
+// reports only what did *not* resolve; the expansion lists them all.
+func TestPlanSummary_DataSourceReads(t *testing.T) {
+	const content = `{"phase_id": "ph_001", "path": "infra/prod",
+		"resources": [{"address": "aws_instance.web", "action": "create"}],
+		"data_source_reads": [
+			{"address": "data.aws_ami.latest", "action": "read"},
+			{"address": "data.aws_instances.web", "action": "deferred",
+				"reason": "dependency_pending", "depends_on": ["aws_instance.web"]},
+			{"address": "data.aws_ami.bad", "action": "error", "error": "no AMI matched"}]}`
+
+	for _, name := range []string{"turf_plan_new", "turf_replan", "turf_declare_module"} {
+		t.Run(name, func(t *testing.T) {
+			compact := plainNorm(renderFor(name, content, hiddenState{}))
+			// "data" qualifies the count so it cannot be read as the resource
+			// deferral tally sitting next to it on the same line.
+			for _, want := range []string{"+1", "1 data deferred", "1 data error"} {
+				if !strings.Contains(compact, want) {
+					t.Fatalf("compact missing %q: %q", want, compact)
+				}
+			}
+			// A plain read is the ordinary case and must not spend summary width.
+			if strings.Contains(compact, "data read") {
+				t.Fatalf("summary should not count plain reads: %q", compact)
+			}
+
+			detailed := plainNorm(renderFor(name, content, service.StaticSessionState{}))
+			for _, want := range []string{
+				"data sources:", "data.aws_ami.latest", "read",
+				"data.aws_instances.web", "dependency_pending", "waiting on", "aws_instance.web",
+				"data.aws_ami.bad", "no AMI matched",
+			} {
+				if !strings.Contains(detailed, want) {
+					t.Fatalf("detailed missing %q: %q", want, detailed)
+				}
+			}
+		})
+	}
+}
+
+// An all-read walk is the ordinary case: it should cost the summary line nothing,
+// while the expansion still says which data sources were read.
+func TestPlanSummary_AllReadCostsNoSummaryWidth(t *testing.T) {
+	const content = `{"phase_id": "ph_001", "resources": [{"address": "a.x", "action": "create"}],
+		"data_source_reads": [{"address": "data.aws_ami.latest", "action": "read"}]}`
+	compact := plainNorm(renderFor("turf_replan", content, hiddenState{}))
+	if strings.Contains(compact, "data") {
+		t.Fatalf("an all-read walk should add nothing to the summary: %q", compact)
+	}
+	detailed := plainNorm(renderFor("turf_replan", content, service.StaticSessionState{}))
+	if !strings.Contains(detailed, "data sources:") || !strings.Contains(detailed, "data.aws_ami.latest") {
+		t.Fatalf("expansion should still list the reads: %q", detailed)
+	}
+}
+
 func TestOutputsPlan_UnknownAndSensitive(t *testing.T) {
 	const content = `{
 		"phase_id": "ph_001",
