@@ -256,13 +256,115 @@ func TestModuleOutputs_Summary(t *testing.T) {
 
 func TestDatasourceRead_Summary(t *testing.T) {
 	const content = `{"resource_addr": "data.aws_ami.latest",
-		"state": {"id": "ami-123", "name": "ubuntu"}, "replan": []}`
+		"state": {"id": "ami-123", "name": "ubuntu"}}`
 	out := renderFor("turf_datasource_read", content, service.StaticSessionState{})
 	for _, want := range []string{"data", "data.aws_ami.latest", "2 attr(s)", "ami-123"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("datasource_read missing %q: %q", want, out)
 		}
 	}
+}
+
+// TestDeclareDatasource_ReadVerdicts pins the renderer to the server's actual
+// declareDatasourceResult: the declaration outcome plus a data_source_reads[]
+// *classification* per expanded instance. The value never rides this response, so a
+// successful declare must not claim to show attributes.
+func TestDeclareDatasource_ReadVerdicts(t *testing.T) {
+	t.Run("declared and read", func(t *testing.T) {
+		const content = `{"phase_id": "p1", "resource_addr": "data.aws_ami.latest",
+			"resource_type": "aws_ami", "declared": true,
+			"data_source_reads": [{"address": "data.aws_ami.latest", "action": "read"}]}`
+		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
+		for _, want := range []string{"Declare Data Source", "data.aws_ami.latest", "declared", "read", "reads:"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("missing %q: %q", want, out)
+			}
+		}
+		if strings.Contains(out, "attr(s)") {
+			t.Fatalf("declare_datasource returns no value, so it must not report attrs: %q", out)
+		}
+	})
+
+	t.Run("deferred on an unapplied depends_on target", func(t *testing.T) {
+		const content = `{"resource_addr": "data.aws_instances.web", "declared": true,
+			"replan": ["aws_lb.front"],
+			"data_source_reads": [{"address": "data.aws_instances.web", "action": "deferred",
+				"reason": "dependency_pending", "depends_on": ["aws_instance.web"]}]}`
+		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
+		// The verdict leads the one-line view; the actionable "what to apply to clear
+		// it" belongs to the expansion, as declare_resource does with its reason.
+		for _, want := range []string{"declared", "deferred", "1 replan", "dependency_pending", "waiting on", "aws_instance.web", "replan:", "aws_lb.front"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("missing %q: %q", want, out)
+			}
+		}
+		compact := plainNorm(renderFor("turf_declare_datasource", content, hiddenState{}))
+		if !strings.Contains(compact, "deferred") {
+			t.Fatalf("compact view must still carry the verdict: %q", compact)
+		}
+		if strings.Contains(compact, "waiting on") {
+			t.Fatalf("compact view should not include the detail block: %q", compact)
+		}
+	})
+
+	t.Run("count expansion tallies per action", func(t *testing.T) {
+		const content = `{"resource_addr": "data.aws_subnet.each", "declared": true,
+			"data_source_reads": [
+				{"address": "data.aws_subnet.each[0]", "action": "read"},
+				{"address": "data.aws_subnet.each[1]", "action": "read"},
+				{"address": "data.aws_subnet.each[2]", "action": "deferred", "reason": "config_unknown"}]}`
+		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
+		for _, want := range []string{"2 read", "1 deferred", "data.aws_subnet.each[2]", "config_unknown"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("missing %q: %q", want, out)
+			}
+		}
+	})
+
+	t.Run("provider error on the read", func(t *testing.T) {
+		const content = `{"resource_addr": "data.aws_ami.bad", "declared": true,
+			"data_source_reads": [{"address": "data.aws_ami.bad", "action": "error",
+				"error": "no AMI matched the filter"}]}`
+		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
+		for _, want := range []string{"declared", "error", "no AMI matched the filter"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("missing %q: %q", want, out)
+			}
+		}
+	})
+
+	// The warning arm: the tool succeeded and the declaration stands, but the
+	// configuration would not walk so nothing was read. A bare "declared" would read
+	// as fully done — especially compact, where the detail block is hidden.
+	t.Run("declared but not read", func(t *testing.T) {
+		const content = `{"resource_addr": "data.aws_ami.latest", "declared": true,
+			"warning": "declared, but the configuration did not walk, so data.aws_ami.latest was not read: module.net not installed — replan once the configuration walks"}`
+		compact := plainNorm(renderFor("turf_declare_datasource", content, hiddenState{}))
+		for _, want := range []string{"declared", "not read"} {
+			if !strings.Contains(compact, want) {
+				t.Fatalf("compact missing %q: %q", want, compact)
+			}
+		}
+		detailed := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
+		if !strings.Contains(detailed, "did not walk") {
+			t.Fatalf("detailed should carry the warning text: %q", detailed)
+		}
+	})
+
+	t.Run("removed", func(t *testing.T) {
+		const content = `{"resource_addr": "data.aws_ami.latest", "removed": true,
+			"replan": ["aws_instance.web"]}`
+		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
+		for _, want := range []string{"removed", "1 replan", "aws_instance.web"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("missing %q: %q", want, out)
+			}
+		}
+		// Nothing is read on a remove, so there is no verdict to report.
+		if strings.Contains(out, "reads:") {
+			t.Fatalf("a remove reads nothing and must not show a reads section: %q", out)
+		}
+	})
 }
 
 func TestResourcePlan_ReplaceCBDvsDTC(t *testing.T) {

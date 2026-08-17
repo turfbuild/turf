@@ -1260,14 +1260,14 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 
 // --- turf_datasource_read ---------------------------------------------------
 //
-// datasource_read evaluates a data source and returns its read state (attrs) plus
-// an advisory replan list — resource addresses whose (still-unknown) attributes the
-// data source depends on, hinting the read may change once they're applied.
+// datasource_read is the one-off lookup: it evaluates a data source and returns its
+// read state (attrs), writing nothing to state and nothing to the configuration. It
+// carries no replan hints — those moved to declare_datasource, the verb that puts a
+// declaration in the configuration for other changes to reference.
 
 type datasourceReadView struct {
 	ResourceAddr string         `json:"resource_addr"`
 	State        map[string]any `json:"state"`
-	Replan       []string       `json:"replan"`
 }
 
 func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1286,37 +1286,47 @@ func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.Sess
 	if n := len(r.State); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
 	}
-	if n := len(r.Replan); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
-	}
-
-	detail := kvLines(r.State, "  ", 30)
-	if len(r.Replan) > 0 {
-		detail = append(detail, section("replan"))
-		detail = append(detail, listLines(r.Replan, "  ", 20)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
+	return lineWithDetail(msg, s, ss, summary, kvLines(r.State, "  ", 30), width)
 }
 
 // --- turf_declare_datasource --------------------------------------------------
 //
 // declare_datasource is the declarative counterpart of datasource_read: it writes a
-// `data` block into the bound configuration *and* reads it in the same call, so the
-// result carries both the declaration outcome (declared / removed) and the read
-// state. A query that references something the phase hasn't applied yet still
-// declares, and comes back `deferred` instead of a value — rendered the same way
-// declare_resource renders a deferred change.
+// `data` block into the bound configuration *and* reads it in the same call, so
+// ${data.<type>.<name>.<attr>} resolves in the very next declare_resource with no
+// replan in between.
+//
+// The result deliberately carries no value — the read is reported as a
+// *classification* in data_source_reads[], and datasource_read is the verb that
+// hands you a value. So this renderer shows the declaration outcome (declared /
+// removed) plus the per-instance read verdict, not attributes. count/for_each expand
+// the declaration into keyed instances, one data_source_reads[] entry each.
+//
+// warning is the third arm: the declaration stands, but the configuration as a whole
+// would not walk, so nothing was read. That is not a failure — the tool succeeds —
+// which is exactly why the summary has to say "not read" rather than a bare
+// "declared" that reads as fully done.
 
 type declareDatasourceView struct {
-	ResourceAddr string         `json:"resource_addr"`
-	ResourceType string         `json:"resource_type"`
-	Declared     bool           `json:"declared"`
-	Removed      bool           `json:"removed"`
-	State        map[string]any `json:"state"`
-	Replan       []string       `json:"replan"`
-	Deferred     *struct {
-		Reason string `json:"reason"`
-	} `json:"deferred,omitempty"`
+	ResourceAddr string                `json:"resource_addr"`
+	Declared     bool                  `json:"declared"`
+	Removed      bool                  `json:"removed"`
+	Replan       []string              `json:"replan"`
+	Reads        []dataSourceReadEntry `json:"data_source_reads,omitempty"`
+	Warning      string                `json:"warning,omitempty"`
+}
+
+// dataSourceReadEntry is one expanded instance's read verdict. Action is "read",
+// "deferred" or "error"; Reason narrows a deferral ("config_unknown" — the query
+// still carries unknowns; "dependency_pending" — a depends_on target has a change
+// this phase has not applied), and DependsOn names the addresses to apply to clear
+// it. The server keeps Value off the wire, so there is no attribute to render.
+type dataSourceReadEntry struct {
+	Address   string   `json:"address"`
+	Action    string   `json:"action"`
+	Reason    string   `json:"reason,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty"`
+	Error     string   `json:"error,omitempty"`
 }
 
 func renderDeclareDatasource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1338,30 +1348,90 @@ func renderDeclareDatasource(msg *types.Message, s spinner.Spinner, ss service.S
 	case d.Declared:
 		summary += dot() + bold("declared", styles.Success)
 	}
-	switch {
-	case d.Deferred != nil:
-		summary += dot() + bold("deferred", styles.Warning)
-	case len(d.State) > 0:
-		summary += dot() + muted(fmt.Sprintf("%d attr(s)", len(d.State)))
+	if d.Warning != "" {
+		summary += dot() + bold("not read", styles.Warning)
+	} else if tally := dataReadTally(d.Reads); tally != "" {
+		summary += dot() + tally
 	}
 	if n := len(d.Replan); n > 0 {
 		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
 	}
 
 	var detail []string
-	if d.Deferred != nil {
-		reason := d.Deferred.Reason
-		if reason == "" {
-			reason = "blocked on upstream changes"
-		}
-		detail = append(detail, styles.WarningStyle.Render("deferred: "+reason))
+	if d.Warning != "" {
+		detail = append(detail, styles.WarningStyle.Render("⚠ "+d.Warning))
 	}
-	detail = append(detail, kvLines(d.State, "  ", 30)...)
+	if len(d.Reads) > 0 {
+		detail = append(detail, section("reads"))
+		detail = append(detail, dataReadLines(d.Reads, "  ", 20)...)
+	}
 	if len(d.Replan) > 0 {
 		detail = append(detail, section("replan"))
 		detail = append(detail, listLines(d.Replan, "  ", 20)...)
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// dataReadTally summarizes the read verdicts for the one-line view. A single
+// instance renders as the bare colored action word ("read", "deferred", "error");
+// several render as per-action counts ("2 read · 1 deferred") in the fixed order
+// read → deferred → error, so the eye lands on the same bucket every time. Empty
+// for no reads — a remove, or a targeted walk that never reached the address, has
+// nothing to report and should not claim otherwise.
+func dataReadTally(reads []dataSourceReadEntry) string {
+	if len(reads) == 0 {
+		return ""
+	}
+	if len(reads) == 1 {
+		label, c, _ := planAction(reads[0].Action, false, nil)
+		return bold(label, c)
+	}
+	counts := map[string]int{}
+	for _, r := range reads {
+		label, _, _ := planAction(r.Action, false, nil)
+		counts[label]++
+	}
+	var parts []string
+	for _, a := range []string{"read", "deferred", "error"} {
+		if n := counts[a]; n > 0 {
+			_, c, _ := planAction(a, false, nil)
+			parts = append(parts, bold(fmt.Sprintf("%d %s", n, a), c))
+			delete(counts, a)
+		}
+	}
+	// Anything planAction mapped elsewhere (an action word this CLI predates) still
+	// gets counted rather than silently dropped.
+	for a, n := range counts {
+		_, c, _ := planAction(a, false, nil)
+		parts = append(parts, bold(fmt.Sprintf("%d %s", n, a), c))
+	}
+	return strings.Join(parts, dot())
+}
+
+// dataReadLines renders each instance's verdict as "<glyph> <address> · <action>",
+// following formatEffectID's shape, with the deferral reason / provider error text
+// indented beneath the entry it belongs to.
+func dataReadLines(reads []dataSourceReadEntry, indent string, max int) []string {
+	var out []string
+	for i, r := range reads {
+		if max > 0 && i == max {
+			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(reads)-max)))
+			break
+		}
+		label, c, glyph := planAction(r.Action, false, nil)
+		body := indent + bold(glyph, c) + " " + addr(r.Address) + dot() + bold(label, c)
+		if r.Reason != "" {
+			body += dot() + muted(r.Reason)
+		}
+		out = append(out, body)
+		if len(r.DependsOn) > 0 {
+			out = append(out, indent+"    "+muted("waiting on ")+addr(strings.Join(r.DependsOn, ", ")))
+		}
+		if r.Error != "" {
+			out = append(out, indent+"    "+styles.ErrorStyle.Render(r.Error))
+		}
+	}
+	return out
 }
 
 // --- turf_provider_describe -------------------------------------------------
