@@ -921,7 +921,7 @@ func TestResourcePlan_CollectionAttrExpands(t *testing.T) {
 // just the top-level attr — and that top-level keys are =-aligned, matching tofu plan.
 func TestAttrDiff_MarkersPropagate(t *testing.T) {
 	after := map[string]any{"id": "x", "tags": map[string]any{"env": "prod"}}
-	create := plainNorm(strings.Join(attrDiff(nil, after, ""), "\n"))
+	create := plainNorm(strings.Join(attrDiff(nil, after, nil, nil, ""), "\n"))
 	for _, want := range []string{"+ id", "+ tags = {", `+ env = "prod"`} { // nested line carries +
 		if !strings.Contains(create, want) {
 			t.Fatalf("create diff missing marker %q:\n%s", want, create)
@@ -929,7 +929,7 @@ func TestAttrDiff_MarkersPropagate(t *testing.T) {
 	}
 
 	before := map[string]any{"tags": map[string]any{"env": "prod"}}
-	destroy := plainNorm(strings.Join(attrDiff(before, nil, ""), "\n"))
+	destroy := plainNorm(strings.Join(attrDiff(before, nil, nil, nil, ""), "\n"))
 	for _, want := range []string{"- tags = {", `- env = "prod"`} {
 		if !strings.Contains(destroy, want) {
 			t.Fatalf("destroy diff missing marker %q:\n%s", want, destroy)
@@ -938,8 +938,207 @@ func TestAttrDiff_MarkersPropagate(t *testing.T) {
 
 	// A scalar change stays inline as old → new (no expansion).
 	chg := plainNorm(strings.Join(attrDiff(
-		map[string]any{"n": float64(1)}, map[string]any{"n": float64(2)}, ""), "\n"))
+		map[string]any{"n": float64(1)}, map[string]any{"n": float64(2)}, nil, nil, ""), "\n"))
 	if !strings.Contains(chg, "~ n = 1 → 2") {
 		t.Fatalf("scalar change should be inline old → new: %q", chg)
+	}
+}
+
+// --- sensitivity masks -------------------------------------------------------
+//
+// The turf server returns OpenTofu's before_sensitive/after_sensitive/sensitive_values
+// masks alongside the values, and can be asked (show_sensitive) to put the real secret
+// on the wire. These tests pin the property that matters: whatever arrives, no turf
+// renderer paints a secret into the timeline.
+
+// secretAbsent mirrors the server's own e2e helper — a redacted attribute is worthless
+// if the same value rides along somewhere else in the same line.
+func secretAbsent(t *testing.T, out, secret, what string) {
+	t.Helper()
+	if strings.Contains(out, secret) {
+		t.Fatalf("%s leaked the secret %q:\n%s", what, secret, out)
+	}
+}
+
+// TestAttrDiff_MaskRedactsRevealedValues: with show_sensitive the values arrive in the
+// clear, so the mask is the only thing standing between the secret and the screen. It
+// has to hold at every shape a mask can take — a scalar attr, a key inside a nested
+// object, a list element — and on every diff branch.
+func TestAttrDiff_MaskRedactsRevealedValues(t *testing.T) {
+	const secret = "hunter2"
+	vals := map[string]any{
+		"id":      "x",
+		"pw":      secret,
+		"keepers": map[string]any{"env": "prod", "token": secret},
+		"certs":   []any{"public", secret},
+	}
+	// The OTF shape: true at a sensitive node, non-sensitive entries omitted, lists
+	// positional with null where nothing is sensitive.
+	mask := map[string]any{
+		"pw":      true,
+		"keepers": map[string]any{"token": true},
+		"certs":   []any{nil, true},
+	}
+
+	create := plainNorm(strings.Join(attrDiff(nil, vals, nil, mask, ""), "\n"))
+	secretAbsent(t, create, secret, "create diff")
+	for _, want := range []string{"+ pw = (sensitive)", "+ token = (sensitive)", `+ env = "prod"`} {
+		if !strings.Contains(create, want) {
+			t.Fatalf("create diff missing %q:\n%s", want, create)
+		}
+	}
+
+	destroy := plainNorm(strings.Join(attrDiff(vals, nil, mask, nil, ""), "\n"))
+	secretAbsent(t, destroy, secret, "destroy diff")
+	if !strings.Contains(destroy, "- pw = (sensitive)") {
+		t.Fatalf("destroy diff missing masked scalar:\n%s", destroy)
+	}
+
+	// Sensitivity newly applied to an attribute that was in the clear: at most one side
+	// is masked, so this stays the ordinary inline old → new.
+	added := plainNorm(strings.Join(attrDiff(
+		map[string]any{"pw": "old"}, map[string]any{"pw": secret},
+		nil, map[string]any{"pw": true}, ""), "\n"))
+	secretAbsent(t, added, secret, "newly-sensitive diff")
+	if !strings.Contains(added, `~ pw = "old" → (sensitive)`) {
+		t.Fatalf("newly-sensitive attr should read old → (sensitive): %q", added)
+	}
+
+	// A changed collection expands the new value, and the mask still bites inside it.
+	coll := plainNorm(strings.Join(attrDiff(
+		map[string]any{"keepers": map[string]any{"token": "before"}},
+		map[string]any{"keepers": map[string]any{"token": secret}},
+		map[string]any{"keepers": map[string]any{"token": true}},
+		map[string]any{"keepers": map[string]any{"token": true}}, ""), "\n"))
+	secretAbsent(t, coll, secret, "collection diff")
+}
+
+// TestAttrDiff_MaskedChange covers the two halves of an unprintable change: redacted,
+// the sentinel is identical on both sides and there is nothing to report; revealed, the
+// renderer can prove it moved and says so without printing either half.
+func TestAttrDiff_MaskedChange(t *testing.T) {
+	mask := map[string]any{"pw": true}
+
+	// Redacted (the default): both sides are the same sentinel, so the row drops out —
+	// unchanged from before masks existed. The renderer genuinely cannot tell.
+	hidden := plainNorm(strings.Join(attrDiff(
+		map[string]any{"n": float64(1), "pw": "__cty_sensitive__"},
+		map[string]any{"n": float64(2), "pw": "__cty_sensitive__"},
+		mask, mask, ""), "\n"))
+	if strings.Contains(hidden, "pw") {
+		t.Fatalf("an indistinguishable sensitive attr should not render a row: %q", hidden)
+	}
+	if !strings.Contains(hidden, "~ n = 1 → 2") {
+		t.Fatalf("the ordinary attr should still diff: %q", hidden)
+	}
+
+	// Revealed: two different plaintexts, so the change is real. Same shape as any
+	// other scalar change, both halves masked.
+	shown := plainNorm(strings.Join(attrDiff(
+		map[string]any{"pw": "old-secret"},
+		map[string]any{"pw": "new-secret"},
+		mask, mask, ""), "\n"))
+	secretAbsent(t, shown, "old-secret", "masked change")
+	secretAbsent(t, shown, "new-secret", "masked change")
+	if !strings.Contains(shown, "~ pw = (sensitive) → (sensitive)") {
+		t.Fatalf("a proven change to an unprintable value should read (sensitive) → (sensitive): %q", shown)
+	}
+
+	// A revealed *collection* takes the same shape rather than expanding and losing
+	// the arrow.
+	coll := plainNorm(strings.Join(attrDiff(
+		map[string]any{"pw": map[string]any{"k": "old-secret"}},
+		map[string]any{"pw": map[string]any{"k": "new-secret"}},
+		mask, mask, ""), "\n"))
+	secretAbsent(t, coll, "old-secret", "masked collection change")
+	if !strings.Contains(coll, "~ pw = (sensitive) → (sensitive)") {
+		t.Fatalf("a masked collection change should take the same shape: %q", coll)
+	}
+}
+
+// TestKvLinesMasked_CollapsesSensitiveSubtrees is the plain-view half: a mask covering a
+// whole map or list must stop the expansion entirely, not just redact the leaves.
+func TestKvLinesMasked_CollapsesSensitiveSubtrees(t *testing.T) {
+	const secret = "hunter2"
+	m := map[string]any{
+		"id":      "x",
+		"config":  map[string]any{"user": "root", "pass": secret},
+		"whole":   map[string]any{"a": secret, "b": secret},
+		"ports":   []any{float64(80), secret},
+		"nothing": "plain",
+	}
+	mask := map[string]any{
+		"config": map[string]any{"pass": true},
+		"whole":  true,
+		"ports":  []any{nil, true},
+	}
+	out := plainNorm(strings.Join(kvLinesMasked(m, mask, "", 0), "\n"))
+	secretAbsent(t, out, secret, "kvLinesMasked")
+	for _, want := range []string{
+		`id = "x"`,
+		"config = {",
+		`user = "root"`,
+		"pass = (sensitive)",
+		"whole = (sensitive)", // the whole subtree collapses; no brace, no keys
+		"ports = [80, (sensitive)]",
+		`nothing = "plain"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("kvLinesMasked missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "whole = {") {
+		t.Fatalf("a wholly-sensitive map must not expand:\n%s", out)
+	}
+}
+
+// TestRenderers_MasksSurviveToTheTimeline drives the real renderers with the payload a
+// show_sensitive call produces — plaintext values plus their mask — and asserts nothing
+// reaches the rendered line. This is the end the mask plumbing exists for.
+func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
+	const secret = "hunter2"
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"turf_declare_resource", `{
+			"resource_addr": "random_password.pw", "action": "create",
+			"after": {"result": "` + secret + `", "length": 16},
+			"after_sensitive": {"result": true}
+		}`, "+ result = (sensitive)"},
+		{"turf_plan_new", `{
+			"resources": [{
+				"address": "random_pet.p", "action": "update",
+				"before": {"keepers": {"pw": "` + secret + `"}},
+				"after": {"keepers": {"pw": "` + secret + `-next"}},
+				"before_sensitive": {"keepers": {"pw": true}},
+				"after_sensitive": {"keepers": {"pw": true}}
+			}]
+		}`, "pw = (sensitive)"},
+		{"turf_effect_apply", `{
+			"kind": "create", "state": "done", "resource_addr": "random_password.pw",
+			"new_state": {"result": "` + secret + `"},
+			"sensitive_values": {"result": true}
+		}`, "result = (sensitive)"},
+		{"turf_outputs", `{
+			"workspace_alias": "default",
+			"outputs": {"pw": {"value": "` + secret + `", "sensitive": true},
+			            "name": {"value": "plain", "sensitive": false}}
+		}`, "pw = (sensitive)"},
+		{"turf_datasource_read", `{
+			"resource_addr": "data.vault_generic_secret.db",
+			"state": {"data": {"password": "` + secret + `"}},
+			"sensitive_values": {"data": true}
+		}`, "data = (sensitive)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderFor(tc.name, tc.content, service.StaticSessionState{})
+			secretAbsent(t, out, secret, tc.name)
+			if !strings.Contains(plainNorm(out), tc.want) {
+				t.Fatalf("%s missing %q:\n%s", tc.name, tc.want, out)
+			}
+		})
 	}
 }

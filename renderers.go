@@ -363,11 +363,13 @@ func section(label string) string { return muted(label + ":") }
 
 const maxDiffLines = 60
 
-func attrDiff(before, after map[string]any, indent string) []string {
+func attrDiff(before, after map[string]any, beforeMask, afterMask any, indent string) []string {
 	keys := unionKeys(before, after)
 	sort.Strings(keys)
 	// First pass: keep only keys that actually change, so the = alignment is computed
-	// over exactly the rendered rows (not the skipped, unchanged attrs).
+	// over exactly the rendered rows (not the skipped, unchanged attrs). A redacted
+	// sensitive attribute is identical on both sides (the same sentinel string), so it
+	// drops out here — we genuinely cannot tell whether it changed.
 	changed := make([]string, 0, len(keys))
 	for _, k := range keys {
 		bv, bok := before[k]
@@ -388,24 +390,36 @@ func attrDiff(before, after map[string]any, indent string) []string {
 		}
 		bv, bok := before[k]
 		av, aok := after[k]
+		bm, am := maskKey(beforeMask, k), maskKey(afterMask, k)
 		bNil := !bok || bv == nil
 		aNil := !aok || av == nil
 		head := muted(padRight(k, w) + " = ")
 		switch {
 		case bNil:
 			// A create: the whole subtree is new, so every line carries a + marker.
-			out = append(out, renderValue(bold("+", styles.Success), head, av, indent, styles.Success)...)
+			out = append(out, renderValue(bold("+", styles.Success), head, av, am, indent, styles.Success)...)
 		case aNil:
 			// A destroy: the whole subtree is gone, so every line carries a - marker.
-			out = append(out, renderValue(bold("-", styles.Error), head, bv, indent, styles.Error)...)
+			out = append(out, renderValue(bold("-", styles.Error), head, bv, bm, indent, styles.Error)...)
+		case maskSensitive(bm) && maskSensitive(am):
+			// Both halves are sensitive, so neither can be printed — but the equality pass
+			// above kept the key, so we are looking at two different values and the change
+			// is real. Only reachable under show_sensitive: redacted, the two sides are the
+			// same sentinel and drop out above. Rendered as an ordinary scalar change with
+			// both halves masked, so it reads like every other row. The branch sits ahead of
+			// the scalar check so a revealed *collection* takes this shape too, rather than
+			// falling through and losing the arrow.
+			out = append(out, indent+bold("~", styles.Accent)+" "+head+muted(sensitiveLeaf)+muted(" → ")+colored(sensitiveLeaf, styles.Accent))
 		case isScalar(bv) && isScalar(av):
-			// A scalar change reads best inline as old → new.
-			out = append(out, indent+bold("~", styles.Accent)+" "+head+muted(fmtVal(bv))+muted(" → ")+colored(fmtVal(av), styles.Accent))
+			// A scalar change reads best inline as old → new. At most one side is sensitive
+			// here (both is the case above), so this also covers sensitivity being newly
+			// applied or dropped: "old" → (sensitive).
+			out = append(out, indent+bold("~", styles.Accent)+" "+head+muted(maskedVal(bv, bm))+muted(" → ")+colored(maskedVal(av, am), styles.Accent))
 		default:
 			// A collection changed: mark the header and expand the new value. A full
 			// per-line recursive sub-diff (mixed +/-/~ inside the block) is a deliberate
 			// non-goal; showing the new value already avoids the raw-JSON dump.
-			out = append(out, renderValue("", bold("~", styles.Accent)+" "+head, av, indent, styles.Accent)...)
+			out = append(out, renderValue("", bold("~", styles.Accent)+" "+head, av, am, indent, styles.Accent)...)
 		}
 	}
 	return out
@@ -416,11 +430,17 @@ func attrDiff(before, after map[string]any, indent string) []string {
 // renderValue. Null leaves are skipped; max caps the number of rendered lines. This is
 // the unmarked (no +/-) value view; diffs pass a marker through renderValue instead.
 func kvLines(m map[string]any, indent string, max int) []string {
+	return kvLinesMasked(m, nil, indent, max)
+}
+
+// kvLinesMasked is kvLines for a value that came with a sensitive_values mask alongside
+// it (effect_apply's new_state, datasource_read's state). A nil mask is the plain view.
+func kvLinesMasked(m map[string]any, mask any, indent string, max int) []string {
 	keys := nonNilKeys(m)
 	w := maxKeyWidth(keys)
 	var out []string
 	for _, k := range keys {
-		out = append(out, renderValue("", muted(padRight(k, w)+" = "), m[k], indent, styles.Highlight)...)
+		out = append(out, renderValue("", muted(padRight(k, w)+" = "), m[k], maskKey(mask, k), indent, styles.Highlight)...)
 	}
 	return capLines(out, indent, max)
 }
@@ -471,12 +491,19 @@ func closeIndent(indent, marker string) string {
 	return indent + "  "
 }
 
-func renderValue(marker, head string, v any, indent string, c color.Color) []string {
+func renderValue(marker, head string, v any, mask any, indent string, c color.Color) []string {
+	// The mask wins before the type switch: a sensitive node collapses its whole
+	// subtree, so we never descend into (and never print) what it covers. This is the
+	// one place that has to hold — every value site funnels through here — and it is
+	// what makes show_sensitive mean "into the agent's context", not "onto the screen".
+	if maskSensitive(mask) {
+		return []string{indent + markerPrefix(marker) + head + colored(sensitiveLeaf, c)}
+	}
 	switch x := v.(type) {
 	case map[string]any:
-		return renderMap(marker, head, x, indent, c)
+		return renderMap(marker, head, x, mask, indent, c)
 	case []any:
-		return renderList(marker, head, x, indent, c)
+		return renderList(marker, head, x, mask, indent, c)
 	default:
 		return []string{indent + markerPrefix(marker) + head + colored(fmtVal(v), c)}
 	}
@@ -485,7 +512,7 @@ func renderValue(marker, head string, v any, indent string, c color.Color) []str
 // renderMap expands a map to "<head>{ … }" with each non-nil entry on its own aligned,
 // deeper-indented line (the marker propagating to each). An empty (or all-null) map
 // renders inline as "<head>{}".
-func renderMap(marker, head string, m map[string]any, indent string, c color.Color) []string {
+func renderMap(marker, head string, m map[string]any, mask any, indent string, c color.Color) []string {
 	keys := nonNilKeys(m)
 	if len(keys) == 0 {
 		return []string{indent + markerPrefix(marker) + head + muted("{}")}
@@ -494,7 +521,7 @@ func renderMap(marker, head string, m map[string]any, indent string, c color.Col
 	child := childIndent(indent, marker)
 	out := []string{indent + markerPrefix(marker) + head + muted("{")}
 	for _, k := range keys {
-		out = append(out, renderValue(marker, muted(padRight(k, w)+" = "), m[k], child, c)...)
+		out = append(out, renderValue(marker, muted(padRight(k, w)+" = "), m[k], maskKey(mask, k), child, c)...)
 	}
 	return append(out, closeIndent(indent, marker)+muted("}"))
 }
@@ -503,7 +530,7 @@ func renderMap(marker, head string, m map[string]any, indent string, c color.Col
 // unstyled form is short; otherwise it expands one element per line with a trailing comma
 // (recursing for nested collections, the marker propagating to each). An empty list
 // renders as "<head>[]".
-func renderList(marker, head string, s []any, indent string, c color.Color) []string {
+func renderList(marker, head string, s []any, mask any, indent string, c color.Color) []string {
 	if len(s) == 0 {
 		return []string{indent + markerPrefix(marker) + head + muted("[]")}
 	}
@@ -511,7 +538,7 @@ func renderList(marker, head string, s []any, indent string, c color.Color) []st
 		raw := make([]string, len(s))
 		styled := make([]string, len(s))
 		for i, e := range s {
-			raw[i] = fmtVal(e)
+			raw[i] = maskedVal(e, maskIndex(mask, i))
 			styled[i] = colored(raw[i], c)
 		}
 		if len([]rune("["+strings.Join(raw, ", ")+"]")) <= inlineListWidth {
@@ -520,8 +547,8 @@ func renderList(marker, head string, s []any, indent string, c color.Color) []st
 	}
 	child := childIndent(indent, marker)
 	out := []string{indent + markerPrefix(marker) + head + muted("[")}
-	for _, e := range s {
-		lines := renderValue(marker, "", e, child, c)
+	for i, e := range s {
+		lines := renderValue(marker, "", e, maskIndex(mask, i), child, c)
 		lines[len(lines)-1] += muted(",")
 		out = append(out, lines...)
 	}
@@ -604,9 +631,67 @@ func unionKeys(a, b map[string]any) []string {
 	return keys
 }
 
+// --- sensitivity masks ------------------------------------------------------
+//
+// Every value-bearing turf tool that can reveal a secret returns OpenTofu's
+// sensitive_values shape alongside the values: `true` at a sensitive node (covering
+// its whole subtree), an object with the non-sensitive keys omitted, a positional
+// array for lists/sets/tuples with null at the non-sensitive elements, and the field
+// absent entirely when nothing is sensitive. See objchange.SensitiveValuesFromMarked.
+//
+// The mask matters because show_sensitive puts the real secret on the wire. The
+// server hands it to the model deliberately; the timeline is a different surface — it
+// is also terminal scrollback and the persisted session — so turf redacts at display
+// time from the mask, whatever arrived. In the ordinary (unrevealed) case the values
+// are already the __cty_sensitive__ sentinel and the mask agrees with them, so the
+// rendered bytes are the same either way.
+
+// sensitiveLeaf stands in for a value we are not allowed to print. It is exactly what
+// fmtVal renders the __cty_sensitive__ sentinel as, so a mask-redacted value and a
+// pre-redacted one read identically — one form on every surface, including both halves
+// of a diff between two unprintable values.
+const sensitiveLeaf = "(sensitive)"
+
+// maskSensitive reports whether a mask node marks its whole subtree sensitive.
+func maskSensitive(mask any) bool {
+	b, ok := mask.(bool)
+	return ok && b
+}
+
+// maskKey descends an object/map mask by attribute name; nil when the mask says
+// nothing about that key (or is not an object at all).
+func maskKey(mask any, k string) any {
+	m, ok := mask.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return m[k]
+}
+
+// maskIndex descends a list/set/tuple mask by position; nil when out of range (or the
+// mask is not positional).
+func maskIndex(mask any, i int) any {
+	s, ok := mask.([]any)
+	if !ok || i < 0 || i >= len(s) {
+		return nil
+	}
+	return s[i]
+}
+
+// maskedVal is fmtVal for a scalar leaf that may be covered by a mask — the inline
+// forms (a scalar diff, a short all-scalar list) that format a value without going
+// through renderValue's own mask guard.
+func maskedVal(v any, mask any) string {
+	if maskSensitive(mask) {
+		return sensitiveLeaf
+	}
+	return fmtVal(v)
+}
+
 // fmtVal renders a JSON-decoded value compactly. turf's sentinels are masked:
 // "__cty_unknown__" (a value known only after apply) and "__cty_sensitive__" (a
-// sensitive value whose real content stays server-side and never reaches us).
+// sensitive value whose real content stayed server-side and never reached us — the
+// masks above cover the case where it did).
 func fmtVal(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -616,7 +701,7 @@ func fmtVal(v any) string {
 		case "__cty_unknown__":
 			return "(known after apply)"
 		case "__cty_sensitive__":
-			return "(sensitive)"
+			return sensitiveLeaf
 		}
 		return strconv.Quote(x)
 	case bool:
@@ -649,7 +734,12 @@ type resourcePlanView struct {
 	RequiresReplace     []string       `json:"requires_replace"`
 	Before              map[string]any `json:"before"`
 	After               map[string]any `json:"after"`
-	Deferred            *struct {
+	// Which paths of Before/After are sensitive, in OpenTofu's before_sensitive/
+	// after_sensitive shape. Reported whether or not the values arrived redacted, so a
+	// show_sensitive call keeps the classification — and the timeline keeps redacting.
+	BeforeSensitive any `json:"before_sensitive,omitempty"`
+	AfterSensitive  any `json:"after_sensitive,omitempty"`
+	Deferred        *struct {
 		Reason string `json:"reason"`
 	} `json:"deferred,omitempty"`
 }
@@ -695,7 +785,7 @@ func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.Ses
 		}
 		detail = append(detail, styles.WarningStyle.Render("deferred: "+reason))
 	}
-	if diff := attrDiff(p.Before, p.After, ""); len(diff) > 0 {
+	if diff := attrDiff(p.Before, p.After, p.BeforeSensitive, p.AfterSensitive, ""); len(diff) > 0 {
 		detail = append(detail, diff...)
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
@@ -709,6 +799,8 @@ type effectApplyView struct {
 	ResourceAddr string         `json:"resource_addr"`
 	Ready        []string       `json:"ready"`
 	NewState     map[string]any `json:"new_state,omitempty"`
+	// SensitiveValues masks NewState, in OpenTofu's sensitive_values shape.
+	SensitiveValues any `json:"sensitive_values,omitempty"`
 }
 
 func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -735,7 +827,7 @@ func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.Session
 	// new state first, then what becomes ready to effect — the temporal order of apply.
 	if len(e.NewState) > 0 {
 		detail = append(detail, section("new state"))
-		detail = append(detail, kvLines(e.NewState, "  ", 40)...)
+		detail = append(detail, kvLinesMasked(e.NewState, e.SensitiveValues, "  ", 40)...)
 	}
 	if n := len(e.Ready); n > 0 {
 		detail = append(detail, section(fmt.Sprintf("%d ready to effect", n)))
@@ -754,6 +846,8 @@ type resourcePlanEntry struct {
 	CreateBeforeDestroy *bool          `json:"create_before_destroy,omitempty"`
 	Before              map[string]any `json:"before,omitempty"`
 	After               map[string]any `json:"after,omitempty"`
+	BeforeSensitive     any            `json:"before_sensitive,omitempty"`
+	AfterSensitive      any            `json:"after_sensitive,omitempty"`
 	RequiresReplace     []string       `json:"requires_replace,omitempty"`
 }
 
@@ -833,7 +927,7 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 			header += dot() + muted(changed)
 		}
 		detail = append(detail, header)
-		detail = append(detail, attrDiff(r.Before, r.After, "  ")...)
+		detail = append(detail, attrDiff(r.Before, r.After, r.BeforeSensitive, r.AfterSensitive, "  ")...)
 	}
 	if len(p.Reads) > 0 {
 		detail = append(detail, section("data sources"))
@@ -943,9 +1037,11 @@ func sensitiveCount(outputs map[string]any) int {
 
 // --- turf_outputs -----------------------------------------------------------
 //
-// outputs reads a workspace's root outputs (name → {value, sensitive}). The
-// server masks sensitive values with the "__cty_sensitive__" sentinel unless the
-// caller opted in to reveal them; fmtVal renders that sentinel as "(sensitive)".
+// outputs reads a workspace's root outputs (name → {value, sensitive}). The server
+// masks sensitive values with the "__cty_sensitive__" sentinel unless the caller opted
+// in to reveal them (show_sensitive), so the per-output `sensitive` flag is this tool's
+// form of a sensitivity mask — the renderer redacts from it either way, and never
+// prints a revealed output value.
 
 type outputsView struct {
 	WorkspaceAlias string `json:"workspace_alias"`
@@ -978,12 +1074,17 @@ func renderOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStat
 		summary += dot() + muted(fmt.Sprintf("%d sensitive", sens))
 	}
 
-	// Flatten to name→value so kvLines can render (and mask) each leaf.
+	// Flatten to name→value so kvLines can render each leaf, carrying the per-output
+	// sensitive flag across as a mask so a revealed value is still redacted here.
 	flat := make(map[string]any, len(r.Outputs))
+	mask := map[string]any{}
 	for k, o := range r.Outputs {
 		flat[k] = o.Value
+		if o.Sensitive {
+			mask[k] = true
+		}
 	}
-	detail := kvLines(flat, "  ", 30)
+	detail := kvLinesMasked(flat, mask, "  ", 30)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -1281,6 +1382,8 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 type datasourceReadView struct {
 	ResourceAddr string         `json:"resource_addr"`
 	State        map[string]any `json:"state"`
+	// SensitiveValues masks State, in OpenTofu's sensitive_values shape.
+	SensitiveValues any `json:"sensitive_values,omitempty"`
 }
 
 func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1299,7 +1402,7 @@ func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.Sess
 	if n := len(r.State); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
 	}
-	return lineWithDetail(msg, s, ss, summary, kvLines(r.State, "  ", 30), width)
+	return lineWithDetail(msg, s, ss, summary, kvLinesMasked(r.State, r.SensitiveValues, "  ", 30), width)
 }
 
 // --- turf_declare_datasource --------------------------------------------------
