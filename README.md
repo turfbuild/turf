@@ -3,7 +3,7 @@
 [![CI](https://github.com/turfbuild/turf/actions/workflows/ci.yml/badge.svg)](https://github.com/turfbuild/turf/actions/workflows/ci.yml)
 [![Security](https://github.com/turfbuild/turf/actions/workflows/security.yml/badge.svg)](https://github.com/turfbuild/turf/actions/workflows/security.yml)
 
-A reference AI-powered infrastructure management CLI built on the **turf MCP
+An AI-powered infrastructure management CLI built on the **turf MCP
 server** — a drop-in replacement for
 Terraform with agentic superpowers: full support for Terraform HCL and the
 module registry, driven by an AI agent. `turf` drives the server through
