@@ -382,6 +382,167 @@ func TestResourcePlan_ReplaceCBDvsDTC(t *testing.T) {
 	if !strings.Contains(out, "∓") || strings.Contains(out, "±") {
 		t.Fatalf("DTC replace should show ∓ not ±: %q", out)
 	}
+
+	// The load-bearing case: the server sends create_before_destroy as a bare bool
+	// with omitempty, so the ordinary delete-then-create replace arrives with the
+	// key ABSENT. Reading absent as ± would render every default replace wrong.
+	absent := `{"resource_addr": "a.b", "action": "replace", "before": {"x": 1}, "after": {"x": 2}}`
+	out = renderFor("turf_declare_resource", absent, hiddenState{})
+	if !strings.Contains(out, "∓") || strings.Contains(out, "±") {
+		t.Fatalf("replace with no create_before_destroy is DTC (∓), got: %q", out)
+	}
+}
+
+// TestPlanSummary_MovedRecords covers the state relocations a phase's `moved {}`
+// blocks produce. They are not resource changes, so they get their own summary
+// segment and their own detail section rather than a tally bucket — and they are
+// reported by plan_new/replan even when the re-plan finds nothing left to move.
+func TestPlanSummary_MovedRecords(t *testing.T) {
+	const content = `{"phase_id": "ph_001", "path": "infra/prod",
+		"resources": [{"address": "aws_s3_bucket.assets", "action": "noop"}],
+		"moved": [
+			{"from": "aws_s3_bucket.old", "to": "aws_s3_bucket.assets"},
+			{"from": "module.net.aws_vpc.a", "to": "module.network.aws_vpc.a"}
+		]}`
+	out := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
+	if !strings.Contains(out, "⇄2 moved") {
+		t.Fatalf("summary should count relocations: %q", out)
+	}
+	for _, want := range []string{"moved:", "aws_s3_bucket.old", "→", "module.network.aws_vpc.a"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expanded block missing %q: %q", want, out)
+		}
+	}
+	// Compact stays a one-liner: the count is in the summary, the pairs are not.
+	compact := plainNorm(renderFor("turf_plan_new", content, hiddenState{}))
+	if strings.Contains(compact, "aws_s3_bucket.old") {
+		t.Errorf("compact line should not list relocations: %q", compact)
+	}
+}
+
+// TestPlanSummary_DeposedRow covers the destroy of an object deposed under an
+// address by an interrupted create-before-destroy replace. Two rows can share one
+// address, told apart only by deposed_key, so the header has to carry it.
+func TestPlanSummary_DeposedRow(t *testing.T) {
+	const content = `{"phase_id": "ph_001", "path": "infra/prod", "resources": [
+		{"address": "aws_instance.web", "action": "create", "after": {"ami": "ami-1"}},
+		{"address": "aws_instance.web", "action": "delete", "deposed_key": "abc12345",
+		 "before": {"ami": "ami-0"}}
+	]}`
+	out := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
+	if !strings.Contains(out, "aws_instance.web (deposed abc12345)") {
+		t.Fatalf("deposed row should name its deposed key: %q", out)
+	}
+	// It is an ordinary destroy for tally purposes.
+	if !strings.Contains(out, "-1") || !strings.Contains(out, "+1") {
+		t.Errorf("deposed destroy should count in the - bucket: %q", out)
+	}
+}
+
+// TestPlanSummary_AdoptedRow covers a change that adopts an existing object named
+// by an `import {}` block. Its before half is the real remote object, so it plans
+// as a no-op — a bucket planTally omits — and without its own segment the whole
+// plan would headline as "no changes".
+func TestPlanSummary_AdoptedRow(t *testing.T) {
+	const content = `{"phase_id": "ph_001", "path": "infra/prod", "resources": [
+		{"address": "tfcoremock_simple_resource.adopted", "action": "noop",
+		 "importing": {"id": "res-42"}},
+		{"address": "aws_s3_bucket.byid", "action": "noop",
+		 "importing": {"identity": {"bucket": "mint-hyena"}}}
+	]}`
+	out := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
+	if !strings.Contains(out, "↧2 adopted") {
+		t.Fatalf("adoption must survive the no-op tally: %q", out)
+	}
+	for _, want := range []string{"adopt id=res-42", "adopt identity"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("row header missing %q: %q", want, out)
+		}
+	}
+}
+
+// TestResourcePlan_Adopting covers the same adoption on declare_resource, whose
+// identity locator also expands into its own detail section.
+func TestResourcePlan_Adopting(t *testing.T) {
+	const content = `{"resource_addr": "aws_s3_bucket.assets", "action": "noop",
+		"importing": {"identity": {"bucket": "mint-hyena", "region": "us-east-1"}}}`
+	out := plainNorm(renderFor("turf_declare_resource", content, service.StaticSessionState{}))
+	for _, want := range []string{"adopt identity", "identity:", `bucket = "mint-hyena"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q: %q", want, out)
+		}
+	}
+}
+
+// TestEffectApply_DeposedOutputsMessage covers the three result fields the apply
+// line used to drop. The message matters most for a move effect: the from→to
+// relocation reaches the wire only there.
+func TestEffectApply_DeposedOutputsMessage(t *testing.T) {
+	const content = `{"kind": "move", "state": "applied", "resource_addr": "random_pet.renamed",
+		"ready": [], "message": "moved random_pet.old to random_pet.renamed in state"}`
+	out := plainNorm(renderFor("turf_effect_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{"random_pet.renamed", "move", "applied", "moved random_pet.old to"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("move effect missing %q: %q", want, out)
+		}
+	}
+
+	const applied = `{"kind": "create", "state": "applied", "resource_addr": "aws_instance.web",
+		"new_state": {"id": "i-1"},
+		"deposed_state": {"id": "i-0"},
+		"outputs": {"url": {"value": "https://x"}, "pw": {"value": "s3cret", "sensitive": true}}}`
+	out = plainNorm(renderFor("turf_effect_apply", applied, service.StaticSessionState{}))
+	for _, want := range []string{"2 output(s)", "deposed state:", `id = "i-0"`, "outputs:", `url = "https://x"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("apply detail missing %q: %q", want, out)
+		}
+	}
+	// The per-output sensitive flag IS the mask here — a revealed secret must not
+	// reach the timeline just because it arrived in the clear.
+	if strings.Contains(out, "s3cret") {
+		t.Errorf("sensitive output leaked into the timeline: %q", out)
+	}
+	if !strings.Contains(out, "(sensitive)") {
+		t.Errorf("sensitive output should render masked: %q", out)
+	}
+}
+
+// TestResourceImport_IdentityAndWarning covers an import located by a
+// provider-declared identity, and the warning that says the import was recorded
+// but never flushed to the state backend — which must not read as a clean success.
+func TestResourceImport_IdentityAndWarning(t *testing.T) {
+	const content = `{"resource_addr": "aws_s3_bucket.data",
+		"imported_state": {"id": "my-bucket"},
+		"identity": {"bucket": "my-bucket", "region": "us-east-1"},
+		"warning": "state could not be flushed to the backend"}`
+	out := plainNorm(renderFor("turf_resource_import", content, service.StaticSessionState{}))
+	for _, want := range []string{"imported", "identity", "not flushed", "could not be flushed", `bucket = "my-bucket"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q: %q", want, out)
+		}
+	}
+	// No import_id was given or returned, so nothing should claim one.
+	if strings.Contains(out, "id my-bucket") {
+		t.Errorf("identity import should not report an id locator: %q", out)
+	}
+}
+
+// TestFormatEffectID_MoveAndDeposed pins the two effect-ID grammars the moved and
+// deposed work introduced: a "→" action label, and an address segment that now
+// carries a space and parentheses.
+func TestFormatEffectID_MoveAndDeposed(t *testing.T) {
+	out := plainNorm(formatEffectID("→/random_pet.renamed/move"))
+	for _, want := range []string{"→", "random_pet.renamed", "move"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("move effect id missing %q: %q", want, out)
+		}
+	}
+	out = plainNorm(formatEffectID("-/aws_instance.web (deposed abc12345)/destroy"))
+	for _, want := range []string{"-", "aws_instance.web (deposed abc12345)", "destroy"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("deposed effect id missing %q: %q", want, out)
+		}
+	}
 }
 
 func TestModulePlan_TallySplitsReplace(t *testing.T) {

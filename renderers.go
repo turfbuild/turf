@@ -729,7 +729,7 @@ type resourcePlanView struct {
 	ResourceType        string         `json:"resource_type"`
 	Provider            string         `json:"provider"`
 	Action              string         `json:"action"`                          // create, update, delete, replace, …
-	CreateBeforeDestroy *bool          `json:"create_before_destroy,omitempty"` // for replace: ± (true) vs ∓ (false)
+	CreateBeforeDestroy bool           `json:"create_before_destroy,omitempty"` // for replace: ± (true) vs ∓ (absent)
 	ActionReason        string         `json:"action_reason"`
 	RequiresReplace     []string       `json:"requires_replace"`
 	Before              map[string]any `json:"before"`
@@ -739,9 +739,37 @@ type resourcePlanView struct {
 	// show_sensitive call keeps the classification — and the timeline keeps redacting.
 	BeforeSensitive any `json:"before_sensitive,omitempty"`
 	AfterSensitive  any `json:"after_sensitive,omitempty"`
-	Deferred        *struct {
+	// Importing is set when this change ADOPTS an existing object named by an
+	// `import {}` block, so the Before half is the real remote object rather than a
+	// null prior — which is why a "noop" action here means "already matches", not
+	// "nothing to do".
+	Importing *importingInfoView `json:"importing,omitempty"`
+	Deferred  *struct {
 		Reason string `json:"reason"`
 	} `json:"deferred,omitempty"`
+}
+
+// importingInfoView is the server's `importing` object: the locator the import
+// block carried. Exactly one of ID / Identity is set — a provider-specific id
+// string, or a provider-declared resource identity object (Terraform 1.12+).
+type importingInfoView struct {
+	ID       string         `json:"id,omitempty"`
+	Identity map[string]any `json:"identity,omitempty"`
+}
+
+// adoptNote renders the locator as a one-line note for a plan row header. An
+// identity is a whole object, so it is named rather than spelled out.
+func (i *importingInfoView) adoptNote() string {
+	switch {
+	case i == nil:
+		return ""
+	case i.ID != "":
+		return "adopt id=" + i.ID
+	case len(i.Identity) > 0:
+		return "adopt identity"
+	default:
+		return "adopt"
+	}
 }
 
 func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -764,6 +792,11 @@ func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.Ses
 	default:
 		summary = addr(p.ResourceAddr) + dot() + bold(label, c)
 	}
+	// An adoption's before half is the real remote object, so a "no-op" here reads
+	// as "already matches" rather than "nothing to do" — say which it is.
+	if note := p.Importing.adoptNote(); note != "" {
+		summary += dot() + colored(note, styles.Accent)
+	}
 	if changed := changedKeys(p.Before, p.After); changed != "" {
 		summary += dot() + muted(changed)
 	}
@@ -774,6 +807,10 @@ func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.Ses
 	}
 	if p.ActionReason != "" {
 		detail = append(detail, muted("reason: ")+p.ActionReason)
+	}
+	if p.Importing != nil && len(p.Importing.Identity) > 0 {
+		detail = append(detail, section("adopt identity"))
+		detail = append(detail, kvLines(p.Importing.Identity, "  ", 10)...)
 	}
 	if len(p.RequiresReplace) > 0 {
 		detail = append(detail, styles.WarningStyle.Render("forces replacement: "+strings.Join(p.RequiresReplace, ", ")))
@@ -794,13 +831,32 @@ func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.Ses
 // --- turf_effect_apply ------------------------------------------------------
 
 type effectApplyView struct {
+	// Kind is the effect the phase dispatched: create/update/destroy run provider
+	// RPCs; forget, import (commit a plan-time adoption) and move (commit a state
+	// relocation) are state writes with no provider call.
 	Kind         string         `json:"kind"`
 	State        string         `json:"state"`
 	ResourceAddr string         `json:"resource_addr"`
 	Ready        []string       `json:"ready"`
 	NewState     map[string]any `json:"new_state,omitempty"`
-	// SensitiveValues masks NewState, in OpenTofu's sensitive_values shape.
+	// DeposedState is the prior object a create-before-destroy replace moved into
+	// the deposed slot before creating its replacement — so state stays consistent
+	// if the create fails. Set on the create half of a CBD replace only.
+	DeposedState map[string]any `json:"deposed_state,omitempty"`
+	// SensitiveValues masks NewState, in OpenTofu's sensitive_values shape. The
+	// server sends no separate mask for DeposedState, so this one is reused for it:
+	// the two are the same resource type, so their schema-derived sensitivity is
+	// identical and only config-flow marks can differ. It matters solely under
+	// show_sensitive — unrevealed, DeposedState already arrives as sentinels that
+	// fmtVal masks on its own.
 	SensitiveValues any `json:"sensitive_values,omitempty"`
+	// Outputs are the root outputs this effect newly resolved — an output that
+	// referenced the just-applied resource. Same {value, sensitive} shape as the
+	// outputs tool, so the same mask carries across.
+	Outputs map[string]outputValueView `json:"outputs,omitempty"`
+	// Message is the effect's own account of what it did. Load-bearing for a move,
+	// whose from→to relocation reaches the wire only here.
+	Message string `json:"message,omitempty"`
 }
 
 func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -822,16 +878,33 @@ func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.Session
 	}
 	c := applyStateColor(e.State)
 	summary := addr(e.ResourceAddr) + dot() + bold(head, c) + dot() + bold(state, c)
+	if n := len(e.Outputs); n > 0 {
+		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
+	}
 
 	var detail []string
-	// new state first, then what becomes ready to effect — the temporal order of apply.
+	// What the effect wrote first — new state, then any deposed object it moved,
+	// then the outputs it resolved — and last what becomes ready: the temporal
+	// order of apply. The message trails as the effect's own account of it.
 	if len(e.NewState) > 0 {
 		detail = append(detail, section("new state"))
 		detail = append(detail, kvLinesMasked(e.NewState, e.SensitiveValues, "  ", 40)...)
 	}
+	if len(e.DeposedState) > 0 {
+		detail = append(detail, section("deposed state"))
+		detail = append(detail, kvLinesMasked(e.DeposedState, e.SensitiveValues, "  ", 40)...)
+	}
+	if len(e.Outputs) > 0 {
+		detail = append(detail, section("outputs"))
+		flat, mask := outputsMask(e.Outputs)
+		detail = append(detail, kvLinesMasked(flat, mask, "  ", 20)...)
+	}
 	if n := len(e.Ready); n > 0 {
 		detail = append(detail, section(fmt.Sprintf("%d ready to effect", n)))
 		detail = append(detail, effectLines(e.Ready, "  ", 12)...)
+	}
+	if e.Message != "" {
+		detail = append(detail, muted(e.Message))
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
@@ -839,16 +912,39 @@ func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.Session
 // --- turf_declare_module / turf_replan / turf_plan_new ------------------------
 
 type resourcePlanEntry struct {
-	Address             string         `json:"address"`
+	Address string `json:"address"`
+	// DeposedKey marks a row that is not about the object living at Address: the
+	// destroy of an object deposed under it by an interrupted create-before-destroy
+	// replace. Two rows can therefore share one Address, told apart only by this
+	// key — which is why the rendered header carries it.
+	DeposedKey          string         `json:"deposed_key,omitempty"`
 	Type                string         `json:"type"`
 	Provider            string         `json:"provider"`
 	Action              string         `json:"action"`
-	CreateBeforeDestroy *bool          `json:"create_before_destroy,omitempty"`
+	CreateBeforeDestroy bool           `json:"create_before_destroy,omitempty"`
 	Before              map[string]any `json:"before,omitempty"`
 	After               map[string]any `json:"after,omitempty"`
 	BeforeSensitive     any            `json:"before_sensitive,omitempty"`
 	AfterSensitive      any            `json:"after_sensitive,omitempty"`
 	RequiresReplace     []string       `json:"requires_replace,omitempty"`
+	// Importing marks an adoption from an `import {}` block. See resourcePlanView.
+	Importing *importingInfoView `json:"importing,omitempty"`
+}
+
+// planRowAddr renders a plan row's address the way Terraform names it, so a
+// deposed destroy is distinguishable from the ordinary destroy of the object
+// living at the same address.
+func planRowAddr(address, deposedKey string) string {
+	if deposedKey == "" {
+		return address
+	}
+	return address + " (deposed " + deposedKey + ")"
+}
+
+// movedRecordView is one state relocation a phase's `moved {}` blocks produced.
+type movedRecordView struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type planSummaryView struct {
@@ -862,8 +958,13 @@ type planSummaryView struct {
 	// Reads classifies every declared data source the walk touched, the same
 	// data_source_reads[] shape declare_datasource reports for the one declaration
 	// it writes. A walk reads them all, so this is the whole configuration's worth.
-	Reads    []dataSourceReadEntry `json:"data_source_reads,omitempty"`
-	Warnings []string              `json:"warnings,omitempty"`
+	Reads []dataSourceReadEntry `json:"data_source_reads,omitempty"`
+	// Moved are the state relocations this phase's `moved {}` blocks produced, as
+	// concrete from→to pairs. plan_new / replan only — declare_module never sets it.
+	// Present whenever the phase moved anything, including on a re-plan that finds
+	// nothing left to move: the relocation is still part of what applying commits.
+	Moved    []movedRecordView `json:"moved,omitempty"`
+	Warnings []string          `json:"warnings,omitempty"`
 }
 
 func renderDeclareModule(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -906,14 +1007,25 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 	if issues := dataReadIssueTally(p.Reads); issues != "" {
 		summary += dot() + issues
 	}
+	// An adopted row usually plans as a no-op (the remote object already matches),
+	// and planTally omits the no-op bucket — so without its own segment a pure
+	// adoption plan would headline as "no changes".
+	if n := adoptCount(p.Resources); n > 0 {
+		summary += dot() + bold(fmt.Sprintf("↧%d adopted", n), styles.Accent)
+	}
+	// Relocations are not resource changes, so they get their own segment rather
+	// than a tally bucket.
+	if n := len(p.Moved); n > 0 {
+		summary += dot() + bold(fmt.Sprintf("⇄%d moved", n), styles.Accent)
+	}
 	if n := outputsCount(p.Outputs); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
 	}
 
-	// Expanded: each resource as a header + its full attribute diff, then the data
-	// source reads, the evaluated outputs, and any warnings. The resource diffs stay
-	// first — they are what the expansion is opened to read — so the reads trail them
-	// even though the walk performs reads earlier.
+	// Expanded: each resource as a header + its full attribute diff, then the state
+	// relocations, the data source reads, the evaluated outputs, and any warnings.
+	// The resource diffs stay first — they are what the expansion is opened to read —
+	// so the reads trail them even though the walk performs reads earlier.
 	var detail []string
 	const maxRows = 25
 	for i, r := range p.Resources {
@@ -922,12 +1034,19 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 			break
 		}
 		_, c, glyph := planAction(r.Action, false, r.CreateBeforeDestroy)
-		header := bold(glyph, c) + " " + addr(r.Address)
+		header := bold(glyph, c) + " " + addr(planRowAddr(r.Address, r.DeposedKey))
+		if note := r.Importing.adoptNote(); note != "" {
+			header += dot() + colored(note, styles.Accent)
+		}
 		if changed := changedKeys(r.Before, r.After); changed != "" {
 			header += dot() + muted(changed)
 		}
 		detail = append(detail, header)
 		detail = append(detail, attrDiff(r.Before, r.After, r.BeforeSensitive, r.AfterSensitive, "  ")...)
+	}
+	if len(p.Moved) > 0 {
+		detail = append(detail, section("moved"))
+		detail = append(detail, movedLines(p.Moved, "  ", 20)...)
 	}
 	if len(p.Reads) > 0 {
 		detail = append(detail, section("data sources"))
@@ -1044,11 +1163,44 @@ func sensitiveCount(outputs map[string]any) int {
 // prints a revealed output value.
 
 type outputsView struct {
-	WorkspaceAlias string `json:"workspace_alias"`
-	Outputs        map[string]struct {
-		Value     any  `json:"value"`
-		Sensitive bool `json:"sensitive"`
-	} `json:"outputs"`
+	WorkspaceAlias string                     `json:"workspace_alias"`
+	Outputs        map[string]outputValueView `json:"outputs"`
+}
+
+// outputValueView is one evaluated root output, the {value, sensitive} shape the
+// server returns from both the outputs tool and effect_apply's newly-resolved
+// outputs. The sensitive flag IS the mask here — it never rides along as a
+// parallel sensitive_values structure — so outputsMask carries it across rather
+// than flattening it away, which would leak a revealed secret into the timeline.
+type outputValueView struct {
+	Value     any  `json:"value"`
+	Sensitive bool `json:"sensitive"`
+}
+
+// outputsMask flattens name→output into the name→value map the value renderers
+// take, plus the parallel mask kvLinesMasked descends. Shared by every renderer
+// that shows outputs in this shape.
+func outputsMask(outputs map[string]outputValueView) (flat, mask map[string]any) {
+	flat = make(map[string]any, len(outputs))
+	mask = map[string]any{}
+	for k, o := range outputs {
+		flat[k] = o.Value
+		if o.Sensitive {
+			mask[k] = true
+		}
+	}
+	return flat, mask
+}
+
+// sensitiveOutputs counts the outputs carrying the sensitive flag.
+func sensitiveOutputs(outputs map[string]outputValueView) int {
+	n := 0
+	for _, o := range outputs {
+		if o.Sensitive {
+			n++
+		}
+	}
+	return n
 }
 
 func renderOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1064,26 +1216,11 @@ func renderOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStat
 	if len(r.Outputs) > 0 {
 		summary = muted(fmt.Sprintf("%d declared", len(r.Outputs)))
 	}
-	sens := 0
-	for _, o := range r.Outputs {
-		if o.Sensitive {
-			sens++
-		}
-	}
-	if sens > 0 {
+	if sens := sensitiveOutputs(r.Outputs); sens > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d sensitive", sens))
 	}
 
-	// Flatten to name→value so kvLines can render each leaf, carrying the per-output
-	// sensitive flag across as a mask so a revealed value is still redacted here.
-	flat := make(map[string]any, len(r.Outputs))
-	mask := map[string]any{}
-	for k, o := range r.Outputs {
-		flat[k] = o.Value
-		if o.Sensitive {
-			mask[k] = true
-		}
-	}
+	flat, mask := outputsMask(r.Outputs)
 	detail := kvLinesMasked(flat, mask, "  ", 30)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
@@ -1499,18 +1636,18 @@ func dataReadTally(reads []dataSourceReadEntry) string {
 		return ""
 	}
 	if len(reads) == 1 {
-		label, c, _ := planAction(reads[0].Action, false, nil)
+		label, c, _ := planAction(reads[0].Action, false, false)
 		return bold(label, c)
 	}
 	counts := map[string]int{}
 	for _, r := range reads {
-		label, _, _ := planAction(r.Action, false, nil)
+		label, _, _ := planAction(r.Action, false, false)
 		counts[label]++
 	}
 	var parts []string
 	for _, a := range []string{"read", "deferred", "error"} {
 		if n := counts[a]; n > 0 {
-			_, c, _ := planAction(a, false, nil)
+			_, c, _ := planAction(a, false, false)
 			parts = append(parts, bold(fmt.Sprintf("%d %s", n, a), c))
 			delete(counts, a)
 		}
@@ -1534,14 +1671,14 @@ func dataReadTally(reads []dataSourceReadEntry) string {
 func dataReadIssueTally(reads []dataSourceReadEntry) string {
 	counts := map[string]int{}
 	for _, r := range reads {
-		if label, _, _ := planAction(r.Action, false, nil); label != "read" {
+		if label, _, _ := planAction(r.Action, false, false); label != "read" {
 			counts[label]++
 		}
 	}
 	var parts []string
 	for _, a := range []string{"deferred", "error"} {
 		if n := counts[a]; n > 0 {
-			_, c, _ := planAction(a, false, nil)
+			_, c, _ := planAction(a, false, false)
 			parts = append(parts, bold(fmt.Sprintf("%d data %s", n, a), c))
 			delete(counts, a)
 		}
@@ -1566,7 +1703,7 @@ func leftoverActionTally(counts map[string]int, format string) []string {
 	sort.Strings(rest)
 	out := make([]string, 0, len(rest))
 	for _, a := range rest {
-		_, c, _ := planAction(a, false, nil)
+		_, c, _ := planAction(a, false, false)
 		out = append(out, bold(fmt.Sprintf(format, counts[a], a), c))
 	}
 	return out
@@ -1582,7 +1719,7 @@ func dataReadLines(reads []dataSourceReadEntry, indent string, max int) []string
 			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(reads)-max)))
 			break
 		}
-		label, c, glyph := planAction(r.Action, false, nil)
+		label, c, glyph := planAction(r.Action, false, false)
 		body := indent + bold(glyph, c) + " " + addr(r.Address) + dot() + bold(label, c)
 		if r.Reason != "" {
 			body += dot() + muted(r.Reason)
@@ -2455,6 +2592,15 @@ type resourceImportView struct {
 	ResourceAddr  string         `json:"resource_addr"`
 	ImportID      string         `json:"import_id"`
 	ImportedState map[string]any `json:"imported_state"`
+	// Identity is the provider-declared resource identity recorded for the object,
+	// present when the type declares one — and the only locator when the import was
+	// made by identity rather than by id.
+	Identity map[string]any `json:"identity,omitempty"`
+	// Warning is set when the import was recorded but could not be flushed to the
+	// state backend. The import stands in this session either way, so this is not an
+	// error — but it is the difference between a durable import and a session-local
+	// one, and must not read as a clean success.
+	Warning string `json:"warning,omitempty"`
 }
 
 func renderResourceImport(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -2470,17 +2616,34 @@ func renderResourceImport(msg *types.Message, s spinner.Spinner, ss service.Sess
 		target = argString(msg, "resource_addr")
 	}
 	summary := addr(target) + dot() + bold("imported", styles.Success)
+	// The locator: an id, or — when the object was located by a provider-declared
+	// resource identity — the identity itself, which is an object, so name it.
 	id := r.ImportID
 	if id == "" {
 		id = argString(msg, "import_id")
 	}
-	if id != "" {
+	switch {
+	case id != "":
 		summary += dot() + muted("id "+id)
+	case len(r.Identity) > 0:
+		summary += dot() + muted("identity")
 	}
 	if n := len(r.ImportedState); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
 	}
-	detail := kvLines(r.ImportedState, "  ", 30)
+	if r.Warning != "" {
+		summary += dot() + styles.WarningStyle.Render("⚠ not flushed")
+	}
+
+	var detail []string
+	if r.Warning != "" {
+		detail = append(detail, styles.WarningStyle.Render("⚠ "+r.Warning))
+	}
+	if len(r.Identity) > 0 {
+		detail = append(detail, section("identity"))
+		detail = append(detail, kvLines(r.Identity, "  ", 10)...)
+	}
+	detail = append(detail, kvLines(r.ImportedState, "  ", 30)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -2552,11 +2715,13 @@ func lineCount(s string) int {
 // theme color, and a one-char glyph for compact tallies and per-resource lines.
 // Raw symbols (+, ~, ±, …) are accepted as a fallback for any path that emits them.
 //
-// A "replace" carries a second bit, create_before_destroy, in the result: true is
-// CBD (±, create the new instance first) and false is DTC (∓, destroy first) — the
-// two distinct replacement strategies. cbd is nil for non-replace actions (and is
-// ignored when the action is already a ±/∓ symbol, which is self-describing).
-func planAction(action string, deferred bool, cbd *bool) (label string, c color.Color, glyph string) {
+// A "replace" carries a second bit, create_before_destroy, in the result. The
+// server sends it as a bare bool with omitempty, so ABSENT is the meaningful
+// default: absent/false is DTC (∓, destroy the old instance first — OpenTofu's
+// default ordering) and true is CBD (±, create the new one first). cbd is false
+// for non-replace actions, and is ignored when the action is already a ±/∓
+// symbol, which is self-describing.
+func planAction(action string, deferred bool, cbd bool) (label string, c color.Color, glyph string) {
 	if deferred || action == "deferred" {
 		return "deferred", styles.Warning, "?"
 	}
@@ -2568,10 +2733,10 @@ func planAction(action string, deferred bool, cbd *bool) (label string, c color.
 	case "delete", "destroy", "-":
 		return "destroy", styles.Error, "-"
 	case "replace":
-		if cbd != nil && !*cbd {
-			return "replace", styles.Warning, "∓" // destroy-before-create
+		if cbd {
+			return "replace", styles.Warning, "±" // create-before-destroy
 		}
-		return "replace", styles.Warning, "±" // create-before-destroy (default)
+		return "replace", styles.Warning, "∓" // destroy-before-create (default)
 	case "±":
 		return "replace", styles.Warning, "±"
 	case "∓":
@@ -2580,6 +2745,8 @@ func planAction(action string, deferred bool, cbd *bool) (label string, c color.
 		return "forget", styles.Highlight, "."
 	case "read", "←":
 		return "read", styles.Accent, "←"
+	case "move", "→":
+		return "move", styles.Accent, "→"
 	case "noop", "no-op", "=":
 		return "no-op", styles.Highlight, "="
 	case "error":
@@ -2614,6 +2781,33 @@ func planTally(rs []resourcePlanEntry) string {
 		return muted("no changes")
 	}
 	return strings.Join(parts, " ")
+}
+
+// adoptCount counts the rows that adopt an existing object named by an
+// `import {}` block. They usually plan as no-ops, which planTally does not show.
+func adoptCount(rs []resourcePlanEntry) int {
+	n := 0
+	for _, r := range rs {
+		if r.Importing != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// movedLines renders the phase's state relocations as "from → to" detail rows,
+// = -aligned on the source address the same way kvLines aligns keys.
+func movedLines(moved []movedRecordView, indent string, max int) []string {
+	froms := make([]string, 0, len(moved))
+	for _, m := range moved {
+		froms = append(froms, m.From)
+	}
+	w := maxKeyWidth(froms)
+	out := make([]string, 0, len(moved))
+	for _, m := range moved {
+		out = append(out, indent+addr(padRight(m.From, w))+muted(" → ")+addr(m.To))
+	}
+	return capLines(out, indent, max)
 }
 
 // applyStateColor colors the apply status by outcome. turf's effect states are
@@ -2654,7 +2848,7 @@ func formatEffectID(id string) string {
 	sym := parts[0]
 	op := parts[len(parts)-1]
 	address := strings.Join(parts[1:len(parts)-1], "/")
-	_, c, _ := planAction(sym, false, nil)
+	_, c, _ := planAction(sym, false, false)
 	return bold(sym, c) + " " + addr(address) + dot() + muted(op)
 }
 
