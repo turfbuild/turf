@@ -131,7 +131,6 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_provider_search":    builder(renderProviderSearch),
 		"turf_provider_load":      builder(renderProviderLoad),
 		"turf_provider_describe":  builder(renderProviderDescribe),
-		"turf_provider_configure": builder(renderProviderConfigure),
 		"turf_skill_core":         builder(renderSkill),
 		"turf_skill_adhoc":        builder(renderSkill),
 		"turf_skill_codified":     builder(renderSkill),
@@ -311,7 +310,6 @@ var turfToolTargetArgs = map[string][]string{
 	"provider_search":    {"query"},
 	"provider_load":      {"source", "name"},
 	"provider_describe":  {"resource_type", "datasource_type", "action_type"},
-	"provider_configure": {"name"},
 	"declare_action":     {"action_type"},
 	"action_invoke":      {"action_type"},
 	"effect_apply":       {"effect_id"},
@@ -1871,60 +1869,6 @@ func renderProviderLoad(msg *types.Message, s spinner.Spinner, ss service.Sessio
 	}
 	for _, w := range p.Warnings {
 		detail = append(detail, styles.WarningStyle.Render("⚠ "+w))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_provider_configure ------------------------------------------------
-//
-// provider_configure wires a provider's credentials/settings into the workspace.
-// The result reports whether all config values resolved to known literals
-// ("configured") or whether at least one was still unknown ("configured_with_unknowns");
-// the latter means dependent resources will defer until the upstream is applied
-// and the provider is re-configured. We surface the status prominently in the
-// summary and list any unknown keys in the expand so the user knows exactly
-// what to resolve.
-
-type providerConfigureView struct {
-	Provider    string   `json:"provider"`
-	Alias       string   `json:"alias,omitempty"`
-	Status      string   `json:"status"`
-	UnknownKeys []string `json:"unknown_keys,omitempty"`
-}
-
-func renderProviderConfigure(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "name")), width)
-	}
-	var p providerConfigureView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-
-	name := p.Provider
-	if name == "" {
-		name = argString(msg, "name")
-	}
-
-	statusColor := styles.Success
-	statusLabel := "configured"
-	if p.Status == "configured_with_unknowns" {
-		statusColor = styles.Warning
-		statusLabel = "configured with unknowns"
-	}
-
-	summary := addr(name) + dot() + bold(statusLabel, statusColor)
-	if p.Alias != "" {
-		summary += dot() + muted("alias ") + providerName(p.Alias)
-	}
-	if n := len(p.UnknownKeys); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d unknown key(s)", n))
-	}
-
-	var detail []string
-	if len(p.UnknownKeys) > 0 {
-		detail = append(detail, section("unknown keys (resolve then re-configure)"))
-		detail = append(detail, listLines(p.UnknownKeys, "  ", 20)...)
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
