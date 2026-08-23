@@ -735,46 +735,6 @@ func TestSkill_LoadedLineNotBody(t *testing.T) {
 	}
 }
 
-func TestProviderConfigure_Configured(t *testing.T) {
-	const content = `{"provider": "aws", "status": "configured"}`
-	out := renderFor("turf_provider_configure", content, hiddenState{})
-	for _, want := range []string{"configure", "aws", "configured"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("provider_configure missing %q: %q", want, out)
-		}
-	}
-	if strings.Contains(out, "unknown") {
-		t.Fatalf("clean configure should not mention unknowns: %q", out)
-	}
-}
-
-func TestProviderConfigure_WithUnknowns(t *testing.T) {
-	const content = `{"provider": "aws", "alias": "west", "status": "configured_with_unknowns",
-		"unknown_keys": ["region", "assume_role.role_arn"]}`
-	out := renderFor("turf_provider_configure", content, service.StaticSessionState{})
-	for _, want := range []string{"configure", "aws", "configured with unknowns", "alias", "west", "2 unknown key(s)", "region", "assume_role.role_arn"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("provider_configure (unknowns) missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestProviderConfigure_UnknownKeysCompact(t *testing.T) {
-	// Compact view (results hidden) shows the unknown count but not each key.
-	const content = `{"provider": "azurerm", "status": "configured_with_unknowns",
-		"unknown_keys": ["client_secret"]}`
-	compact := renderFor("turf_provider_configure", content, hiddenState{})
-	if !strings.Contains(compact, "1 unknown key(s)") {
-		t.Fatalf("compact should show unknown count: %q", compact)
-	}
-	if strings.Contains(strings.TrimRight(compact, " "), "\n") {
-		t.Fatalf("compact should be a single line: %q", compact)
-	}
-	if strings.Contains(compact, "client_secret") {
-		t.Fatalf("compact should not list individual unknown keys: %q", compact)
-	}
-}
-
 func TestRenderers_BadJSONFallsBack(t *testing.T) {
 	for name := range turfToolRenderers() {
 		out := renderFor(name, "not json", service.StaticSessionState{})

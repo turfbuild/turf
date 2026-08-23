@@ -79,10 +79,9 @@ var turfToolInfo = map[string]struct {
 	title string
 }{
 	// provider — discovery + configuration
-	"provider_search":    {"provider", "Search Providers"},
-	"provider_load":      {"provider", "Load Provider"},
-	"provider_describe":  {"provider", "Describe Provider"},
-	"provider_configure": {"provider", "Configure Provider"},
+	"provider_search":   {"provider", "Search Providers"},
+	"provider_load":     {"provider", "Load Provider"},
+	"provider_describe": {"provider", "Describe Provider"},
 	// workspace — lifecycle
 	"workspace_open":   {"workspace", "Open Workspace"},
 	"workspace_show":   {"workspace", "Show Workspace"},

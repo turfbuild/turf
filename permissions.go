@@ -51,7 +51,6 @@ var preApprovedTurfTools = []string{
 	"turf_provider_search",
 	"turf_provider_describe",
 	"turf_provider_load",
-	"turf_provider_configure",
 	// Workspace lifecycle. workspace_delete is server-annotated destructive and
 	// irreversible; it is pre-approved like the rest but the persona must obtain an
 	// explicit, irreversibility-warning user_prompt before calling it (see
