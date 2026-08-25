@@ -44,8 +44,8 @@ func execute(ctx context.Context, args []string) error {
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "turf",
-		Short:         "A drop-in replacement for Terraform with agentic superpowers",
-		Long:          "turf is a drop-in replacement for Terraform with agentic superpowers: full support for Terraform HCL and the module registry, plus an AI agent that plans, applies, and destroys cloud infrastructure across any OpenTofu provider. Describe changes in natural language (chat) or point it at HCL configuration (up, destroy); turf drives the turf MCP server to carry them out.",
+		Short:         "Terraform-compatible infrastructure automation, driven by an AI agent",
+		Long:          "turf is the Terraform-compatible infrastructure engine built for AI agents: full support for Terraform HCL and the module registry, plus an AI agent that plans, applies, and destroys cloud infrastructure across any OpenTofu provider. Describe changes in natural language (chat) or point it at HCL configuration (up, destroy); turf drives the turf MCP server to carry them out.",
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
