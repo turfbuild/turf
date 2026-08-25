@@ -1,7 +1,7 @@
-// Command turf is a drop-in replacement for Terraform with agentic superpowers:
-// full support for Terraform HCL and the module registry, plus an AI agent that
-// plans, applies, and destroys cloud infrastructure across any OpenTofu
-// provider. Built on the turf MCP server.
+// Command turf is the Terraform-compatible infrastructure engine built for AI
+// agents: full support for Terraform HCL and the module registry, plus an AI
+// agent that plans, applies, and destroys cloud infrastructure across any
+// OpenTofu provider. Built on the turf MCP server.
 //
 // It provides interactive (chat) and non-interactive (up, destroy) commands
 // for managing cloud infrastructure via OpenTofu providers. The CLI launches
