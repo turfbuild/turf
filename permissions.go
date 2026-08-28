@@ -78,6 +78,10 @@ var preApprovedTurfTools = []string{
 	// terms as the rest of the declare family below.
 	"turf_datasource_read",
 	"turf_declare_datasource",
+	// declare_ephemeral authors an `ephemeral` block and opens it at the provider.
+	// The server annotates it non-destructive and it returns the open's
+	// classification only — never the value — so it needs no agent confirmation.
+	"turf_declare_ephemeral",
 	// Draft / phase lifecycle. plan_approve seals the Draft into an Execution and
 	// effect_apply/effect_cancel run the approved effects — their confirmation is
 	// the single phase-level user_prompt the persona seeks before plan_approve, not

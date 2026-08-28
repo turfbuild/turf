@@ -186,18 +186,17 @@ func TestPreApprovedToolsIsUnion(t *testing.T) {
 	}
 }
 
-// TestPermissionListsMatchServerAnnotations is an integration drift guard: when
-// turf-mcp-server is resolvable, it starts the server, reads the real tool
-// annotations, and asserts the policy matches reality. It skips (does not fail)
-// when the binary is absent, mirroring examples_test.go. It enforces:
-//   - every server tool is pre-approved (fail-safe completeness: a new tool would
-//     otherwise be unclassified — it must be consciously added to Allow);
-//   - every pre-approved / agent-confirm tool actually exists on the server (no
-//     stale entries); and
-//   - every server-destructive tool is accounted for — either the persona confirms
-//     it (agentConfirmTurfTools) or it is an explicit destructiveNoConfirm carve-out
-//     — so a newly-destructive server tool forces a confirmation decision.
-func TestPermissionListsMatchServerAnnotations(t *testing.T) {
+// serverTools launches the real turf-mcp-server over stdio and returns its live tool
+// list keyed by name. Shared by every drift test that has to ask the server what it
+// actually exposes rather than trust a list in this repo.
+//
+// It SKIPS when no server is resolvable, so it is a no-op in a CI checkout without
+// one — and it tests whatever binary --mcp-server / TURF_MCP_SERVER / PATH resolves
+// to, which is typically the last release. Point it at a server built from source
+// before trusting it to catch a newly added tool or a renamed argument.
+func serverTools(t *testing.T) map[string]tools.Tool {
+	t.Helper()
+
 	path, err := resolveMCPServer()
 	if err != nil {
 		t.Skipf("turf-mcp-server not resolvable: %v", err)
@@ -210,7 +209,7 @@ func TestPermissionListsMatchServerAnnotations(t *testing.T) {
 	if err := ts.Start(ctx); err != nil {
 		t.Fatalf("start turf-mcp-server: %v", err)
 	}
-	defer func() { _ = ts.Stop(context.Background()) }()
+	t.Cleanup(func() { _ = ts.Stop(context.Background()) })
 
 	toolList, err := ts.Tools(ctx)
 	if err != nil {
@@ -221,6 +220,22 @@ func TestPermissionListsMatchServerAnnotations(t *testing.T) {
 	for _, tl := range toolList {
 		byName[tl.Name] = tl
 	}
+	return byName
+}
+
+// TestPermissionListsMatchServerAnnotations is an integration drift guard: when
+// turf-mcp-server is resolvable, it starts the server, reads the real tool
+// annotations, and asserts the policy matches reality. It skips (does not fail)
+// when the binary is absent, mirroring examples_test.go. It enforces:
+//   - every server tool is pre-approved (fail-safe completeness: a new tool would
+//     otherwise be unclassified — it must be consciously added to Allow);
+//   - every pre-approved / agent-confirm tool actually exists on the server (no
+//     stale entries); and
+//   - every server-destructive tool is accounted for — either the persona confirms
+//     it (agentConfirmTurfTools) or it is an explicit destructiveNoConfirm carve-out
+//     — so a newly-destructive server tool forces a confirmation decision.
+func TestPermissionListsMatchServerAnnotations(t *testing.T) {
+	byName := serverTools(t)
 	allow := toolSet(preApprovedTurfTools)
 	confirm := toolSet(agentConfirmTurfTools)
 

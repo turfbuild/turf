@@ -170,8 +170,8 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 	case "turf_workspace_open":
 		var v workspaceOpenView
 		if json.Unmarshal([]byte(output), &v) == nil && c.digest.alias == "" {
-			if v.Name != "" {
-				c.digest.alias = v.Name
+			if v.WorkspaceName != "" {
+				c.digest.alias = v.WorkspaceName
 			} else if v.WorkspaceAlias != "" {
 				c.digest.alias = v.WorkspaceAlias
 			}

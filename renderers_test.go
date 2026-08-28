@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -30,14 +32,25 @@ type hiddenState struct{ service.StaticSessionState }
 func (hiddenState) HideToolResults() bool { return true }
 
 func renderFor(name, content string, ss service.SessionStateReader) string {
+	return renderWithArgs(name, content, "", ss, 1)
+}
+
+// renderArgs renders a COMPLETED call with request arguments, for the handful of
+// renderers that read a fact off the request because the result does not carry it.
+// Sized for the expanded view, since that is where such a fact usually lands.
+func renderArgs(name, content, argsJSON string) string {
+	return renderWithArgs(name, content, argsJSON, service.StaticSessionState{}, 10)
+}
+
+func renderWithArgs(name, content, argsJSON string, ss service.SessionStateReader, height int) string {
 	msg := &types.Message{
 		Content:        content,
 		ToolStatus:     types.ToolStatusCompleted,
-		ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: name}},
+		ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: name, Arguments: argsJSON}},
 		ToolDefinition: tools.Tool{Name: name},
 	}
 	b := turfToolRenderers()[name](animation.NewRuntime(), msg, ss)
-	b.SetSize(120, 1)
+	b.SetSize(120, height)
 	return b.View()
 }
 
@@ -693,14 +706,56 @@ func TestEffectApply_ReadySetFormatted(t *testing.T) {
 	}
 }
 
+// A workspace is opened against a CONFIGURATION, and that binding — not a provider
+// list — is what the line reports. The server renamed `name` to `workspace_name` and
+// stopped echoing resolved_providers (the walk configures providers now), so this
+// pins the field turf actually has to read: reverting the rename leaves the line
+// with an empty name, silently, which is how the drift went unnoticed.
 func TestWorkspaceOpen_Summary(t *testing.T) {
-	const content = `{"workspace_alias": "default", "backend_type": "inmem", "name": "default",
-		"resolved_providers": {"random": {"source": "hashicorp/random", "version": "3.9.0"}}}`
-	out := renderFor("turf_workspace_open", content, hiddenState{})
-	for _, want := range []string{"default", "inmem", "random"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("workspace open missing %q: %q", want, out)
+	const content = `{"workspace_alias": "default", "backend_type": "inmem",
+		"workspace_name": "prod", "config_alias": "app", "config_path": "infra/prod",
+		"state_path": "infra/prod/terraform.tfstate",
+		"backend_config": {"bucket": "tf-state"},
+		"resources": ["random_pet.this"],
+		"warnings": ["state records provider hashicorp/null, which the configuration no longer declares"]}`
+
+	compact := renderFor("turf_workspace_open", content, hiddenState{})
+	for _, want := range []string{"prod", "inmem", "infra/prod"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("workspace open missing %q: %q", want, compact)
 		}
+	}
+
+	detailed := plainNorm(renderFor("turf_workspace_open", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"state:", "terraform.tfstate",
+		"backend config:", "bucket", "tf-state",
+		"1 resource(s) in state", "random_pet.this",
+		"⚠", "no longer declares",
+	} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("workspace open detail missing %q: %q", want, detailed)
+		}
+	}
+}
+
+// The same rename hit workspace_show and workspace_delete, and the session-title
+// curator reads workspace_open's name too — so pin all three together.
+func TestWorkspaceNameFieldSurvives(t *testing.T) {
+	// workspaceName prefers the session alias; the renamed field is what the line
+	// falls back to when a workspace was opened without one.
+	show := renderFor("turf_workspace_show",
+		`{"workspaces":[{"backend_type":"s3","workspace_name":"prod",
+			"resource_count":3,"uncommitted_changes":0}]}`,
+		hiddenState{})
+	if !strings.Contains(show, "prod") {
+		t.Fatalf("workspace show lost the workspace name: %q", show)
+	}
+
+	del := renderFor("turf_workspace_delete",
+		`{"workspace_name":"staging","resource_count":0,"deleted":true}`, hiddenState{})
+	if !strings.Contains(del, "staging") {
+		t.Fatalf("workspace delete lost the workspace name: %q", del)
 	}
 }
 
@@ -919,8 +974,12 @@ func TestNewRenderers_Smoke(t *testing.T) {
 		content string
 		wants   []string
 	}{
-		{"turf_workspace_delete", `{"name":"staging","resource_count":0,"deleted":true}`,
+		{"turf_workspace_delete", `{"workspace_name":"staging","resource_count":0,"deleted":true}`,
 			[]string{"Delete Workspace", "staging", "deleted"}},
+		{"turf_declare_ephemeral", `{"resource_addr":"ephemeral.vault_kv_secret_v2.creds",
+			"resource_type":"vault_kv_secret_v2","declared":true,
+			"ephemeral_opens":[{"address":"ephemeral.vault_kv_secret_v2.creds","action":"opened"}]}`,
+			[]string{"Declare Ephemeral", "ephemeral.vault_kv_secret_v2.creds", "declared", "opened"}},
 		{"turf_plan_cancel", `{"phase_id":"ph_003","status":"cancelled","message":"Draft discarded."}`,
 			[]string{"Cancel Draft", "ph_003", "cancelled", "Draft discarded."}},
 		{"turf_config_init", `{"path":"infra/prod","backend":{"type":"s3"},"workspace":{"name":"main"},
@@ -1261,5 +1320,331 @@ func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
 				t.Fatalf("%s missing %q:\n%s", tc.name, tc.want, out)
 			}
 		})
+	}
+}
+
+// TestTurfToolTargetArgsMatchServerSchemas is the drift guard turfToolTargetArgs
+// went without — and it is exactly the map that rotted when the server renamed
+// workspace_open/workspace_delete's `name` argument to `workspace_name`. A stale
+// entry here is silent: errorTarget simply finds nothing, and a failed tool call
+// loses the lead context that tells the reader WHAT failed.
+//
+// It asserts every arg name is a real property of that tool's live input schema.
+// The reverse direction is deliberately not asserted: a tool may take many args
+// and the map names only the one that identifies the target.
+//
+// Note this guards REQUEST arguments only. The server publishes no result schema
+// over MCP, so a renamed RESULT field stays unguarded — parseContent decodes it as
+// a zero value and the line quietly degrades. The per-tool renderer tests, whose
+// JSON literals are hand-written against the server's structs, are the only cover
+// there.
+func TestTurfToolTargetArgsMatchServerSchemas(t *testing.T) {
+	byName := serverTools(t)
+
+	for bare, args := range turfToolTargetArgs {
+		name := "turf_" + bare
+		tl, ok := byName[name]
+		if !ok {
+			t.Errorf("turfToolTargetArgs names %q, which is not a server tool (stale entry)", name)
+			continue
+		}
+		props := schemaProperties(t, tl)
+		if props == nil {
+			t.Errorf("%s: could not read input schema properties", name)
+			continue
+		}
+		for _, arg := range args {
+			if _, ok := props[arg]; !ok {
+				t.Errorf("%s: target arg %q is not in the server's input schema (renamed or removed) — known args: %s",
+					name, arg, strings.Join(sortedKeys(props), ", "))
+			}
+		}
+	}
+}
+
+// schemaProperties pulls the `properties` object out of a tool's JSON input schema.
+// Tool.Parameters is an `any` holding whatever the MCP layer decoded, so this goes
+// through JSON rather than guessing at a concrete Go type.
+func schemaProperties(t *testing.T, tl tools.Tool) map[string]any {
+	t.Helper()
+
+	raw, err := json.Marshal(tl.Parameters)
+	if err != nil {
+		return nil
+	}
+	var schema struct {
+		Properties map[string]any `json:"properties"`
+	}
+	if json.Unmarshal(raw, &schema) != nil {
+		return nil
+	}
+	return schema.Properties
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// --- ephemeral resources ------------------------------------------------------
+
+// An ephemeral value never reaches the wire, so the only thing to render is the
+// open's classification. The compact line must say what happened; the expansion
+// must list the instances — and neither may invent a value.
+func TestDeclareEphemeral_OpensAndReplan(t *testing.T) {
+	const content = `{
+		"resource_addr": "ephemeral.vault_kv_secret_v2.creds",
+		"resource_type": "vault_kv_secret_v2",
+		"declared": true,
+		"replan": ["aws_db_instance.main"],
+		"ephemeral_opens": [
+			{"address": "ephemeral.vault_kv_secret_v2.creds[0]", "action": "opened"},
+			{"address": "ephemeral.vault_kv_secret_v2.creds[1]", "action": "deferred",
+			 "reason": "dependency_pending", "depends_on": ["vault_mount.kv"]}
+		],
+		"warnings": ["close failed: lease may still be held at the provider"]
+	}`
+
+	compact := renderFor("turf_declare_ephemeral", content, hiddenState{})
+	for _, want := range []string{"ephemeral.vault_kv_secret_v2.creds", "declared", "1 opened", "1 deferred", "1 replan"} {
+		if !strings.Contains(plainNorm(compact), want) {
+			t.Fatalf("compact missing %q: %q", want, plainNorm(compact))
+		}
+	}
+	if strings.Contains(strings.TrimRight(compact, " "), "\n") {
+		t.Fatalf("compact should be a single line: %q", compact)
+	}
+
+	detailed := plainNorm(renderFor("turf_declare_ephemeral", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"opens:", "creds[0]", "opened", "creds[1]", "dependency_pending",
+		"waiting on", "vault_mount.kv",
+		"replan:", "aws_db_instance.main",
+		"⚠", "lease may still be held",
+	} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("detail missing %q: %q", want, detailed)
+		}
+	}
+}
+
+// Every walk re-opens every declared ephemeral resource, so a plan that opened
+// them all has nothing to report on its summary line — tallying "3 opened" there
+// would read as a change that did not happen. What did NOT open is the signal.
+func TestPlanSummary_EphemeralOpensOnlyReportIssues(t *testing.T) {
+	allOpened := `{"phase_id":"ph_1","path":"infra","resources":[],"ephemeral_opens":[
+		{"address":"ephemeral.vault_kv_secret_v2.a","action":"opened"},
+		{"address":"ephemeral.vault_kv_secret_v2.b","action":"opened"}]}`
+
+	compact := plainNorm(renderFor("turf_replan", allOpened, hiddenState{}))
+	if strings.Contains(compact, "opened") || strings.Contains(compact, "ephemeral") {
+		t.Fatalf("a fully-opened walk should say nothing on the summary line: %q", compact)
+	}
+	// It still belongs in the expansion — that is where you go to see the opens.
+	detailed := plainNorm(renderFor("turf_replan", allOpened, service.StaticSessionState{}))
+	for _, want := range []string{"ephemeral:", "vault_kv_secret_v2.a", "opened"} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("detail missing %q: %q", want, detailed)
+		}
+	}
+
+	oneDeferred := `{"phase_id":"ph_1","path":"infra","resources":[],"ephemeral_opens":[
+		{"address":"ephemeral.vault_kv_secret_v2.a","action":"opened"},
+		{"address":"ephemeral.vault_kv_secret_v2.b","action":"deferred","reason":"config_unknown"}]}`
+	out := plainNorm(renderFor("turf_replan", oneDeferred, hiddenState{}))
+	if !strings.Contains(out, "1 ephemeral deferred") {
+		t.Fatalf("summary should surface the deferral: %q", out)
+	}
+}
+
+// --- provider instance status -------------------------------------------------
+
+// The walk, not workspace_open, configures providers now — and an unresolved
+// instance is usually the reason a plan deferred, so the line has to say so.
+func TestPlanSummary_ProviderStatus(t *testing.T) {
+	const content = `{"phase_id":"ph_1","path":"infra","resources":[],"providers":[
+		{"ref":"random","status":"configured"},
+		{"ref":"aws.west","status":"configured_with_unknowns",
+		 "unknown_paths":["assume_role.role_arn"],
+		 "feeding_addresses":["aws_iam_role.deploy"],
+		 "teardown_config":"prior_state"},
+		{"ref":"vault","status":"deferred","last_error":"dial tcp: connection refused"}]}`
+
+	compact := plainNorm(renderFor("turf_plan_new", content, hiddenState{}))
+	if !strings.Contains(compact, "2 provider(s) unresolved") {
+		t.Fatalf("summary should count only the unresolved instances: %q", compact)
+	}
+
+	detailed := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"providers:", "random", "configured",
+		"aws.west", "configured_with_unknowns",
+		"unknown", "assume_role.role_arn",
+		"feeds from", "aws_iam_role.deploy",
+		"teardown prior_state",
+		"vault", "deferred", "connection refused",
+	} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("provider detail missing %q: %q", want, detailed)
+		}
+	}
+}
+
+// A walk where every provider configured is the ordinary case and must cost the
+// summary line nothing.
+func TestPlanSummary_ProviderStatusSilentWhenAllConfigured(t *testing.T) {
+	const content = `{"phase_id":"ph_1","path":"infra","resources":[],
+		"providers":[{"ref":"random","status":"configured"}]}`
+	out := plainNorm(renderFor("turf_plan_new", content, hiddenState{}))
+	if strings.Contains(out, "unresolved") {
+		t.Fatalf("all-configured walk should not claim an issue: %q", out)
+	}
+}
+
+// --- config_init discovery ----------------------------------------------------
+
+// The server states `defaulted` positively and omits the false, so ABSENCE means
+// the directory really declares a backend. Reading it the other way round would
+// label every configuration wrong.
+func TestConfigInit_BackendDefaultedPolarity(t *testing.T) {
+	declared := plainNorm(renderFor("turf_config_init",
+		`{"path":"infra","dialect":"tofu","backend":{"type":"s3"},"workspace":{"name":"main"}}`,
+		hiddenState{}))
+	if !strings.Contains(declared, "backend s3") || strings.Contains(declared, "(default)") {
+		t.Fatalf("a declared backend must not read as defaulted: %q", declared)
+	}
+
+	synthesized := plainNorm(renderFor("turf_config_init",
+		`{"path":"infra","dialect":"plot","backend":{"type":"local","defaulted":true},"workspace":{"name":"main"}}`,
+		hiddenState{}))
+	if !strings.Contains(synthesized, "backend local (default)") {
+		t.Fatalf("the synthesized default must say so: %q", synthesized)
+	}
+}
+
+// Drift is what the NEXT plan will do about this directory — orphan destroys and
+// pending creates — so it earns a summary segment, in the plan's own glyph idiom.
+func TestConfigInit_Drift(t *testing.T) {
+	const content = `{"path":"infra","dialect":"plot","backend":{"type":"local","defaulted":true},
+		"workspace":{"name":"main"},"scratch":true,
+		"drift":[{"workspace_alias":"default",
+			"in_state_not_declared":["aws_s3_bucket.old"],
+			"declared_not_in_state":["aws_s3_bucket.new","random_pet.this"]}]}`
+
+	compact := plainNorm(renderFor("turf_config_init", content, hiddenState{}))
+	for _, want := range []string{"plot", "scratch", "+2", "-1", "drift"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("compact missing %q: %q", want, compact)
+		}
+	}
+
+	detailed := plainNorm(renderFor("turf_config_init", content, service.StaticSessionState{}))
+	for _, want := range []string{"drift:", "default", "+ aws_s3_bucket.new", "- aws_s3_bucket.old"} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("drift detail missing %q: %q", want, detailed)
+		}
+	}
+}
+
+// An inferred requirement was never written down and carries no version
+// constraint; an ephemeral variable may never be stored. Both are things the
+// reader has to be able to tell apart from the declared/ordinary case.
+func TestConfigInit_InferredAndEphemeralBadges(t *testing.T) {
+	const content = `{"path":"infra","dialect":"plot","workspace":{"name":"main"},
+		"required_providers":{"random":{"source":"hashicorp/random","inferred":true},
+			"aws":{"source":"hashicorp/aws","version":"5.1.0"}},
+		"variables":[{"name":"token","required":true,"ephemeral":true},
+			{"name":"region","required":true}]}`
+
+	detailed := plainNorm(renderFor("turf_config_init", content, service.StaticSessionState{}))
+	for _, want := range []string{"random hashicorp/random inferred", "token", "ephemeral"} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("init detail missing %q: %q", want, detailed)
+		}
+	}
+	// The declared provider and the ordinary variable must NOT pick up a badge.
+	if strings.Contains(detailed, "hashicorp/aws 5.1.0 inferred") {
+		t.Fatalf("a declared requirement must not read as inferred: %q", detailed)
+	}
+}
+
+// --- remaining field signal ---------------------------------------------------
+
+func TestDeclareResource_ReplanAndDemotedDeferral(t *testing.T) {
+	const content = `{"resource_addr":"aws_db_instance.main","provider":"aws","action":"?",
+		"before":null,"after":{},"replan":["aws_route53_record.db"],
+		"deferred":{"reason":"provider_config_unknown","last_error":"dial tcp: connection refused"}}`
+
+	compact := plainNorm(renderFor("turf_declare_resource", content, hiddenState{}))
+	if !strings.Contains(compact, "1 replan") {
+		t.Fatalf("compact should count stale plans: %q", compact)
+	}
+
+	detailed := plainNorm(renderFor("turf_declare_resource", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"deferred: provider_config_unknown",
+		"connection refused", // a DEMOTED provider failure must not read as an ordinary wait
+		"replan:", "aws_route53_record.db",
+	} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("detail missing %q: %q", want, detailed)
+		}
+	}
+}
+
+// An output that failed to evaluate is absent from outputs[], so without the
+// errors map the line would report it as simply not declared.
+func TestDeclareOutputs_Errors(t *testing.T) {
+	const content = `{"phase_id":"ph_1","outputs":{"url":"https://x"},
+		"errors":{"arn":"Unsupported attribute: this object has no argument named \"arn\""}}`
+
+	compact := plainNorm(renderFor("turf_declare_outputs", content, hiddenState{}))
+	if !strings.Contains(compact, "1 error(s)") {
+		t.Fatalf("compact should count the failures: %q", compact)
+	}
+	detailed := plainNorm(renderFor("turf_declare_outputs", content, service.StaticSessionState{}))
+	for _, want := range []string{"errors:", "arn", "Unsupported attribute"} {
+		if !strings.Contains(detailed, want) {
+			t.Fatalf("detail missing %q: %q", want, detailed)
+		}
+	}
+}
+
+// A tainted object is replaced by the next plan and a deposed one is still real
+// infrastructure — neither is visible in a plain address listing.
+func TestStateList_TaintedAndDeposed(t *testing.T) {
+	const content = `{"workspace_alias":"default","resources":[
+		{"address":"aws_instance.web","type":"aws_instance","mode":"managed","tainted":true,
+		 "deposed":[{"key":"abc12345"}]},
+		{"address":"random_pet.this","type":"random_pet","mode":"managed"}]}`
+
+	compact := plainNorm(renderFor("turf_state_list", content, hiddenState{}))
+	for _, want := range []string{"2 resource(s)", "1 tainted", "1 deposed"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("compact missing %q: %q", want, compact)
+		}
+	}
+	detailed := plainNorm(renderFor("turf_state_list", content, service.StaticSessionState{}))
+	if !strings.Contains(detailed, "aws_instance.web") || !strings.Contains(detailed, "tainted") {
+		t.Fatalf("detail missing the tainted row: %q", detailed)
+	}
+}
+
+// declare_var's result echoes no declaration detail, so the one fact worth
+// carrying — that this value may never be written down — comes from the request.
+func TestDeclareVar_EphemeralBadgeFromArgs(t *testing.T) {
+	const content = `{"name":"vault_token","address":"var.vault_token","declared":true}`
+
+	plain := plainNorm(renderArgs("turf_declare_var", content, `{"name":"vault_token"}`))
+	if strings.Contains(plain, "ephemeral") {
+		t.Fatalf("an ordinary variable must not read as ephemeral: %q", plain)
+	}
+	marked := plainNorm(renderArgs("turf_declare_var", content, `{"name":"vault_token","ephemeral":true}`))
+	if !strings.Contains(marked, "ephemeral") {
+		t.Fatalf("an ephemeral declaration must say so: %q", marked)
 	}
 }
