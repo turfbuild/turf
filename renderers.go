@@ -1401,11 +1401,7 @@ func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		return fallbackLine(msg, s, ss, width)
 	}
 
-	name := w.WorkspaceName
-	if name == "" {
-		name = w.WorkspaceAlias
-	}
-	summary := addr(name)
+	summary := addr(workspaceName(w.WorkspaceAlias, w.WorkspaceName))
 	if w.BackendType != "" {
 		summary += dot() + keyword(w.BackendType)
 	}
@@ -1559,7 +1555,17 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// workspaceName prefers the workspace alias, falling back to the backend name.
+// workspaceName is the one rule for naming a workspace on the timeline: prefer the
+// SESSION ALIAS, fall back to the OpenTofu workspace name.
+//
+// The alias is what the user passes to every later tool call, and it is set exactly
+// when several workspaces are open — the case where naming them apart matters. The
+// workspace name is a state slot inside the backend and is usually the literal
+// "default" even then (the server steers callers toward vars over workspace names),
+// so preferring it would label every open workspace identically.
+//
+// Unlike the session title's sessionLabel, "default" is kept here: a workspace line
+// reports one specific call, and the default workspace really is what it opened.
 func workspaceName(alias, name string) string {
 	if alias != "" {
 		return alias
@@ -2282,8 +2288,12 @@ type initOutputView struct {
 }
 
 type configInitView struct {
-	Path    string `json:"path"` // the configuration dir, as the caller passed it (often relative)
-	Backend *struct {
+	// ConfigAlias is the handle this configuration was registered under — the
+	// configuration's own name, and what the session title labels the work with.
+	// Empty for the unnamed "default" configuration.
+	ConfigAlias string `json:"config_alias"`
+	Path        string `json:"path"` // the configuration dir, as the caller passed it (often relative)
+	Backend     *struct {
 		Type string `json:"type"`
 		// Defaulted marks the SYNTHESIZED local default — the entry describing
 		// something the directory does not actually contain. The server states it

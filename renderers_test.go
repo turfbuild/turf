@@ -712,7 +712,10 @@ func TestEffectApply_ReadySetFormatted(t *testing.T) {
 // pins the field turf actually has to read: reverting the rename leaves the line
 // with an empty name, silently, which is how the drift went unnoticed.
 func TestWorkspaceOpen_Summary(t *testing.T) {
-	const content = `{"workspace_alias": "default", "backend_type": "inmem",
+	// workspace_alias is EMPTY here on purpose: this is the default workspace with a
+	// named state slot. The server normalizes an input alias of "default" to "", so
+	// the two never disagree that way on the wire (session.NormalizeAlias).
+	const content = `{"workspace_alias": "", "backend_type": "inmem",
 		"workspace_name": "prod", "config_alias": "app", "config_path": "infra/prod",
 		"state_path": "infra/prod/terraform.tfstate",
 		"backend_config": {"bucket": "tf-state"},
@@ -736,6 +739,29 @@ func TestWorkspaceOpen_Summary(t *testing.T) {
 		if !strings.Contains(detailed, want) {
 			t.Fatalf("workspace open detail missing %q: %q", want, detailed)
 		}
+	}
+}
+
+// Naming a workspace on the timeline is one rule everywhere (workspaceName): the
+// session alias wins, the OpenTofu state slot is the fallback. The alias is set
+// exactly when several workspaces are open — and there the slot is usually the
+// literal "default" for all of them, so preferring it would name them identically.
+func TestWorkspaceOpen_PrefersAliasOverStateSlot(t *testing.T) {
+	out := renderFor("turf_workspace_open",
+		`{"workspace_alias": "prod", "workspace_name": "default",
+		  "backend_type": "s3", "config_path": "infra/app"}`,
+		hiddenState{})
+	if !strings.Contains(out, "prod") {
+		t.Fatalf("the line should lead with the alias the user passes to every later call: %q", out)
+	}
+
+	// And workspace_show must agree for the very same workspace.
+	show := renderFor("turf_workspace_show",
+		`{"workspaces":[{"workspace_alias":"prod","workspace_name":"default",
+		  "backend_type":"s3","resource_count":1}]}`,
+		hiddenState{})
+	if !strings.Contains(show, "prod") {
+		t.Fatalf("workspace_show disagrees with workspace_open: %q", show)
 	}
 }
 
