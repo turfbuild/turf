@@ -26,7 +26,7 @@ Mozilla Public License 2.0 (MPL-2.0)
 ------------------------------------
 
   * OpenTofu (downstream fork)
-      https://github.com/turfbuild/opentofu  (tag v1.12.3-turf.12)
+      https://github.com/turfbuild/opentofu  (tag v1.12.3-turf.17)
       Upstream: https://github.com/opentofu/opentofu
       Copyright (c) The OpenTofu Authors; Copyright (c) 2014 HashiCorp, Inc.
       The fork additionally carries x/ ("OpenTofu extensions"), a library
@@ -34,7 +34,7 @@ Mozilla Public License 2.0 (MPL-2.0)
       Copyright (c) The Turf Authors.
 
   * provider-client (downstream fork)
-      https://github.com/turfbuild/provider-client  (tag v1.12.3-turf.3)
+      https://github.com/turfbuild/provider-client  (tag v1.12.3-turf.5)
       Upstream: https://github.com/opentofu/provider-client
       Copyright (c) The OpenTofu Authors
 
