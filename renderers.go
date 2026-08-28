@@ -128,6 +128,7 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_state_list":         builder(renderStateList),
 		"turf_datasource_read":    builder(renderDatasourceRead),
 		"turf_declare_datasource": builder(renderDeclareDatasource),
+		"turf_declare_ephemeral":  builder(renderDeclareEphemeral),
 		"turf_provider_search":    builder(renderProviderSearch),
 		"turf_provider_load":      builder(renderProviderLoad),
 		"turf_provider_describe":  builder(renderProviderDescribe),
@@ -286,6 +287,17 @@ func argString(msg *types.Message, key string) string {
 	return ""
 }
 
+// argBool reads a boolean request argument. Separate from argString because the
+// wire carries a real JSON bool, which argString's string type-assertion drops.
+func argBool(msg *types.Message, key string) bool {
+	var m map[string]any
+	if json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &m) != nil {
+		return false
+	}
+	v, _ := m[key].(bool)
+	return v
+}
+
 // turfToolTargetArgs maps a bare turf tool name to its request's target argument(s), in
 // priority order — the identifier that names what the call operates on (a resource,
 // provider, module, workspace, …). It mirrors the target each renderer already picks in
@@ -299,6 +311,7 @@ var turfToolTargetArgs = map[string][]string{
 	"resource_refresh":   {"resource_addr"},
 	"datasource_read":    {"resource_addr"},
 	"declare_datasource": {"resource_addr"},
+	"declare_ephemeral":  {"resource_addr"},
 	"config_init":        {"path"},
 	"config_show":        {"address"},
 	"declare_backend":    {"type"},
@@ -314,9 +327,9 @@ var turfToolTargetArgs = map[string][]string{
 	"action_invoke":      {"action_type"},
 	"effect_apply":       {"effect_id"},
 	"effect_cancel":      {"effect_id"},
-	"workspace_open":     {"alias", "name"},
+	"workspace_open":     {"workspace_name"},
 	"workspace_close":    {"workspace_alias"},
-	"workspace_delete":   {"name"},
+	"workspace_delete":   {"workspace_name"},
 	"read_skill_file":    {"path"},
 }
 
@@ -744,7 +757,15 @@ type resourcePlanView struct {
 	Importing *importingInfoView `json:"importing,omitempty"`
 	Deferred  *struct {
 		Reason string `json:"reason"`
+		// LastError is the provider's own words when this deferral was DEMOTED
+		// from a provider failure — the configure or RPC error that would have
+		// surfaced as an error had the provider's configuration been wholly
+		// known. Without it a demoted failure reads as an ordinary wait.
+		LastError string `json:"last_error,omitempty"`
 	} `json:"deferred,omitempty"`
+	// Replan names the pending changes in this Draft that referenced this address
+	// and were planned against the previous declaration — they are now stale.
+	Replan []string `json:"replan,omitempty"`
 }
 
 // importingInfoView is the server's `importing` object: the locator the import
@@ -798,6 +819,9 @@ func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.Ses
 	if changed := changedKeys(p.Before, p.After); changed != "" {
 		summary += dot() + muted(changed)
 	}
+	if n := len(p.Replan); n > 0 {
+		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
+	}
 
 	var detail []string
 	if p.Provider != "" {
@@ -819,6 +843,13 @@ func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.Ses
 			reason = "blocked on upstream changes"
 		}
 		detail = append(detail, styles.WarningStyle.Render("deferred: "+reason))
+		if p.Deferred.LastError != "" {
+			detail = append(detail, "  "+styles.ErrorStyle.Render(p.Deferred.LastError))
+		}
+	}
+	if len(p.Replan) > 0 {
+		detail = append(detail, section("replan"))
+		detail = append(detail, listLines(p.Replan, "  ", 20)...)
 	}
 	if diff := attrDiff(p.Before, p.After, p.BeforeSensitive, p.AfterSensitive, ""); len(diff) > 0 {
 		detail = append(detail, diff...)
@@ -961,8 +992,89 @@ type planSummaryView struct {
 	// concrete from→to pairs. plan_new / replan only — declare_module never sets it.
 	// Present whenever the phase moved anything, including on a re-plan that finds
 	// nothing left to move: the relocation is still part of what applying commits.
-	Moved    []movedRecordView `json:"moved,omitempty"`
-	Warnings []string          `json:"warnings,omitempty"`
+	Moved []movedRecordView `json:"moved,omitempty"`
+	// Opens classifies every declared ephemeral resource the walk opened, in the
+	// same vocabulary Reads uses. Reported per WALK, not per phase, because the
+	// object's life is one walk: two consecutive plans of an unchanged
+	// configuration list the same addresses as "opened", which is the lifecycle
+	// rather than churn — hence the summary line reports only what did NOT open
+	// (see ephemeralOpenIssueTally) while the detail block lists them all.
+	Opens []ephemeralOpenEntry `json:"ephemeral_opens,omitempty"`
+	// Providers reports each provider instance the walk configured in-band. This
+	// is where the provider story lives now: workspace_open no longer echoes
+	// resolved providers, because the walk — not the open — is what configures
+	// them, in dependency order, from the configuration's own provider {} blocks.
+	// A non-configured instance is usually the reason a plan deferred.
+	Providers []providerStatusView `json:"providers,omitempty"`
+	Warnings  []string             `json:"warnings,omitempty"`
+}
+
+// providerStatusView is one provider instance's fate during the walk. Status is
+// "configured", "configured_with_unknowns" (the block reads values an upstream
+// apply has not produced yet) or "deferred". UnknownPaths names those values and
+// FeedingAddrs names the resources to apply to make them known — together they are
+// the actionable half of a deferral. TeardownConfig, when set ("prior_state"), says
+// the phase pinned a SEPARATE configuration for this instance's destroy-side work:
+// the deletes run through the world the objects actually live in, not through the
+// unknowns above.
+type providerStatusView struct {
+	Ref            string   `json:"ref"`
+	Status         string   `json:"status"`
+	UnknownPaths   []string `json:"unknown_paths,omitempty"`
+	FeedingAddrs   []string `json:"feeding_addresses,omitempty"`
+	LastError      string   `json:"last_error,omitempty"`
+	TeardownConfig string   `json:"teardown_config,omitempty"`
+}
+
+// providerIssueTally counts the provider instances the walk could not fully
+// configure. Like the read and open tallies it stays silent on the ordinary case —
+// every instance configured — so the segment appears only when it explains
+// something.
+func providerIssueTally(providers []providerStatusView) string {
+	var n int
+	for _, pr := range providers {
+		if pr.Status != "" && pr.Status != "configured" {
+			n++
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	return bold(fmt.Sprintf("%d provider(s) unresolved", n), styles.Warning)
+}
+
+// providerStatusLines renders the expanded provider section: each instance's ref
+// and status, then the two lists that say what to do about a non-configured one.
+func providerStatusLines(providers []providerStatusView, indent string, max int) []string {
+	var out []string
+	for i, pr := range providers {
+		if max > 0 && i == max {
+			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(providers)-max)))
+			break
+		}
+		c := styles.Success
+		if pr.Status != "configured" {
+			c = styles.Warning
+		}
+		row := indent + addr(pr.Ref)
+		if pr.Status != "" {
+			row += dot() + bold(pr.Status, c)
+		}
+		if pr.TeardownConfig != "" {
+			row += dot() + muted("teardown "+pr.TeardownConfig)
+		}
+		out = append(out, row)
+		if len(pr.UnknownPaths) > 0 {
+			out = append(out, indent+"    "+muted("unknown ")+addr(strings.Join(pr.UnknownPaths, ", ")))
+		}
+		if len(pr.FeedingAddrs) > 0 {
+			out = append(out, indent+"    "+muted("feeds from ")+addr(strings.Join(pr.FeedingAddrs, ", ")))
+		}
+		if pr.LastError != "" {
+			out = append(out, indent+"    "+styles.ErrorStyle.Render(pr.LastError))
+		}
+	}
+	return out
 }
 
 func renderDeclareModule(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1003,6 +1115,12 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", n))
 	}
 	if issues := dataReadIssueTally(p.Reads); issues != "" {
+		summary += dot() + issues
+	}
+	if issues := ephemeralOpenIssueTally(p.Opens); issues != "" {
+		summary += dot() + issues
+	}
+	if issues := providerIssueTally(p.Providers); issues != "" {
 		summary += dot() + issues
 	}
 	// An adopted row usually plans as a no-op (the remote object already matches),
@@ -1046,17 +1164,23 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 		detail = append(detail, section("moved"))
 		detail = append(detail, movedLines(p.Moved, "  ", 20)...)
 	}
+	if len(p.Providers) > 0 {
+		detail = append(detail, section("providers"))
+		detail = append(detail, providerStatusLines(p.Providers, "  ", 20)...)
+	}
 	if len(p.Reads) > 0 {
 		detail = append(detail, section("data sources"))
 		detail = append(detail, dataReadLines(p.Reads, "  ", 20)...)
+	}
+	if len(p.Opens) > 0 {
+		detail = append(detail, section("ephemeral"))
+		detail = append(detail, dataReadLines(p.Opens, "  ", 20)...)
 	}
 	if outs := outputsLines(p.Outputs); len(outs) > 0 {
 		detail = append(detail, section("outputs"))
 		detail = append(detail, outs...)
 	}
-	for _, w := range p.Warnings {
-		detail = append(detail, styles.WarningStyle.Render("⚠ "+w))
-	}
+	detail = append(detail, warningLines(p.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -1108,6 +1232,10 @@ type outputsPlanView struct {
 	Outputs map[string]any `json:"outputs"`
 	Unknown []string       `json:"unknown"`
 	Removed []string       `json:"removed"`
+	// Errors are per-output evaluation failures, keyed by output name. An output
+	// that failed to evaluate is absent from Outputs, so without this the line
+	// would report it as simply not declared.
+	Errors map[string]string `json:"errors,omitempty"`
 }
 
 func renderDeclareOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1133,10 +1261,24 @@ func renderDeclareOutputs(msg *types.Message, s spinner.Spinner, ss service.Sess
 	if n := sensitiveCount(p.Outputs); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d sensitive", n))
 	}
+	if n := len(p.Errors); n > 0 {
+		summary += dot() + bold(fmt.Sprintf("%d error(s)", n), styles.Error)
+	}
 
 	// Expanded: each output as name = value, with sentinels masked by fmtVal
 	// ("__cty_unknown__" → "(known after apply)", "__cty_sensitive__" → "(sensitive)").
 	detail := kvLines(p.Outputs, "  ", 30)
+	if len(p.Errors) > 0 {
+		detail = append(detail, section("errors"))
+		names := make([]string, 0, len(p.Errors))
+		for n := range p.Errors {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			detail = append(detail, "  "+addr(n)+dot()+styles.ErrorStyle.Render(p.Errors[n]))
+		}
+	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -1225,12 +1367,29 @@ func renderOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStat
 
 // --- turf_workspace_open / turf_workspace_close -----------------------------
 
+// A workspace is now opened *against a configuration*, and that binding is the
+// call's most consequential result: it fixes the backend, the providers, and what
+// every later plan projects. The server no longer echoes resolved providers here
+// (it configures them in-band during the walk — see planSummaryView.Providers), so
+// what this line reports is where state landed and what the binding is.
 type workspaceOpenView struct {
-	WorkspaceAlias    string                     `json:"workspace_alias"`
-	BackendType       string                     `json:"backend_type"`
-	Name              string                     `json:"name"`
-	Resources         []string                   `json:"resources"`
-	ResolvedProviders map[string]json.RawMessage `json:"resolved_providers,omitempty"`
+	WorkspaceAlias string `json:"workspace_alias"`
+	BackendType    string `json:"backend_type"`
+	WorkspaceName  string `json:"workspace_name"`
+	ConfigAlias    string `json:"config_alias"`
+	ConfigPath     string `json:"config_path"`
+	// BackendConfig is the resolved backend body — the declared block with the
+	// call's backend_config merged over it.
+	BackendConfig map[string]any `json:"backend_config,omitempty"`
+	// StatePath is where this workspace's state actually lives, resolved for the
+	// workspace name (a local backend's `path` addresses `default` only). Empty
+	// for backends that key their state some other way.
+	StatePath string   `json:"state_path,omitempty"`
+	Resources []string `json:"resources"`
+	// Warnings carries informational notes — a backend type diverging from the
+	// declared one, or state recording a provider the configuration no longer
+	// declares (which a later destroy surfaces as a restore-or-declare error).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -1242,42 +1401,29 @@ func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		return fallbackLine(msg, s, ss, width)
 	}
 
-	name := w.Name
-	if name == "" {
-		name = w.WorkspaceAlias
-	}
-	summary := addr(name)
+	summary := addr(workspaceName(w.WorkspaceAlias, w.WorkspaceName))
 	if w.BackendType != "" {
 		summary += dot() + keyword(w.BackendType)
 	}
-	if providers := providerNames(w.ResolvedProviders); providers != "" {
-		summary += dot() + providerName(providers)
+	// The configuration this workspace is bound to — the binding fixes the
+	// backend and the providers, so it belongs on the compact line.
+	if w.ConfigPath != "" {
+		summary = appendDot(summary, muted(w.ConfigPath))
 	}
 
 	var detail []string
-	if len(w.ResolvedProviders) > 0 {
-		detail = append(detail, section("providers"))
-		names := make([]string, 0, len(w.ResolvedProviders))
-		for n := range w.ResolvedProviders {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			src, ver := providerSourceVersion(w.ResolvedProviders[n])
-			row := "  " + addr(n)
-			if src != "" {
-				row += muted("  " + src)
-			}
-			if ver != "" {
-				row += muted("  v" + ver)
-			}
-			detail = append(detail, row)
-		}
+	if w.StatePath != "" {
+		detail = append(detail, section("state"), "  "+muted(w.StatePath))
+	}
+	if len(w.BackendConfig) > 0 {
+		detail = append(detail, section("backend config"))
+		detail = append(detail, kvLines(w.BackendConfig, "  ", 20)...)
 	}
 	if n := len(w.Resources); n > 0 {
 		detail = append(detail, section(fmt.Sprintf("%d resource(s) in state", n)))
 		detail = append(detail, listLines(w.Resources, "  ", 20)...)
 	}
+	detail = append(detail, warningLines(w.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -1355,7 +1501,7 @@ type workspaceShowView struct {
 	Workspaces []struct {
 		WorkspaceAlias     string `json:"workspace_alias"`
 		BackendType        string `json:"backend_type"`
-		Name               string `json:"name"`
+		WorkspaceName      string `json:"workspace_name"`
 		ResourceCount      int    `json:"resource_count"`
 		UncommittedChanges int    `json:"uncommitted_changes"`
 		ActivePhaseID      string `json:"active_phase_id,omitempty"`
@@ -1378,7 +1524,7 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		summary = muted("none open")
 	case 1:
 		w := r.Workspaces[0]
-		summary = addr(workspaceName(w.WorkspaceAlias, w.Name)) +
+		summary = addr(workspaceName(w.WorkspaceAlias, w.WorkspaceName)) +
 			dot() + muted(fmt.Sprintf("%d resource(s)", w.ResourceCount))
 		if w.UncommittedChanges > 0 {
 			summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d uncommitted", w.UncommittedChanges))
@@ -1389,7 +1535,7 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 
 	var detail []string
 	for _, w := range r.Workspaces {
-		row := addr(workspaceName(w.WorkspaceAlias, w.Name))
+		row := addr(workspaceName(w.WorkspaceAlias, w.WorkspaceName))
 		if w.BackendType != "" {
 			row += dot() + muted(w.BackendType)
 		}
@@ -1409,7 +1555,17 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// workspaceName prefers the workspace alias, falling back to the backend name.
+// workspaceName is the one rule for naming a workspace on the timeline: prefer the
+// SESSION ALIAS, fall back to the OpenTofu workspace name.
+//
+// The alias is what the user passes to every later tool call, and it is set exactly
+// when several workspaces are open — the case where naming them apart matters. The
+// workspace name is a state slot inside the backend and is usually the literal
+// "default" even then (the server steers callers toward vars over workspace names),
+// so preferring it would label every open workspace identically.
+//
+// Unlike the session title's sessionLabel, "default" is kept here: a workspace line
+// reports one specific call, and the default workspace really is what it opened.
 func workspaceName(alias, name string) string {
 	if alias != "" {
 		return alias
@@ -1477,6 +1633,15 @@ type stateListView struct {
 		Address string `json:"address"`
 		Type    string `json:"type"`
 		Mode    string `json:"mode"`
+		// Tainted marks an object a previous apply left half-created; the next
+		// plan replaces it. Invisible in a plain address listing otherwise.
+		Tainted bool `json:"tainted,omitempty"`
+		// Deposed are objects stranded under this address by an interrupted
+		// create-before-destroy replace. They are still real infrastructure and
+		// still cost money, so a state listing has to admit they exist.
+		Deposed []struct {
+			Key string `json:"key"`
+		} `json:"deposed,omitempty"`
 	} `json:"resources"`
 }
 
@@ -1489,6 +1654,19 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 		return fallbackLine(msg, s, ss, width)
 	}
 	summary := muted(fmt.Sprintf("%d resource(s)", len(st.Resources)))
+	var tainted, deposed int
+	for _, r := range st.Resources {
+		if r.Tainted {
+			tainted++
+		}
+		deposed += len(r.Deposed)
+	}
+	if tainted > 0 {
+		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d tainted", tainted))
+	}
+	if deposed > 0 {
+		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deposed", deposed))
+	}
 
 	var detail []string
 	const maxRows = 40
@@ -1501,6 +1679,12 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 		meta := strings.TrimSpace(strings.Join([]string{r.Type, r.Mode}, " · "))
 		if meta != "" {
 			row += dot() + muted(meta)
+		}
+		if r.Tainted {
+			row += dot() + styles.WarningStyle.Render("tainted")
+		}
+		if n := len(r.Deposed); n > 0 {
+			row += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deposed", n))
 		}
 		detail = append(detail, row)
 	}
@@ -1580,6 +1764,15 @@ type dataSourceReadEntry struct {
 	Error     string   `json:"error,omitempty"`
 }
 
+// ephemeralOpenEntry is one expanded ephemeral instance's open verdict. The server
+// emits it field-for-field identically to a data-source read — address, action,
+// reason, depends_on, error — because it is the same question asked of a different
+// block, so it is the same type under a name that reads correctly at its own call
+// sites. Action is "opened", "deferred" or "error"; the VALUE is never on the wire,
+// and no tool will hand it over: an ephemeral value exists precisely so that it is
+// never written anywhere it can be read back, and the timeline is scrollback.
+type ephemeralOpenEntry = dataSourceReadEntry
+
 func renderDeclareDatasource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
 		return line(msg, s, addr(argString(msg, "resource_addr")), width)
@@ -1623,69 +1816,86 @@ func renderDeclareDatasource(msg *types.Message, s spinner.Spinner, ss service.S
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// dataReadTally summarizes the read verdicts for the one-line view. A single
-// instance renders as the bare colored action word ("read", "deferred", "error");
-// several render as per-action counts ("2 read · 1 deferred") in the fixed order
-// read → deferred → error, so the eye lands on the same bucket every time. Empty
-// for no reads — a remove, or a targeted walk that never reached the address, has
-// nothing to report and should not claim otherwise.
+// dataReadTally summarizes the read verdicts for the one-line view, and
+// ephemeralOpenTally does the same for a declaration's ephemeral opens. A single
+// instance renders as the bare colored action word ("read"/"opened", "deferred",
+// "error"); several render as per-action counts ("2 read · 1 deferred") in a fixed
+// order so the eye lands on the same bucket every time. Empty for no entries — a
+// remove, or a targeted walk that never reached the address, has nothing to report
+// and should not claim otherwise.
 func dataReadTally(reads []dataSourceReadEntry) string {
-	if len(reads) == 0 {
-		return ""
-	}
-	if len(reads) == 1 {
-		label, c, _ := planAction(reads[0].Action, false, false)
-		return bold(label, c)
-	}
-	counts := map[string]int{}
-	for _, r := range reads {
-		label, _, _ := planAction(r.Action, false, false)
-		counts[label]++
-	}
-	var parts []string
-	for _, a := range []string{"read", "deferred", "error"} {
-		if n := counts[a]; n > 0 {
-			_, c, _ := planAction(a, false, false)
-			parts = append(parts, bold(fmt.Sprintf("%d %s", n, a), c))
-			delete(counts, a)
-		}
-	}
-	// Anything planAction mapped elsewhere (an action word this CLI predates) still
-	// gets counted rather than silently dropped. Sorted, so the line is stable.
-	parts = append(parts, leftoverActionTally(counts, "%d %s")...)
-	return strings.Join(parts, dot())
+	return outcomeTally(reads, "read")
 }
 
-// dataReadIssueTally is the plan-summary counterpart of dataReadTally: it counts
-// only the verdicts worth interrupting the action tally for.
+func ephemeralOpenTally(opens []ephemeralOpenEntry) string {
+	return outcomeTally(opens, "opened")
+}
+
+func outcomeTally(entries []dataSourceReadEntry, success string) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	if len(entries) == 1 {
+		label, c, _ := planAction(entries[0].Action, false, false)
+		return bold(label, c)
+	}
+	return strings.Join(actionTally(actionCounts(entries, ""), []string{success, "deferred", "error"}, "%d %s"), dot())
+}
+
+// dataReadIssueTally is the plan-summary counterpart of dataReadTally, and
+// ephemeralOpenIssueTally the counterpart of ephemeralOpenTally: each counts only
+// the verdicts worth interrupting the action tally for.
 //
-// The difference from dataReadTally is the caller's scope. declare_datasource
+// The difference from the full tallies is the caller's scope. declare_datasource
 // reports one declaration's instances, where "read" is the outcome being asked
 // about; a walk reads *every* declared data source, so a "read" count there would
 // almost always just say "all of them" — the signal is what did not resolve. The
-// "data" noun keeps it apart from the resource `N deferred` count beside it, which
-// counts a different thing entirely. Empty when everything read, which is the
-// ordinary case and should cost the line nothing.
+// same holds, more sharply, for ephemeral opens: every walk re-opens every declared
+// ephemeral resource, so two consecutive plans of an unchanged configuration list
+// the same addresses as "opened". That is the lifecycle, not churn, and tallying it
+// on the summary line would read as a change that did not happen.
+//
+// The "data"/"ephemeral" noun keeps each apart from the resource `N deferred` count
+// beside it, which counts a different thing entirely. Empty when everything
+// resolved, which is the ordinary case and should cost the line nothing.
 func dataReadIssueTally(reads []dataSourceReadEntry) string {
+	return issueTally(reads, "read", "data")
+}
+
+func ephemeralOpenIssueTally(opens []ephemeralOpenEntry) string {
+	return issueTally(opens, "opened", "ephemeral")
+}
+
+func issueTally(entries []dataSourceReadEntry, success, noun string) string {
+	return strings.Join(actionTally(actionCounts(entries, success), []string{"deferred", "error"}, "%d "+noun+" %s"), dot())
+}
+
+// actionCounts buckets entries by their planAction label, dropping the caller's
+// success label when it passes one (that is what makes an issue tally an issue
+// tally). Pass "" to count every bucket.
+func actionCounts(entries []dataSourceReadEntry, skip string) map[string]int {
 	counts := map[string]int{}
-	for _, r := range reads {
-		if label, _, _ := planAction(r.Action, false, false); label != "read" {
+	for _, e := range entries {
+		if label, _, _ := planAction(e.Action, false, false); label != skip {
 			counts[label]++
 		}
 	}
+	return counts
+}
+
+// actionTally renders the buckets named by order, in that order, skipping empties —
+// then hands whatever order did not claim to leftoverActionTally rather than
+// dropping it. Consumes counts.
+func actionTally(counts map[string]int, order []string, format string) []string {
 	var parts []string
-	for _, a := range []string{"deferred", "error"} {
+	for _, a := range order {
 		if n := counts[a]; n > 0 {
 			_, c, _ := planAction(a, false, false)
-			parts = append(parts, bold(fmt.Sprintf("%d data %s", n, a), c))
+			parts = append(parts, bold(fmt.Sprintf(format, n, a), c))
 			delete(counts, a)
 		}
 	}
-	// Same discipline as dataReadTally: an action word this CLI predates is reported
-	// rather than dropped, since dropping it here would hide the very thing the
-	// non-read filter exists to surface.
-	parts = append(parts, leftoverActionTally(counts, "%d data %s")...)
-	return strings.Join(parts, dot())
+	return append(parts, leftoverActionTally(counts, format)...)
 }
 
 // leftoverActionTally renders the buckets a caller's fixed action order did not
@@ -1867,9 +2077,7 @@ func renderProviderLoad(msg *types.Message, s spinner.Spinner, ss service.Sessio
 	if c := argString(msg, "version"); c != "" && c != p.ResolvedVersion {
 		detail = append(detail, muted("requested  ")+c)
 	}
-	for _, w := range p.Warnings {
-		detail = append(detail, styles.WarningStyle.Render("⚠ "+w))
-	}
+	detail = append(detail, warningLines(p.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -1964,22 +2172,22 @@ func renderReadSkillFile(msg *types.Message, s spinner.Spinner, ss service.Sessi
 // --- turf_workspace_delete --------------------------------------------------
 
 type workspaceDeleteView struct {
-	Name          string `json:"name"`
+	WorkspaceName string `json:"workspace_name"`
 	ResourceCount int    `json:"resource_count"`
 	Deleted       bool   `json:"deleted"`
 }
 
 func renderWorkspaceDelete(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "name")), width)
+		return line(msg, s, targetBody(argString(msg, "workspace_name")), width)
 	}
 	var w workspaceDeleteView
 	if !parseContent(msg, &w) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	name := w.Name
+	name := w.WorkspaceName
 	if name == "" {
-		name = argString(msg, "name")
+		name = argString(msg, "workspace_name")
 	}
 	status := bold("deleted", styles.Success)
 	if !w.Deleted {
@@ -2055,6 +2263,12 @@ func renderPlanExport(msg *types.Message, s spinner.Spinner, ss service.SessionS
 type initProviderView struct {
 	Source  string `json:"source"`
 	Version string `json:"version,omitempty"`
+	// Inferred marks a requirement turf derived from usage rather than read from a
+	// required_providers block — Terraform implies one from every resource's local
+	// name. Source is then the address OpenTofu itself implies, and Version is
+	// empty because the module stated no constraint. Worth showing: it is the
+	// difference between a pin the configuration made and one nobody wrote down.
+	Inferred bool `json:"inferred,omitempty"`
 }
 
 type initVariableView struct {
@@ -2062,6 +2276,10 @@ type initVariableView struct {
 	Type      string `json:"type,omitempty"`
 	Required  bool   `json:"required"`
 	Sensitive bool   `json:"sensitive,omitempty"`
+	// Ephemeral is Terraform's `ephemeral = true`: the value may reach provider
+	// configuration, an ephemeral module input, or a write-only attribute, and
+	// nothing else — never state, never a stored plan.
+	Ephemeral bool `json:"ephemeral,omitempty"`
 }
 
 type initOutputView struct {
@@ -2070,9 +2288,18 @@ type initOutputView struct {
 }
 
 type configInitView struct {
-	Path    string `json:"path"` // the configuration dir, as the caller passed it (often relative)
-	Backend *struct {
+	// ConfigAlias is the handle this configuration was registered under — the
+	// configuration's own name, and what the session title labels the work with.
+	// Empty for the unnamed "default" configuration.
+	ConfigAlias string `json:"config_alias"`
+	Path        string `json:"path"` // the configuration dir, as the caller passed it (often relative)
+	Backend     *struct {
 		Type string `json:"type"`
+		// Defaulted marks the SYNTHESIZED local default — the entry describing
+		// something the directory does not actually contain. The server states it
+		// positively and omits the false, so ABSENCE means "declared": reading a
+		// missing flag as "not defaulted" is the correct polarity here.
+		Defaulted bool `json:"defaulted,omitempty"`
 	} `json:"backend"`
 	Workspace struct {
 		Name string `json:"name"`
@@ -2080,6 +2307,55 @@ type configInitView struct {
 	RequiredProviders map[string]initProviderView `json:"required_providers"`
 	Variables         []initVariableView          `json:"variables"`
 	Outputs           []initOutputView            `json:"outputs"`
+	// Dialect is the directory's dialect — "plot" (turf-authored; the declare
+	// tools operate here) or "tofu" (a plain root module, read-only to declares).
+	// It decides which half of the workflow the user is in, so it leads the line.
+	Dialect string `json:"dialect"`
+	// Scratch marks a turf-allocated temporary directory (no path was given), so
+	// nothing here outlives the session.
+	Scratch bool `json:"scratch,omitempty"`
+	// Drift is a cheap configuration↔state set comparison per bound workspace,
+	// present only on a re-init while one is open. It is not attribute-level drift
+	// (that needs a plan walk) — it is what the next plan will walk as orphan
+	// destroys and as creates.
+	Drift []configDriftView `json:"drift,omitempty"`
+}
+
+type configDriftView struct {
+	WorkspaceAlias     string   `json:"workspace_alias"`
+	InStateNotDeclared []string `json:"in_state_not_declared,omitempty"`
+	DeclaredNotInState []string `json:"declared_not_in_state,omitempty"`
+}
+
+// driftCounts totals both directions across every bound workspace.
+func driftCounts(drift []configDriftView) (orphans, pending int) {
+	for _, d := range drift {
+		orphans += len(d.InStateNotDeclared)
+		pending += len(d.DeclaredNotInState)
+	}
+	return orphans, pending
+}
+
+// driftLines renders the drift section in the plan's own glyph idiom — a state
+// resource the configuration no longer declares is a `-` the next plan walks, one
+// declared but absent from state is a `+`.
+func driftLines(drift []configDriftView, indent string) []string {
+	var out []string
+	for _, d := range drift {
+		if len(d.InStateNotDeclared) == 0 && len(d.DeclaredNotInState) == 0 {
+			continue
+		}
+		if d.WorkspaceAlias != "" {
+			out = append(out, indent+addr(d.WorkspaceAlias))
+		}
+		for _, a := range d.DeclaredNotInState {
+			out = append(out, indent+"  "+bold("+", styles.Success)+" "+addr(a))
+		}
+		for _, a := range d.InStateNotDeclared {
+			out = append(out, indent+"  "+bold("-", styles.Error)+" "+addr(a))
+		}
+	}
+	return out
 }
 
 func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -2101,13 +2377,42 @@ func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	if c.Path != "" && c.Path != target {
 		summary = appendDot(summary, muted(c.Path))
 	}
+	// The dialect frames everything after it — a plot is turf-authored and the
+	// declare tools operate on it; a tofu configuration is read-only to them — so
+	// it reads ahead of the backend rather than trailing it.
+	if c.Dialect != "" {
+		summary = appendDot(summary, keyword(c.Dialect))
+	}
+	if c.Scratch {
+		summary = appendDot(summary, muted("scratch"))
+	}
 	if c.Backend != nil && c.Backend.Type != "" {
-		summary = appendDot(summary, muted("backend "+c.Backend.Type))
+		backend := "backend " + c.Backend.Type
+		if c.Backend.Defaulted {
+			backend += " (default)"
+		}
+		summary = appendDot(summary, muted(backend))
 	}
 	if parts := initCountParts(len(c.RequiredProviders), len(c.Variables), len(c.Outputs)); parts != "" {
 		summary = appendDot(summary, muted(parts))
 	}
+	// Drift is what the NEXT plan will do about this directory, so it earns a
+	// segment of its own rather than sitting only in the expansion.
+	if orphans, pending := driftCounts(c.Drift); orphans > 0 || pending > 0 {
+		var parts []string
+		if pending > 0 {
+			parts = append(parts, bold(fmt.Sprintf("+%d", pending), styles.Success))
+		}
+		if orphans > 0 {
+			parts = append(parts, bold(fmt.Sprintf("-%d", orphans), styles.Error))
+		}
+		summary = appendDot(summary, strings.Join(parts, " ")+muted(" drift"))
+	}
 	detail := initDetail(c.RequiredProviders, c.Variables, c.Outputs)
+	if lines := driftLines(c.Drift, "  "); len(lines) > 0 {
+		detail = append(detail, section("drift"))
+		detail = append(detail, lines...)
+	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
@@ -2171,11 +2476,15 @@ func initDetail(providers map[string]initProviderView, vars []initVariableView, 
 		sort.Strings(names)
 		for _, n := range names {
 			row := "  " + addr(n)
-			if p := providers[n]; p.Source != "" {
+			p := providers[n]
+			if p.Source != "" {
 				row += muted("  " + p.Source)
 				if p.Version != "" {
 					row += muted("  " + p.Version)
 				}
+			}
+			if p.Inferred {
+				row += " " + muted("inferred")
 			}
 			detail = append(detail, row)
 		}
@@ -2192,6 +2501,9 @@ func initDetail(providers map[string]initProviderView, vars []initVariableView, 
 			}
 			if v.Sensitive {
 				row += " " + styles.WarningStyle.Render("sensitive")
+			}
+			if v.Ephemeral {
+				row += " " + styles.WarningStyle.Render("ephemeral")
 			}
 			detail = append(detail, row)
 		}
@@ -2245,6 +2557,68 @@ func renderDeclareAction(msg *types.Message, s spinner.Spinner, ss service.Sessi
 	return line(msg, s, summary, width)
 }
 
+// --- turf_declare_ephemeral ---------------------------------------------------
+//
+// An ephemeral resource is a value a provider produces for the duration of one
+// operation and that is NEVER written to state, a plan, or the configuration — a
+// Vault lease, a decrypted file, a short-lived token — routed into a write-only
+// attribute or a provider block. The result reports the open's CLASSIFICATION and
+// nothing else: there is no imperative read counterpart, and the value never
+// reaches this renderer, so there is nothing here to mask.
+
+type declareEphemeralView struct {
+	ResourceAddr string               `json:"resource_addr"`
+	ResourceType string               `json:"resource_type"`
+	Declared     bool                 `json:"declared"`
+	Removed      bool                 `json:"removed"`
+	Replan       []string             `json:"replan,omitempty"`
+	Opens        []ephemeralOpenEntry `json:"ephemeral_opens,omitempty"`
+	// Warnings are close-time diagnostics — the walk opened the object, evaluated
+	// against it, and closed it again, and a failed close means something is still
+	// held at the provider (a lease not released, a token still valid). Never
+	// fatal, and never a reason to read the declaration as not having taken.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+func renderDeclareEphemeral(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, addr(argString(msg, "resource_addr")), width)
+	}
+	var e declareEphemeralView
+	if !parseContent(msg, &e) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	target := e.ResourceAddr
+	if target == "" {
+		target = argString(msg, "resource_addr")
+	}
+	summary := addr(target)
+	switch {
+	case e.Removed:
+		summary += dot() + bold("removed", styles.Success)
+	case e.Declared:
+		summary += dot() + bold("declared", styles.Success)
+	}
+	if tally := ephemeralOpenTally(e.Opens); tally != "" {
+		summary += dot() + tally
+	}
+	if n := len(e.Replan); n > 0 {
+		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
+	}
+
+	var detail []string
+	if len(e.Opens) > 0 {
+		detail = append(detail, section("opens"))
+		detail = append(detail, dataReadLines(e.Opens, "  ", 20)...)
+	}
+	if len(e.Replan) > 0 {
+		detail = append(detail, section("replan"))
+		detail = append(detail, listLines(e.Replan, "  ", 20)...)
+	}
+	detail = append(detail, warningLines(e.Warnings)...)
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
 // --- turf_declare_var ---------------------------------------------------------
 
 type declareVarView struct {
@@ -2273,6 +2647,11 @@ func renderDeclareVar(msg *types.Message, s spinner.Spinner, ss service.SessionS
 		summary += dot() + bold("removed", styles.Success)
 	case v.Declared:
 		summary += dot() + bold("declared", styles.Success)
+	}
+	// The result echoes no declaration detail, so the one fact worth carrying —
+	// that this variable may never be written down — comes from the request.
+	if argBool(msg, "ephemeral") {
+		summary += dot() + styles.WarningStyle.Render("ephemeral")
 	}
 	var detail []string
 	if v.Message != "" {
@@ -2689,6 +3068,8 @@ func planAction(action string, deferred bool, cbd bool) (label string, c color.C
 		return "forget", styles.Highlight, "."
 	case "read", "←":
 		return "read", styles.Accent, "←"
+	case "opened", "○":
+		return "opened", styles.Success, "○"
 	case "move", "→":
 		return "move", styles.Accent, "→"
 	case "noop", "no-op", "=":
@@ -2797,6 +3178,17 @@ func formatEffectID(id string) string {
 }
 
 // listLines renders string slice elements as indented detail lines, capped.
+// warningLines renders a result's non-fatal diagnostics as ⚠-prefixed detail rows.
+// Every turf tool that reports warnings reports them the same way, so the shape is
+// shared rather than repeated per renderer.
+func warningLines(warnings []string) []string {
+	lines := make([]string, 0, len(warnings))
+	for _, w := range warnings {
+		lines = append(lines, styles.WarningStyle.Render("⚠ "+w))
+	}
+	return lines
+}
+
 func listLines(items []string, indent string, max int) []string {
 	var out []string
 	for i, it := range items {
@@ -2807,29 +3199,6 @@ func listLines(items []string, indent string, max int) []string {
 		out = append(out, indent+muted(it))
 	}
 	return out
-}
-
-func providerNames(m map[string]json.RawMessage) string {
-	if len(m) == 0 {
-		return ""
-	}
-	names := make([]string, 0, len(m))
-	for k := range m {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
-func providerSourceVersion(raw json.RawMessage) (source, version string) {
-	var v struct {
-		Source  string `json:"source"`
-		Version string `json:"version"`
-	}
-	if json.Unmarshal(raw, &v) == nil {
-		return v.Source, v.Version
-	}
-	return "", ""
 }
 
 // outputsCount counts top-level keys for an object, or elements for an array.

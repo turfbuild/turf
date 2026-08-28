@@ -109,6 +109,11 @@ var turfToolInfo = map[string]struct {
 	// declare_datasource groups with the declare family rather than with
 	// datasource_read below: it requires an open Draft and writes configuration.
 	"declare_datasource": {"plan", "Declare Data Source"},
+	// declare_ephemeral likewise: it authors an `ephemeral` block and opens it in
+	// the same call. No imperative counterpart exists — an imperative read would
+	// have to return the value, which is the one thing an ephemeral resource is for
+	// never doing.
+	"declare_ephemeral": {"plan", "Declare Ephemeral"},
 	// apply — executing approved effects & imperative actions
 	"effect_apply":  {"apply", "Apply Effect"},
 	"effect_cancel": {"apply", "Cancel Effect"},

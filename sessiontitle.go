@@ -20,7 +20,7 @@ import (
 // model and, worse, invents resource counts), so this is the only titling path.
 //
 // Titles are composed deterministically in the `terraform plan` idiom from what
-// turf actually did: the config alias, then the most recent plan/apply/destroy
+// turf actually did: the session label, then the most recent plan/apply/destroy
 // outcome with accurate `+A ~C -D` counts — e.g. "actions · plan +2 ~0 -2",
 // "actions · applied +2 ~0 -2", "actions · destroyed -4". The counts come from
 // the same renderer view structs the TUI plan view parses, so they always match
@@ -146,11 +146,11 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 }
 
 // autoTitleRe matches the shapes titleDigest.title() produces beyond the bare
-// alias. TestAutoTitlePattern locks it to the format so the two can't drift.
+// label. TestAutoTitlePattern locks it to the format so the two can't drift.
 var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes)|destroyed -\d+|promoted)$`)
 
 // isAutoTitle reports whether s looks like a curator-generated milestone title
-// (so the curator may replace it). The bare-alias case is handled separately.
+// (so the curator may replace it). The bare-label case is handled separately.
 func isAutoTitle(s string) bool {
 	return autoTitleRe.MatchString(s)
 }
@@ -163,18 +163,20 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 	case "turf_config_init":
 		var v configInitView
 		if json.Unmarshal([]byte(output), &v) == nil {
-			c.digest.alias = configAlias(v.Workspace.Name, v.Path)
+			// No workspace is open yet, so there is no alias to prefer.
+			c.digest.label = sessionLabel("", v.ConfigAlias, v.Workspace.Name, v.Path)
 		}
 		return true
 
 	case "turf_workspace_open":
 		var v workspaceOpenView
-		if json.Unmarshal([]byte(output), &v) == nil && c.digest.alias == "" {
-			if v.Name != "" {
-				c.digest.alias = v.Name
-			} else if v.WorkspaceAlias != "" {
-				c.digest.alias = v.WorkspaceAlias
-			}
+		// Only fills a hole: config_init runs first in every canonical workflow and
+		// labels the session there. This fires on the reopen/resume path — where the
+		// workspace alias, the handle the user is actually working with, is the most
+		// specific thing available. The result carries the configuration binding too,
+		// so every rung of the ladder is reachable here.
+		if json.Unmarshal([]byte(output), &v) == nil && c.digest.label == "" {
+			c.digest.label = sessionLabel(v.WorkspaceAlias, v.ConfigAlias, v.WorkspaceName, v.ConfigPath)
 		}
 		return true
 
@@ -232,7 +234,10 @@ func (c *sessionTitleCurator) setTitle(ctx context.Context, sess *session.Sessio
 // titleDigest accumulates the salient facts of a session's infra work. Its zero
 // value is a fresh session with no activity.
 type titleDigest struct {
-	alias                     string
+	// label names what this session is about — see sessionLabel for which of the
+	// four candidate names wins. Not called "alias": two of those candidates are
+	// literally named alias on the wire, and they are not the same thing.
+	label                     string
 	stage                     titleStage
 	added, changed, destroyed int
 	effectCount               int
@@ -248,12 +253,41 @@ const (
 	stagePromoted
 )
 
-// configAlias derives a short, human label for the configuration. It prefers the
-// workspace name, else the base of the config path — falling back to the base of
-// the cwd when the path is uninformative (".", "", "/"), since the /up prompt may
-// pass a relative path.
-func configAlias(workspaceName, path string) string {
-	if workspaceName != "" {
+// defaultWorkspaceName is the OpenTofu workspace every configuration has when
+// nobody selected another one. The server always sends it (workspace.name has no
+// omitempty and falls back to this when .terraform/environment is absent), so it
+// is a sentinel rather than a label — see sessionLabel.
+const defaultWorkspaceName = "default"
+
+// sessionLabel derives the short, human label that leads every auto-title. It is
+// the answer to "which piece of infrastructure is this session about?", and the
+// rungs are ordered by how specifically each names that:
+//
+//  1. The WORKSPACE ALIAS — this session's own handle for the workspace, and the
+//     name the user types in every later tool call. It is set exactly when more
+//     than one workspace is open, which is exactly when a session most needs
+//     telling apart. It is also the safest token to interpolate: the server
+//     constrains it to ^[a-zA-Z0-9][a-zA-Z0-9_-]*$.
+//  2. The CONFIG ALIAS — the configuration's own handle, minted by config_init.
+//     Empty for the unnamed default configuration.
+//  3. The WORKSPACE NAME, but only when it is not "default". A real state slot a
+//     `tofu workspace select` user created ("production") names something; the
+//     default sentinel names every configuration ever written, so it would label
+//     every session identically and is skipped.
+//  4. The base of the config path, else of the cwd — because the /up prompt may
+//     pass "." and a relative path.
+//
+// Rung 3's exclusion is deliberately confined to the title. The timeline is a
+// different surface: a workspace_open line reports one specific call, so it should
+// say "default" when that is the workspace it opened (see workspaceName).
+func sessionLabel(workspaceAlias, configAlias, workspaceName, path string) string {
+	if workspaceAlias != "" {
+		return workspaceAlias
+	}
+	if configAlias != "" {
+		return configAlias
+	}
+	if workspaceName != "" && workspaceName != defaultWorkspaceName {
 		return workspaceName
 	}
 	if base := cleanBase(path); base != "" {
@@ -302,29 +336,29 @@ func (d *titleDigest) isDestroy() bool {
 
 // title renders the finished session title in the terraform-plan glyph idiom,
 // e.g. "actions", "actions · plan +2 ~0 -2", "actions · applied +2 ~0 -2",
-// "actions · destroyed -4". Returns "" before the config alias is known.
+// "actions · destroyed -4". Returns "" before the session label is known.
 func (d *titleDigest) title() string {
-	if d.alias == "" {
+	if d.label == "" {
 		return ""
 	}
 	switch d.stage {
 	case stagePlan:
 		if d.isDestroy() {
-			return d.alias + " · planned teardown " + destroyCount(d.destroyed)
+			return d.label + " · planned teardown " + destroyCount(d.destroyed)
 		}
-		return d.alias + " · plan " + d.counts()
+		return d.label + " · plan " + d.counts()
 	case stageApplied:
 		if d.isDestroy() {
-			return d.alias + " · destroyed " + destroyCount(d.destroyed)
+			return d.label + " · destroyed " + destroyCount(d.destroyed)
 		}
-		return d.alias + " · applied " + d.counts()
+		return d.label + " · applied " + d.counts()
 	case stagePromoted:
-		return d.alias + " · promoted"
+		return d.label + " · promoted"
 	default:
 		// Pre-plan: config known, nothing done yet. The " · init" suffix makes it
 		// a regular auto-title shape (matched by isAutoTitle) rather than a bare
 		// word needing a special case.
-		return d.alias + " · init"
+		return d.label + " · init"
 	}
 }
 
