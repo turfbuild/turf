@@ -2733,20 +2733,37 @@ func renderDeclareProvider(msg *types.Message, s spinner.Spinner, ss service.Ses
 
 // --- turf_config_show ------------------------------------------------------------
 
+type configShowEntryView struct {
+	Address string `json:"address"`
+	// Kind is the entry's block type (resource/data/module/variable/output/
+	// provider/backend/action).
+	Kind string `json:"kind"`
+	// Type is carried only by a backend entry, whose address is the bare word
+	// "backend" — the one entry whose block type is not in its address. Every
+	// other kind spells its type out there (random_pet.x), so the field is empty.
+	Type   string `json:"type,omitempty"`
+	File   string `json:"file"`
+	Intent string `json:"intent,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+// label names the entry's block type, plus the backend type when there is one:
+// "backend" on its own repeats the address and says nothing, where "backend
+// local" is the fact that entry exists to report. Same shape config_init's
+// summary uses for the same pair.
+func (e configShowEntryView) label() string {
+	if e.Type == "" {
+		return e.Kind
+	}
+	return e.Kind + " " + e.Type
+}
+
 type configShowView struct {
 	// Dialect is the configuration directory's dialect: "plot" (turf-authored)
 	// or "tofu" (a plain root module).
-	Dialect string `json:"dialect"`
-	Path    string `json:"path"`
-	Entries []struct {
-		Address string `json:"address"`
-		// Kind is the entry's block type (resource/data/module/variable/output/
-		// provider/backend/action).
-		Kind   string `json:"kind"`
-		File   string `json:"file"`
-		Intent string `json:"intent,omitempty"`
-		Note   string `json:"note,omitempty"`
-	} `json:"entries"`
+	Dialect string                `json:"dialect"`
+	Path    string                `json:"path"`
+	Entries []configShowEntryView `json:"entries"`
 }
 
 func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
@@ -2759,7 +2776,7 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	}
 	summary := muted(fmt.Sprintf("%s · %d declared address(es)", c.Dialect, len(c.Entries)))
 	if len(c.Entries) == 1 {
-		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].Kind)
+		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].label())
 	}
 	var detail []string
 	const maxRows = 30
@@ -2768,7 +2785,7 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 			detail = append(detail, muted(fmt.Sprintf("…(+%d more)", len(c.Entries)-maxRows)))
 			break
 		}
-		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.Kind))
+		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.label()))
 		if e.Intent != "" {
 			detail = append(detail, muted("  "+e.Intent))
 		}
