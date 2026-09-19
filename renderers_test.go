@@ -1598,6 +1598,41 @@ func TestConfigInit_InferredAndEphemeralBadges(t *testing.T) {
 	}
 }
 
+// --- config_show index --------------------------------------------------------
+
+// Every entry's address spells out its type — random_pet.this, module.vpc — but
+// the backend's address is the bare word "backend", so the type it declares
+// rides on the entry instead. Dropping it leaves the one entry whose identity
+// the address cannot carry saying nothing at all.
+func TestConfigShow_BackendCarriesItsType(t *testing.T) {
+	const content = `{"dialect":"plot","path":"infra","entries":[
+		{"address":"backend","kind":"backend","type":"s3","file":"backend.tfplot.hcl"},
+		{"address":"random_pet.this","kind":"resource","file":"random_pet.this.tfplot.hcl"}]}`
+
+	out := plainNorm(renderFor("turf_config_show", content, service.StaticSessionState{}))
+	if !strings.Contains(out, "backend s3") {
+		t.Fatalf("backend entry must name its type: %q", out)
+	}
+	// An ordinary entry has no type field and must not grow a trailing space
+	// where one would go.
+	if !strings.Contains(out, "random_pet.this.tfplot.hcl · resource") {
+		t.Fatalf("non-backend entry should read unchanged: %q", out)
+	}
+}
+
+// A single-entry query is summarized on the compact line, which is the whole
+// answer when results are hidden — so the type has to reach that line too.
+func TestConfigShow_SingleBackendSummary(t *testing.T) {
+	const content = `{"dialect":"plot","path":"infra","entries":[
+		{"address":"backend","kind":"backend","type":"local","file":"backend.tfplot.hcl",
+		 "note":"turf-authored unit in backend.tfplot.hcl"}]}`
+
+	compact := plainNorm(renderFor("turf_config_show", content, hiddenState{}))
+	if !strings.Contains(compact, "backend · backend local") {
+		t.Fatalf("compact single-entry summary must carry the type: %q", compact)
+	}
+}
+
 // --- remaining field signal ---------------------------------------------------
 
 func TestDeclareResource_ReplanAndDemotedDeferral(t *testing.T) {
