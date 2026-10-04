@@ -109,8 +109,6 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_config_init":       builder(renderConfigInit),
 		"turf_config_show":       builder(renderConfigShow),
 		"turf_replan":            builder(renderReplan),
-		"turf_module_init":       builder(renderModuleInit),
-		"turf_module_outputs":    builder(renderModuleOutputs),
 		"turf_resource_import":   builder(renderResourceImport),
 		"turf_resource_refresh":  builder(renderResourceRefresh),
 		"turf_action_invoke":     builder(renderActionInvoke),
@@ -122,7 +120,6 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_state_list":        builder(renderStateList),
 		"turf_datasource_read":   builder(renderDatasourceRead),
 		"turf_provider_search":   builder(renderProviderSearch),
-		"turf_provider_load":     builder(renderProviderLoad),
 		"turf_provider_describe": builder(renderProviderDescribe),
 		"turf_skill_core":        builder(renderSkill),
 		"turf_skill_authoring":   builder(renderSkill),
@@ -292,10 +289,7 @@ var turfToolTargetArgs = map[string][]string{
 	"datasource_read":   {"resource_addr"},
 	"config_init":       {"path"},
 	"config_show":       {"address"},
-	"module_init":       {"source"},
-	"module_outputs":    {"address"},
 	"provider_search":   {"query"},
-	"provider_load":     {"source", "name"},
 	"provider_describe": {"resource_type", "datasource_type", "action_type"},
 	"action_invoke":     {"action_type"},
 	"action_trigger":    {"name"},
@@ -1047,47 +1041,6 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_module_outputs ----------------------------------------------------
-//
-// module_outputs reads a module call's evaluated outputs from the open phase.
-// outputs is polymorphic (object, for_each-keyed object, or count array), so we
-// keep it raw and count/enumerate via the shared outputs helpers. missing_resources
-// flags outputs left "__cty_unknown__" because a dependency isn't applied yet.
-
-type moduleOutputsView struct {
-	Address          string          `json:"address"`
-	Outputs          json.RawMessage `json:"outputs"`
-	MissingResources []string        `json:"missing_resources"`
-}
-
-func renderModuleOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "address")), width)
-	}
-	var r moduleOutputsView
-	if !parseContent(msg, &r) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := r.Address
-	if target == "" {
-		target = argString(msg, "address")
-	}
-	summary := addr(target)
-	if n := outputsCount(r.Outputs); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
-	}
-	if n := len(r.MissingResources); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d not yet applied", n))
-	}
-
-	detail := outputsLines(r.Outputs)
-	if len(r.MissingResources) > 0 {
-		detail = append(detail, section("missing resources"))
-		detail = append(detail, listLines(r.MissingResources, "  ", 20)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // --- turf_outputs -----------------------------------------------------------
 //
 // outputs reads a workspace's root outputs (name → {value, sensitive}). The server
@@ -1736,53 +1689,6 @@ func attrSchemaLine(name string, prop any, required bool) string {
 	return out
 }
 
-// --- turf_provider_load -----------------------------------------------------
-//
-// provider_load downloads a provider plugin and resolves its version constraint,
-// returning {name, source, resolved_version}. The default renderer dumps that
-// JSON; we collapse it to a one-liner (name · version · source) and, on expand,
-// surface the requested version constraint (an arg, not in the result) when it
-// differs from what resolved.
-
-type providerLoadView struct {
-	Name            string   `json:"name"`
-	Source          string   `json:"source"`
-	ResolvedVersion string   `json:"resolved_version"`
-	Warnings        []string `json:"warnings,omitempty"`
-}
-
-func renderProviderLoad(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		target := argString(msg, "source")
-		if target == "" {
-			target = argString(msg, "name")
-		}
-		return line(msg, s, targetBody(target), width)
-	}
-	var p providerLoadView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-
-	summary := addr(p.Name)
-	if p.ResolvedVersion != "" {
-		summary += dot() + muted("v"+p.ResolvedVersion)
-	}
-	if p.Source != "" {
-		summary += dot() + muted(p.Source)
-	}
-
-	// Detail's only value-add over the summary is the requested constraint, which
-	// isn't in the result. When absent (or equal), detail is empty and
-	// lineWithDetail degrades to the pure one-liner.
-	var detail []string
-	if c := argString(msg, "version"); c != "" && c != p.ResolvedVersion {
-		detail = append(detail, muted("requested  ")+c)
-	}
-	detail = append(detail, warningLines(p.Warnings)...)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // --- turf_provider_search ---------------------------------------------------
 //
 // provider_search queries the registry; the default renderer dumps the whole
@@ -1955,11 +1861,11 @@ func renderPlanExport(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	return lineWithDetail(msg, s, ss, summary, nil, width)
 }
 
-// --- turf_config_init / turf_module_init ------------------------------------
+// --- turf_config_init ---------------------------------------------------------
 //
-// Both introspect a config directory / module source: they resolve required
-// providers, variables, and outputs (config_init also reports the backend; the
-// server's full result carries a README we don't surface). We show the target +
+// config_init introspects a config directory: required providers, variables,
+// outputs and the backend (the server's full result carries a README we don't
+// surface). We show the target +
 // a "N providers · N variables · N outputs" tally, and on expand list each.
 
 type initProviderView struct {
@@ -2108,37 +2014,6 @@ func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-type moduleInitView struct {
-	Source            string                      `json:"source"`
-	Version           string                      `json:"version,omitempty"`
-	RequiredProviders map[string]initProviderView `json:"required_providers"`
-	Variables         []initVariableView          `json:"variables"`
-	Outputs           []initOutputView            `json:"outputs"`
-}
-
-func renderModuleInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "source")), width)
-	}
-	var m moduleInitView
-	if !parseContent(msg, &m) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := m.Source
-	if target == "" {
-		target = argString(msg, "source")
-	}
-	summary := targetBody(target)
-	if m.Version != "" {
-		summary = appendDot(summary, muted("v"+m.Version))
-	}
-	if parts := initCountParts(len(m.RequiredProviders), len(m.Variables), len(m.Outputs)); parts != "" {
-		summary = appendDot(summary, muted(parts))
-	}
-	detail := initDetail(m.RequiredProviders, m.Variables, m.Outputs)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // initCountParts renders the "N provider(s) · N variable(s) · N output(s)" tally,
 // omitting empty buckets; returns "" when everything is zero.
 func initCountParts(nProviders, nVars, nOutputs int) string {
@@ -2155,8 +2030,7 @@ func initCountParts(nProviders, nVars, nOutputs int) string {
 	return strings.Join(parts, " · ")
 }
 
-// initDetail renders the expanded provider/variable/output sections shared by
-// config_init and module_init.
+// initDetail renders config_init's expanded provider/variable/output sections.
 func initDetail(providers map[string]initProviderView, vars []initVariableView, outs []initOutputView) []string {
 	var detail []string
 	if len(providers) > 0 {

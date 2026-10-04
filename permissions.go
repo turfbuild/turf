@@ -52,10 +52,10 @@ package main
 // via user_prompt (see agentConfirmTurfTools and the persona in agent.go), not the
 // permission layer's.
 var preApprovedTurfTools = []string{
-	// Providers: discovery + (in-memory) configuration.
+	// Providers: discovery. The configuration's required providers are loaded at
+	// workspace_open; a provider added later is loaded by reopening.
 	"turf_provider_search",
 	"turf_provider_describe",
-	"turf_provider_load",
 	// Workspace lifecycle. workspace_delete is server-annotated destructive and
 	// irreversible; it is pre-approved like the rest but the persona must obtain an
 	// explicit, irreversibility-warning user_prompt before calling it (see
@@ -67,13 +67,12 @@ var preApprovedTurfTools = []string{
 	"turf_workspace_show",
 	"turf_workspace_close",
 	"turf_workspace_delete",
-	// State / outputs. state_list, outputs, and module_outputs are read-only;
+	// State / outputs. state_list and outputs are read-only;
 	// resource_refresh only reconciles state to live reality (like `tofu refresh`)
 	// so it is benign and runs silently; resource_import adopts existing infra into
 	// state and the persona confirms it (see agentConfirmTurfTools).
 	"turf_state_list",
 	"turf_outputs",
-	"turf_module_outputs",
 	"turf_resource_import",
 	"turf_resource_refresh",
 	// Data sources. datasource_read is a read-only lookup that writes nothing.
@@ -95,7 +94,6 @@ var preApprovedTurfTools = []string{
 	// .tf/.tfvars files) lives there, not on these read/discovery tools.
 	"turf_config_init",
 	"turf_config_show",
-	"turf_module_init",
 	// Actions. action_invoke fires an imperative side effect; the persona confirms
 	// a directly-invoked one. action_trigger/action_untrigger attach/detach a
 	// phase-scoped trigger on the open Draft — in memory only, never written to the

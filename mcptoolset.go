@@ -78,9 +78,8 @@ var turfToolInfo = map[string]struct {
 	group string
 	title string
 }{
-	// provider — discovery + configuration
+	// provider — discovery
 	"provider_search":   {"provider", "Search Providers"},
-	"provider_load":     {"provider", "Load Provider"},
 	"provider_describe": {"provider", "Describe Provider"},
 	// workspace — lifecycle
 	"workspace_open":   {"workspace", "Open Workspace"},
@@ -98,7 +97,6 @@ var turfToolInfo = map[string]struct {
 	"plan_approve": {"plan", "Approve Plan"},
 	"plan_export":  {"plan", "Export Plan JSON"},
 	"replan":       {"plan", "Replan Config"},
-	"module_init":  {"plan", "Init Module"},
 	// action_trigger / action_untrigger attach and detach a phase-scoped trigger
 	// on the open Draft (in memory only), so they group with the Draft's planning
 	// verbs rather than with action_invoke's immediate execution below.
@@ -111,7 +109,6 @@ var turfToolInfo = map[string]struct {
 	// state — reads + reconciliation
 	"state_list":       {"state", "List State"},
 	"outputs":          {"state", "Read Outputs"},
-	"module_outputs":   {"state", "Read Module Outputs"},
 	"datasource_read":  {"state", "Read Data Source"},
 	"resource_import":  {"state", "Import Resource"},
 	"resource_refresh": {"state", "Refresh Resource"},

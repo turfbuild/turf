@@ -148,44 +148,6 @@ func TestProviderDescribe_Summary(t *testing.T) {
 	}
 }
 
-func TestProviderLoad_Summary(t *testing.T) {
-	const content = `{"name": "random", "source": "hashicorp/random", "resolved_version": "3.9.0"}`
-	out := renderFor("turf_provider_load", content, service.StaticSessionState{})
-	for _, want := range []string{"Load Provider", "random", "3.9.0", "hashicorp/random"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("provider_load missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestProviderLoad_RequestedConstraintDetail(t *testing.T) {
-	// The requested version constraint is an arg (not in the result); it surfaces
-	// in the expanded view only when it differs from what actually resolved.
-	msg := &types.Message{
-		Content:    `{"name": "random", "source": "hashicorp/random", "resolved_version": "3.9.0"}`,
-		ToolStatus: types.ToolStatusCompleted,
-		ToolCall: tools.ToolCall{Function: tools.FunctionCall{
-			Name:      "turf_provider_load",
-			Arguments: `{"name": "random", "source": "hashicorp/random", "version": ">= 3.0"}`,
-		}},
-		ToolDefinition: tools.Tool{Name: "turf_provider_load"},
-	}
-
-	b := turfToolRenderers()["turf_provider_load"](animation.NewRuntime(), msg, service.StaticSessionState{})
-	b.SetSize(120, 1)
-	detailed := b.View()
-	if !strings.Contains(detailed, "requested") || !strings.Contains(detailed, ">= 3.0") {
-		t.Fatalf("expanded provider_load should show requested constraint: %q", detailed)
-	}
-
-	// Compact view (results hidden) must not carry the detail.
-	b = turfToolRenderers()["turf_provider_load"](animation.NewRuntime(), msg, hiddenState{})
-	b.SetSize(120, 1)
-	if compact := b.View(); strings.Contains(compact, "requested") {
-		t.Fatalf("compact provider_load should omit requested constraint: %q", compact)
-	}
-}
-
 func TestProviderSearch_Summary(t *testing.T) {
 	const content = `{"providers": [
 		{"name": "aws", "version": "5.1.0", "description": "Amazon Web Services"},
@@ -236,17 +198,6 @@ func TestOutputs_SensitiveMasked(t *testing.T) {
 	}
 	if strings.Contains(out, "__cty_sensitive__") {
 		t.Fatalf("sensitive sentinel leaked: %q", out)
-	}
-}
-
-func TestModuleOutputs_Summary(t *testing.T) {
-	const content = `{"address": "module.rg", "outputs": {"id": "rg-1", "location": "eastus"},
-		"missing_resources": ["azurerm_resource_group.this"]}`
-	out := renderFor("turf_module_outputs", content, service.StaticSessionState{})
-	for _, want := range []string{"Read Module Outputs", "module.rg", "2 output(s)", "not yet applied", "azurerm_resource_group.this"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("module_outputs missing %q: %q", want, out)
-		}
 	}
 }
 
@@ -845,9 +796,6 @@ func TestNewRenderers_Smoke(t *testing.T) {
 			[]string{"Init Config", "main", "infra/prod", "1 provider(s)", "1 variable(s)", "1 output(s)", "region", "url"}},
 		{"turf_plan_new", `{"phase_id":"ph_001","config_dir":"infra/prod","path":"infra/prod","resources":[]}`,
 			[]string{"ph_001", "opened", "infra/prod"}},
-		{"turf_module_init", `{"source":"Azure/x/azurerm","version":"0.4.0",
-			"required_providers":{"azurerm":{"source":"hashicorp/azurerm"}}}`,
-			[]string{"Init Module", "Azure/x/azurerm", "v0.4.0", "1 provider(s)"}},
 		{"turf_action_trigger", `{"name":"reboot_first","target":"aws_instance.web",
 			"events":["before_update"],"actions":["action.aws_ec2_reboot.web"],"on_failure":"halt",
 			"hcl":"action_trigger \"reboot_first\" {\n  target = aws_instance.web\n}"}`,
