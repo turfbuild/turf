@@ -97,46 +97,35 @@ func builtinToolRenderers() map[string]tool.Builder {
 // registerTurfToolRenderers.
 func turfToolRenderers() map[string]tool.Builder {
 	return map[string]tool.Builder{
-		"turf_workspace_open":     builder(renderWorkspaceOpen),
-		"turf_workspace_close":    builder(renderWorkspaceClose),
-		"turf_workspace_list":     builder(renderWorkspaceList),
-		"turf_workspace_show":     builder(renderWorkspaceShow),
-		"turf_workspace_delete":   builder(renderWorkspaceDelete),
-		"turf_plan_new":           builder(renderPlanNew),
-		"turf_plan_cancel":        builder(renderPlanCancel),
-		"turf_plan_export":        builder(renderPlanExport),
-		"turf_plan_approve":       builder(renderPlanApprove),
-		"turf_config_init":        builder(renderConfigInit),
-		"turf_config_show":        builder(renderConfigShow),
-		"turf_config_promote":     builder(renderConfigPromote),
-		"turf_declare_backend":    builder(renderDeclareBackend),
-		"turf_declare_provider":   builder(renderDeclareProvider),
-		"turf_declare_var":        builder(renderDeclareVar),
-		"turf_replan":             builder(renderReplan),
-		"turf_module_init":        builder(renderModuleInit),
-		"turf_declare_module":     builder(renderDeclareModule),
-		"turf_module_outputs":     builder(renderModuleOutputs),
-		"turf_declare_resource":   builder(renderDeclareResource),
-		"turf_resource_import":    builder(renderResourceImport),
-		"turf_resource_refresh":   builder(renderResourceRefresh),
-		"turf_declare_action":     builder(renderDeclareAction),
-		"turf_action_invoke":      builder(renderActionInvoke),
-		"turf_declare_outputs":    builder(renderDeclareOutputs),
-		"turf_outputs":            builder(renderOutputs),
-		"turf_effect_apply":       builder(renderEffectApply),
-		"turf_effect_cancel":      builder(renderEffectCancel),
-		"turf_state_list":         builder(renderStateList),
-		"turf_datasource_read":    builder(renderDatasourceRead),
-		"turf_declare_datasource": builder(renderDeclareDatasource),
-		"turf_declare_ephemeral":  builder(renderDeclareEphemeral),
-		"turf_provider_search":    builder(renderProviderSearch),
-		"turf_provider_load":      builder(renderProviderLoad),
-		"turf_provider_describe":  builder(renderProviderDescribe),
-		"turf_skill_core":         builder(renderSkill),
-		"turf_skill_adhoc":        builder(renderSkill),
-		"turf_skill_codified":     builder(renderSkill),
-		"turf_skill_demo":         builder(renderSkill),
-		"turf_read_skill_file":    builder(renderReadSkillFile),
+		"turf_workspace_open":    builder(renderWorkspaceOpen),
+		"turf_workspace_close":   builder(renderWorkspaceClose),
+		"turf_workspace_list":    builder(renderWorkspaceList),
+		"turf_workspace_show":    builder(renderWorkspaceShow),
+		"turf_workspace_delete":  builder(renderWorkspaceDelete),
+		"turf_plan_new":          builder(renderPlanNew),
+		"turf_plan_cancel":       builder(renderPlanCancel),
+		"turf_plan_export":       builder(renderPlanExport),
+		"turf_plan_approve":      builder(renderPlanApprove),
+		"turf_config_init":       builder(renderConfigInit),
+		"turf_config_show":       builder(renderConfigShow),
+		"turf_replan":            builder(renderReplan),
+		"turf_resource_import":   builder(renderResourceImport),
+		"turf_resource_refresh":  builder(renderResourceRefresh),
+		"turf_action_invoke":     builder(renderActionInvoke),
+		"turf_action_trigger":    builder(renderActionTrigger),
+		"turf_action_untrigger":  builder(renderActionUntrigger),
+		"turf_outputs":           builder(renderOutputs),
+		"turf_effect_apply":      builder(renderEffectApply),
+		"turf_effect_cancel":     builder(renderEffectCancel),
+		"turf_state_list":        builder(renderStateList),
+		"turf_datasource_read":   builder(renderDatasourceRead),
+		"turf_provider_search":   builder(renderProviderSearch),
+		"turf_provider_describe": builder(renderProviderDescribe),
+		"turf_skill_core":        builder(renderSkill),
+		"turf_skill_authoring":   builder(renderSkill),
+		"turf_skill_codified":    builder(renderSkill),
+		"turf_skill_demo":        builder(renderSkill),
+		"turf_read_skill_file":   builder(renderReadSkillFile),
 	}
 }
 
@@ -287,17 +276,6 @@ func argString(msg *types.Message, key string) string {
 	return ""
 }
 
-// argBool reads a boolean request argument. Separate from argString because the
-// wire carries a real JSON bool, which argString's string type-assertion drops.
-func argBool(msg *types.Message, key string) bool {
-	var m map[string]any
-	if json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &m) != nil {
-		return false
-	}
-	v, _ := m[key].(bool)
-	return v
-}
-
 // turfToolTargetArgs maps a bare turf tool name to its request's target argument(s), in
 // priority order — the identifier that names what the call operates on (a resource,
 // provider, module, workspace, …). It mirrors the target each renderer already picks in
@@ -306,31 +284,22 @@ func argBool(msg *types.Message, key string) bool {
 // fall back to the workspace alias (or nothing, for zero-arg skills). Arg names track the
 // server tool structs in turf-mcp-server's internal/tools package.
 var turfToolTargetArgs = map[string][]string{
-	"declare_resource":   {"resource_addr"},
-	"resource_import":    {"resource_addr"},
-	"resource_refresh":   {"resource_addr"},
-	"datasource_read":    {"resource_addr"},
-	"declare_datasource": {"resource_addr"},
-	"declare_ephemeral":  {"resource_addr"},
-	"config_init":        {"path"},
-	"config_show":        {"address"},
-	"declare_backend":    {"type"},
-	"declare_provider":   {"name"},
-	"declare_var":        {"name"},
-	"module_init":        {"source"},
-	"declare_module":     {"address"},
-	"module_outputs":     {"address"},
-	"provider_search":    {"query"},
-	"provider_load":      {"source", "name"},
-	"provider_describe":  {"resource_type", "datasource_type", "action_type"},
-	"declare_action":     {"action_type"},
-	"action_invoke":      {"action_type"},
-	"effect_apply":       {"effect_id"},
-	"effect_cancel":      {"effect_id"},
-	"workspace_open":     {"workspace_name"},
-	"workspace_close":    {"workspace_alias"},
-	"workspace_delete":   {"workspace_name"},
-	"read_skill_file":    {"path"},
+	"resource_import":   {"resource_addr"},
+	"resource_refresh":  {"resource_addr"},
+	"datasource_read":   {"resource_addr"},
+	"config_init":       {"path"},
+	"config_show":       {"address"},
+	"provider_search":   {"query"},
+	"provider_describe": {"resource_type", "datasource_type", "action_type"},
+	"action_invoke":     {"action_type"},
+	"action_trigger":    {"name"},
+	"action_untrigger":  {"name"},
+	"effect_apply":      {"effect_id"},
+	"effect_cancel":     {"effect_id"},
+	"workspace_open":    {"workspace_name"},
+	"workspace_close":   {"workspace_alias"},
+	"workspace_delete":  {"workspace_name"},
+	"read_skill_file":   {"path"},
 }
 
 // errorTarget resolves the request's primary target from the tool-call args, so a failed
@@ -368,8 +337,8 @@ func section(label string) string { return muted(label + ":") }
 // --- attribute diff ---------------------------------------------------------
 //
 // The heart of the expanded view: a colored before→after diff, mirroring how
-// `tofu plan` reads. Used by declare_resource and by each resource in a walk-summary
-// plan. before==nil (a create) renders every attr as an addition; after==nil (a
+// `tofu plan` reads. Used by each resource in a walk-summary plan (plan_new /
+// replan). before==nil (a create) renders every attr as an addition; after==nil (a
 // destroy) renders every attr as a removal.
 
 const maxDiffLines = 60
@@ -733,130 +702,6 @@ func truncateStr(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// --- turf_declare_resource ----------------------------------------------------
-
-type resourcePlanView struct {
-	ResourceAddr        string         `json:"resource_addr"`
-	ResourceType        string         `json:"resource_type"`
-	Provider            string         `json:"provider"`
-	Action              string         `json:"action"`                          // create, update, delete, replace, …
-	CreateBeforeDestroy bool           `json:"create_before_destroy,omitempty"` // for replace: ± (true) vs ∓ (absent)
-	ActionReason        string         `json:"action_reason"`
-	RequiresReplace     []string       `json:"requires_replace"`
-	Before              map[string]any `json:"before"`
-	After               map[string]any `json:"after"`
-	// Which paths of Before/After are sensitive, in OpenTofu's before_sensitive/
-	// after_sensitive shape. Reported whether or not the values arrived redacted, so a
-	// show_sensitive call keeps the classification — and the timeline keeps redacting.
-	BeforeSensitive any `json:"before_sensitive,omitempty"`
-	AfterSensitive  any `json:"after_sensitive,omitempty"`
-	// Importing is set when this change ADOPTS an existing object named by an
-	// `import {}` block, so the Before half is the real remote object rather than a
-	// null prior — which is why a "noop" action here means "already matches", not
-	// "nothing to do".
-	Importing *importingInfoView `json:"importing,omitempty"`
-	Deferred  *struct {
-		Reason string `json:"reason"`
-		// LastError is the provider's own words when this deferral was DEMOTED
-		// from a provider failure — the configure or RPC error that would have
-		// surfaced as an error had the provider's configuration been wholly
-		// known. Without it a demoted failure reads as an ordinary wait.
-		LastError string `json:"last_error,omitempty"`
-	} `json:"deferred,omitempty"`
-	// Replan names the pending changes in this Draft that referenced this address
-	// and were planned against the previous declaration — they are now stale.
-	Replan []string `json:"replan,omitempty"`
-}
-
-// importingInfoView is the server's `importing` object: the locator the import
-// block carried. Exactly one of ID / Identity is set — a provider-specific id
-// string, or a provider-declared resource identity object (Terraform 1.12+).
-type importingInfoView struct {
-	ID       string         `json:"id,omitempty"`
-	Identity map[string]any `json:"identity,omitempty"`
-}
-
-// adoptNote renders the locator as a one-line note for a plan row header. An
-// identity is a whole object, so it is named rather than spelled out.
-func (i *importingInfoView) adoptNote() string {
-	switch {
-	case i == nil:
-		return ""
-	case i.ID != "":
-		return "adopt id=" + i.ID
-	case len(i.Identity) > 0:
-		return "adopt identity"
-	default:
-		return "adopt"
-	}
-}
-
-func renderDeclareResource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, addr(argString(msg, "resource_addr")), width)
-	}
-	var p resourcePlanView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-
-	label, c, glyph := planAction(p.Action, p.Deferred != nil, p.CreateBeforeDestroy)
-	var summary string
-	switch {
-	case p.Deferred != nil:
-		summary = addr(p.ResourceAddr) + dot() + bold("deferred", c)
-	case label == "replace":
-		// Show the ± (create-before-destroy) / ∓ (destroy-before-create) symbol.
-		summary = addr(p.ResourceAddr) + dot() + bold("replace "+glyph, c)
-	default:
-		summary = addr(p.ResourceAddr) + dot() + bold(label, c)
-	}
-	// An adoption's before half is the real remote object, so a "no-op" here reads
-	// as "already matches" rather than "nothing to do" — say which it is.
-	if note := p.Importing.adoptNote(); note != "" {
-		summary += dot() + colored(note, styles.Accent)
-	}
-	if changed := changedKeys(p.Before, p.After); changed != "" {
-		summary += dot() + muted(changed)
-	}
-	if n := len(p.Replan); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
-	}
-
-	var detail []string
-	if p.Provider != "" {
-		detail = append(detail, muted("provider ")+providerName(p.Provider))
-	}
-	if p.ActionReason != "" {
-		detail = append(detail, muted("reason: ")+p.ActionReason)
-	}
-	if p.Importing != nil && len(p.Importing.Identity) > 0 {
-		detail = append(detail, section("adopt identity"))
-		detail = append(detail, kvLines(p.Importing.Identity, "  ", 10)...)
-	}
-	if len(p.RequiresReplace) > 0 {
-		detail = append(detail, styles.WarningStyle.Render("forces replacement: "+strings.Join(p.RequiresReplace, ", ")))
-	}
-	if p.Deferred != nil {
-		reason := p.Deferred.Reason
-		if reason == "" {
-			reason = "blocked on upstream changes"
-		}
-		detail = append(detail, styles.WarningStyle.Render("deferred: "+reason))
-		if p.Deferred.LastError != "" {
-			detail = append(detail, "  "+styles.ErrorStyle.Render(p.Deferred.LastError))
-		}
-	}
-	if len(p.Replan) > 0 {
-		detail = append(detail, section("replan"))
-		detail = append(detail, listLines(p.Replan, "  ", 20)...)
-	}
-	if diff := attrDiff(p.Before, p.After, p.BeforeSensitive, p.AfterSensitive, ""); len(diff) > 0 {
-		detail = append(detail, diff...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // --- turf_effect_apply ------------------------------------------------------
 
 type effectApplyView struct {
@@ -938,7 +783,7 @@ func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.Session
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_declare_module / turf_replan / turf_plan_new ------------------------
+// --- turf_replan / turf_plan_new -----------------------------------------------
 
 type resourcePlanEntry struct {
 	Address string `json:"address"`
@@ -956,8 +801,34 @@ type resourcePlanEntry struct {
 	BeforeSensitive     any            `json:"before_sensitive,omitempty"`
 	AfterSensitive      any            `json:"after_sensitive,omitempty"`
 	RequiresReplace     []string       `json:"requires_replace,omitempty"`
-	// Importing marks an adoption from an `import {}` block. See resourcePlanView.
+	// Importing is set when this change ADOPTS an existing object named by an
+	// `import {}` block, so the Before half is the real remote object rather than a
+	// null prior — which is why a "noop" action here means "already matches", not
+	// "nothing to do".
 	Importing *importingInfoView `json:"importing,omitempty"`
+}
+
+// importingInfoView is the server's `importing` object: the locator the import
+// block carried. Exactly one of ID / Identity is set — a provider-specific id
+// string, or a provider-declared resource identity object (Terraform 1.12+).
+type importingInfoView struct {
+	ID       string         `json:"id,omitempty"`
+	Identity map[string]any `json:"identity,omitempty"`
+}
+
+// adoptNote renders the locator as a one-line note for a plan row header. An
+// identity is a whole object, so it is named rather than spelled out.
+func (i *importingInfoView) adoptNote() string {
+	switch {
+	case i == nil:
+		return ""
+	case i.ID != "":
+		return "adopt id=" + i.ID
+	case len(i.Identity) > 0:
+		return "adopt identity"
+	default:
+		return "adopt"
+	}
 }
 
 // planRowAddr renders a plan row's address the way Terraform names it, so a
@@ -977,21 +848,19 @@ type movedRecordView struct {
 }
 
 type planSummaryView struct {
-	Address          string              `json:"address"` // declare_module
-	Path             string              `json:"path"`    // replan / plan_new (the bound configuration dir)
+	Path             string              `json:"path"` // the bound configuration dir
 	PhaseID          string              `json:"phase_id"`
 	Resources        []resourcePlanEntry `json:"resources"`
 	TopologicalOrder []string            `json:"topological_order"`
 	Deferred         []json.RawMessage   `json:"deferred,omitempty"`
 	Outputs          json.RawMessage     `json:"outputs,omitempty"`
-	// Reads classifies every declared data source the walk touched, the same
-	// data_source_reads[] shape declare_datasource reports for the one declaration
-	// it writes. A walk reads them all, so this is the whole configuration's worth.
+	// Reads classifies every declared data source the walk touched. A walk reads
+	// them all, so this is the whole configuration's worth.
 	Reads []dataSourceReadEntry `json:"data_source_reads,omitempty"`
 	// Moved are the state relocations this phase's `moved {}` blocks produced, as
-	// concrete from→to pairs. plan_new / replan only — declare_module never sets it.
-	// Present whenever the phase moved anything, including on a re-plan that finds
-	// nothing left to move: the relocation is still part of what applying commits.
+	// concrete from→to pairs. Present whenever the phase moved anything, including
+	// on a re-plan that finds nothing left to move: the relocation is still part of
+	// what applying commits.
 	Moved []movedRecordView `json:"moved,omitempty"`
 	// Opens classifies every declared ephemeral resource the walk opened, in the
 	// same vocabulary Reads uses. Reported per WALK, not per phase, because the
@@ -1077,34 +946,22 @@ func providerStatusLines(providers []providerStatusView, indent string, max int)
 	return out
 }
 
-func renderDeclareModule(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	return renderPlanSummary(msg, s, ss, width, argString(msg, "address"))
-}
-
 // renderReplan renders the zero-arg re-projection of the bound configuration;
 // the walk mode (destroy/refresh/vars) comes from the phase, so there is no
 // request arg to lead with — the summary itself is the story.
 func renderReplan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	return renderPlanSummary(msg, s, ss, width, "")
-}
-
-func renderPlanSummary(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, target string) string {
 	if running(msg) {
-		return line(msg, s, targetBody(target), width)
+		return line(msg, s, "", width)
 	}
 	var p planSummaryView
 	if !parseContent(msg, &p) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	head := ""
-	if target != "" {
-		head = addr(target)
-	}
-	return planSummaryLine(msg, s, ss, width, head, p)
+	return planSummaryLine(msg, s, ss, width, "", p)
 }
 
-// planSummaryLine renders a parsed walk summary (shared by declare_module,
-// replan, and plan_new): the action tally headline plus the per-resource diff
+// planSummaryLine renders a parsed walk summary (shared by replan and
+// plan_new): the action tally headline plus the per-resource diff
 // expansion, the data sources the walk read, evaluated outputs, and warnings.
 func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, head string, p planSummaryView) string {
 	summary := planTally(p.Resources)
@@ -1182,116 +1039,6 @@ func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 	}
 	detail = append(detail, warningLines(p.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_module_outputs ----------------------------------------------------
-//
-// module_outputs reads a module call's evaluated outputs from the open phase.
-// outputs is polymorphic (object, for_each-keyed object, or count array), so we
-// keep it raw and count/enumerate via the shared outputs helpers. missing_resources
-// flags outputs left "__cty_unknown__" because a dependency isn't applied yet.
-
-type moduleOutputsView struct {
-	Address          string          `json:"address"`
-	Outputs          json.RawMessage `json:"outputs"`
-	MissingResources []string        `json:"missing_resources"`
-}
-
-func renderModuleOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "address")), width)
-	}
-	var r moduleOutputsView
-	if !parseContent(msg, &r) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := r.Address
-	if target == "" {
-		target = argString(msg, "address")
-	}
-	summary := addr(target)
-	if n := outputsCount(r.Outputs); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
-	}
-	if n := len(r.MissingResources); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d not yet applied", n))
-	}
-
-	detail := outputsLines(r.Outputs)
-	if len(r.MissingResources) > 0 {
-		detail = append(detail, section("missing resources"))
-		detail = append(detail, listLines(r.MissingResources, "  ", 20)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_declare_outputs -----------------------------------------------------
-
-type outputsPlanView struct {
-	PhaseID string         `json:"phase_id"`
-	Outputs map[string]any `json:"outputs"`
-	Unknown []string       `json:"unknown"`
-	Removed []string       `json:"removed"`
-	// Errors are per-output evaluation failures, keyed by output name. An output
-	// that failed to evaluate is absent from Outputs, so without this the line
-	// would report it as simply not declared.
-	Errors map[string]string `json:"errors,omitempty"`
-}
-
-func renderDeclareOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "", width)
-	}
-	var p outputsPlanView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-
-	// Summary: N declared, plus how many resolve only after apply / are masked.
-	summary := muted(fmt.Sprintf("%d declared", len(p.Outputs)))
-	if len(p.Outputs) == 0 {
-		summary = muted("none declared")
-	}
-	if n := len(p.Removed); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d removed", n))
-	}
-	if n := len(p.Unknown); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d known after apply", n))
-	}
-	if n := sensitiveCount(p.Outputs); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d sensitive", n))
-	}
-	if n := len(p.Errors); n > 0 {
-		summary += dot() + bold(fmt.Sprintf("%d error(s)", n), styles.Error)
-	}
-
-	// Expanded: each output as name = value, with sentinels masked by fmtVal
-	// ("__cty_unknown__" → "(known after apply)", "__cty_sensitive__" → "(sensitive)").
-	detail := kvLines(p.Outputs, "  ", 30)
-	if len(p.Errors) > 0 {
-		detail = append(detail, section("errors"))
-		names := make([]string, 0, len(p.Errors))
-		for n := range p.Errors {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			detail = append(detail, "  "+addr(n)+dot()+styles.ErrorStyle.Render(p.Errors[n]))
-		}
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// sensitiveCount counts outputs whose evaluated value is the masked-sensitive
-// sentinel — the display-authoritative signal (the raw value never reaches us).
-func sensitiveCount(outputs map[string]any) int {
-	n := 0
-	for _, v := range outputs {
-		if s, ok := v.(string); ok && s == "__cty_sensitive__" {
-			n++
-		}
-	}
-	return n
 }
 
 // --- turf_outputs -----------------------------------------------------------
@@ -1694,9 +1441,9 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 // --- turf_datasource_read ---------------------------------------------------
 //
 // datasource_read is the one-off lookup: it evaluates a data source and returns its
-// read state (attrs), writing nothing to state and nothing to the configuration. It
-// carries no replan hints — those moved to declare_datasource, the verb that puts a
-// declaration in the configuration for other changes to reference.
+// read state (attrs), writing nothing to state and nothing to the configuration. A
+// data source other changes should reference belongs in the configuration instead:
+// a `data` block in a .tf file, read by the next walk (see data_source_reads[]).
 
 type datasourceReadView struct {
 	ResourceAddr string         `json:"resource_addr"`
@@ -1724,32 +1471,12 @@ func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.Sess
 	return lineWithDetail(msg, s, ss, summary, kvLinesMasked(r.State, r.SensitiveValues, "  ", 30), width)
 }
 
-// --- turf_declare_datasource --------------------------------------------------
+// --- data-source reads / ephemeral opens (walk summary) -----------------------
 //
-// declare_datasource is the declarative counterpart of datasource_read: it writes a
-// `data` block into the bound configuration *and* reads it in the same call, so
-// ${data.<type>.<name>.<attr>} resolves in the very next declare_resource with no
-// replan in between.
-//
-// The result deliberately carries no value — the read is reported as a
-// *classification* in data_source_reads[], and datasource_read is the verb that
-// hands you a value. So this renderer shows the declaration outcome (declared /
-// removed) plus the per-instance read verdict, not attributes. count/for_each expand
-// the declaration into keyed instances, one data_source_reads[] entry each.
-//
-// warning is the third arm: the declaration stands, but the configuration as a whole
-// would not walk, so nothing was read. That is not a failure — the tool succeeds —
-// which is exactly why the summary has to say "not read" rather than a bare
-// "declared" that reads as fully done.
-
-type declareDatasourceView struct {
-	ResourceAddr string                `json:"resource_addr"`
-	Declared     bool                  `json:"declared"`
-	Removed      bool                  `json:"removed"`
-	Replan       []string              `json:"replan"`
-	Reads        []dataSourceReadEntry `json:"data_source_reads,omitempty"`
-	Warning      string                `json:"warning,omitempty"`
-}
+// A walk (plan_new / replan) classifies every declared data source it read and
+// every declared ephemeral resource it opened. Neither carries a value: a read's
+// value stays server-side (datasource_read is the verb that hands one over), and
+// an ephemeral value is never on the wire at all.
 
 // dataSourceReadEntry is one expanded instance's read verdict. Action is "read",
 // "deferred" or "error"; Reason narrows a deferral ("config_unknown" — the query
@@ -1773,84 +1500,13 @@ type dataSourceReadEntry struct {
 // never written anywhere it can be read back, and the timeline is scrollback.
 type ephemeralOpenEntry = dataSourceReadEntry
 
-func renderDeclareDatasource(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, addr(argString(msg, "resource_addr")), width)
-	}
-	var d declareDatasourceView
-	if !parseContent(msg, &d) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := d.ResourceAddr
-	if target == "" {
-		target = argString(msg, "resource_addr")
-	}
-	summary := addr(target)
-	switch {
-	case d.Removed:
-		summary += dot() + bold("removed", styles.Success)
-	case d.Declared:
-		summary += dot() + bold("declared", styles.Success)
-	}
-	if d.Warning != "" {
-		summary += dot() + bold("not read", styles.Warning)
-	} else if tally := dataReadTally(d.Reads); tally != "" {
-		summary += dot() + tally
-	}
-	if n := len(d.Replan); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
-	}
-
-	var detail []string
-	if d.Warning != "" {
-		detail = append(detail, styles.WarningStyle.Render("⚠ "+d.Warning))
-	}
-	if len(d.Reads) > 0 {
-		detail = append(detail, section("reads"))
-		detail = append(detail, dataReadLines(d.Reads, "  ", 20)...)
-	}
-	if len(d.Replan) > 0 {
-		detail = append(detail, section("replan"))
-		detail = append(detail, listLines(d.Replan, "  ", 20)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// dataReadTally summarizes the read verdicts for the one-line view, and
-// ephemeralOpenTally does the same for a declaration's ephemeral opens. A single
-// instance renders as the bare colored action word ("read"/"opened", "deferred",
-// "error"); several render as per-action counts ("2 read · 1 deferred") in a fixed
-// order so the eye lands on the same bucket every time. Empty for no entries — a
-// remove, or a targeted walk that never reached the address, has nothing to report
-// and should not claim otherwise.
-func dataReadTally(reads []dataSourceReadEntry) string {
-	return outcomeTally(reads, "read")
-}
-
-func ephemeralOpenTally(opens []ephemeralOpenEntry) string {
-	return outcomeTally(opens, "opened")
-}
-
-func outcomeTally(entries []dataSourceReadEntry, success string) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	if len(entries) == 1 {
-		label, c, _ := planAction(entries[0].Action, false, false)
-		return bold(label, c)
-	}
-	return strings.Join(actionTally(actionCounts(entries, ""), []string{success, "deferred", "error"}, "%d %s"), dot())
-}
-
-// dataReadIssueTally is the plan-summary counterpart of dataReadTally, and
-// ephemeralOpenIssueTally the counterpart of ephemeralOpenTally: each counts only
-// the verdicts worth interrupting the action tally for.
+// dataReadIssueTally and ephemeralOpenIssueTally summarize a walk's reads and
+// opens for the plan-summary line: each counts only the verdicts worth
+// interrupting the action tally for.
 //
-// The difference from the full tallies is the caller's scope. declare_datasource
-// reports one declaration's instances, where "read" is the outcome being asked
-// about; a walk reads *every* declared data source, so a "read" count there would
-// almost always just say "all of them" — the signal is what did not resolve. The
-// same holds, more sharply, for ephemeral opens: every walk re-opens every declared
+// A walk reads *every* declared data source, so a "read" count would almost
+// always just say "all of them" — the signal is what did not resolve. The same
+// holds, more sharply, for ephemeral opens: every walk re-opens every declared
 // ephemeral resource, so two consecutive plans of an unchanged configuration list
 // the same addresses as "opened". That is the lifecycle, not churn, and tallying it
 // on the summary line would read as a change that did not happen.
@@ -1871,8 +1527,7 @@ func issueTally(entries []dataSourceReadEntry, success, noun string) string {
 }
 
 // actionCounts buckets entries by their planAction label, dropping the caller's
-// success label when it passes one (that is what makes an issue tally an issue
-// tally). Pass "" to count every bucket.
+// success label (that is what makes an issue tally an issue tally).
 func actionCounts(entries []dataSourceReadEntry, skip string) map[string]int {
 	counts := map[string]int{}
 	for _, e := range entries {
@@ -1900,9 +1555,9 @@ func actionTally(counts map[string]int, order []string, format string) []string 
 
 // leftoverActionTally renders the buckets a caller's fixed action order did not
 // claim, in sorted order so the line does not shuffle between renders of the same
-// result. Normally empty: the server emits only read/deferred/error, and both
-// callers enumerate those explicitly — this is what keeps a fourth action word
-// visible instead of silently absent.
+// result. Normally empty: the server emits only read/opened/deferred/error, and
+// issueTally enumerates the issue buckets explicitly — this is what keeps a fifth
+// action word visible instead of silently absent.
 func leftoverActionTally(counts map[string]int, format string) []string {
 	rest := make([]string, 0, len(counts))
 	for a := range counts {
@@ -2032,53 +1687,6 @@ func attrSchemaLine(name string, prop any, required bool) string {
 		out += " " + styles.WarningStyle.Render("deprecated")
 	}
 	return out
-}
-
-// --- turf_provider_load -----------------------------------------------------
-//
-// provider_load downloads a provider plugin and resolves its version constraint,
-// returning {name, source, resolved_version}. The default renderer dumps that
-// JSON; we collapse it to a one-liner (name · version · source) and, on expand,
-// surface the requested version constraint (an arg, not in the result) when it
-// differs from what resolved.
-
-type providerLoadView struct {
-	Name            string   `json:"name"`
-	Source          string   `json:"source"`
-	ResolvedVersion string   `json:"resolved_version"`
-	Warnings        []string `json:"warnings,omitempty"`
-}
-
-func renderProviderLoad(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		target := argString(msg, "source")
-		if target == "" {
-			target = argString(msg, "name")
-		}
-		return line(msg, s, targetBody(target), width)
-	}
-	var p providerLoadView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-
-	summary := addr(p.Name)
-	if p.ResolvedVersion != "" {
-		summary += dot() + muted("v"+p.ResolvedVersion)
-	}
-	if p.Source != "" {
-		summary += dot() + muted(p.Source)
-	}
-
-	// Detail's only value-add over the summary is the requested constraint, which
-	// isn't in the result. When absent (or equal), detail is empty and
-	// lineWithDetail degrades to the pure one-liner.
-	var detail []string
-	if c := argString(msg, "version"); c != "" && c != p.ResolvedVersion {
-		detail = append(detail, muted("requested  ")+c)
-	}
-	detail = append(detail, warningLines(p.Warnings)...)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
 // --- turf_provider_search ---------------------------------------------------
@@ -2253,11 +1861,11 @@ func renderPlanExport(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	return lineWithDetail(msg, s, ss, summary, nil, width)
 }
 
-// --- turf_config_init / turf_module_init ------------------------------------
+// --- turf_config_init ---------------------------------------------------------
 //
-// Both introspect a config directory / module source: they resolve required
-// providers, variables, and outputs (config_init also reports the backend; the
-// server's full result carries a README we don't surface). We show the target +
+// config_init introspects a config directory: required providers, variables,
+// outputs and the backend (the server's full result carries a README we don't
+// surface). We show the target +
 // a "N providers · N variables · N outputs" tally, and on expand list each.
 
 type initProviderView struct {
@@ -2307,10 +1915,6 @@ type configInitView struct {
 	RequiredProviders map[string]initProviderView `json:"required_providers"`
 	Variables         []initVariableView          `json:"variables"`
 	Outputs           []initOutputView            `json:"outputs"`
-	// Dialect is the directory's dialect — "plot" (turf-authored; the declare
-	// tools operate here) or "tofu" (a plain root module, read-only to declares).
-	// It decides which half of the workflow the user is in, so it leads the line.
-	Dialect string `json:"dialect"`
 	// Scratch marks a turf-allocated temporary directory (no path was given), so
 	// nothing here outlives the session.
 	Scratch bool `json:"scratch,omitempty"`
@@ -2377,12 +1981,6 @@ func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	if c.Path != "" && c.Path != target {
 		summary = appendDot(summary, muted(c.Path))
 	}
-	// The dialect frames everything after it — a plot is turf-authored and the
-	// declare tools operate on it; a tofu configuration is read-only to them — so
-	// it reads ahead of the backend rather than trailing it.
-	if c.Dialect != "" {
-		summary = appendDot(summary, keyword(c.Dialect))
-	}
 	if c.Scratch {
 		summary = appendDot(summary, muted("scratch"))
 	}
@@ -2416,37 +2014,6 @@ func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-type moduleInitView struct {
-	Source            string                      `json:"source"`
-	Version           string                      `json:"version,omitempty"`
-	RequiredProviders map[string]initProviderView `json:"required_providers"`
-	Variables         []initVariableView          `json:"variables"`
-	Outputs           []initOutputView            `json:"outputs"`
-}
-
-func renderModuleInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "source")), width)
-	}
-	var m moduleInitView
-	if !parseContent(msg, &m) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := m.Source
-	if target == "" {
-		target = argString(msg, "source")
-	}
-	summary := targetBody(target)
-	if m.Version != "" {
-		summary = appendDot(summary, muted("v"+m.Version))
-	}
-	if parts := initCountParts(len(m.RequiredProviders), len(m.Variables), len(m.Outputs)); parts != "" {
-		summary = appendDot(summary, muted(parts))
-	}
-	detail := initDetail(m.RequiredProviders, m.Variables, m.Outputs)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // initCountParts renders the "N provider(s) · N variable(s) · N output(s)" tally,
 // omitting empty buckets; returns "" when everything is zero.
 func initCountParts(nProviders, nVars, nOutputs int) string {
@@ -2463,8 +2030,7 @@ func initCountParts(nProviders, nVars, nOutputs int) string {
 	return strings.Join(parts, " · ")
 }
 
-// initDetail renders the expanded provider/variable/output sections shared by
-// config_init and module_init.
+// initDetail renders config_init's expanded provider/variable/output sections.
 func initDetail(providers map[string]initProviderView, vars []initVariableView, outs []initOutputView) []string {
 	var detail []string
 	if len(providers) > 0 {
@@ -2521,216 +2087,6 @@ func initDetail(providers map[string]initProviderView, vars []initVariableView, 
 	return detail
 }
 
-// --- turf_declare_action ------------------------------------------------------
-//
-// declare_action both declares (writes the action block into the bound
-// configuration) and, with remove=true, un-declares; the result reports which
-// via the declared/removed booleans.
-
-type declareActionView struct {
-	ActionAddr string `json:"action_addr"`
-	ActionType string `json:"action_type"`
-	Name       string `json:"name"`
-	Declared   bool   `json:"declared"`
-	Removed    bool   `json:"removed"`
-}
-
-func renderDeclareAction(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "action_type")), width)
-	}
-	var a declareActionView
-	if !parseContent(msg, &a) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := a.ActionAddr
-	if target == "" {
-		target = a.ActionType
-	}
-	summary := addr(target)
-	switch {
-	case a.Removed:
-		summary += dot() + bold("removed", styles.Success)
-	case a.Declared:
-		summary += dot() + bold("declared", styles.Success)
-	}
-	return line(msg, s, summary, width)
-}
-
-// --- turf_declare_ephemeral ---------------------------------------------------
-//
-// An ephemeral resource is a value a provider produces for the duration of one
-// operation and that is NEVER written to state, a plan, or the configuration — a
-// Vault lease, a decrypted file, a short-lived token — routed into a write-only
-// attribute or a provider block. The result reports the open's CLASSIFICATION and
-// nothing else: there is no imperative read counterpart, and the value never
-// reaches this renderer, so there is nothing here to mask.
-
-type declareEphemeralView struct {
-	ResourceAddr string               `json:"resource_addr"`
-	ResourceType string               `json:"resource_type"`
-	Declared     bool                 `json:"declared"`
-	Removed      bool                 `json:"removed"`
-	Replan       []string             `json:"replan,omitempty"`
-	Opens        []ephemeralOpenEntry `json:"ephemeral_opens,omitempty"`
-	// Warnings are close-time diagnostics — the walk opened the object, evaluated
-	// against it, and closed it again, and a failed close means something is still
-	// held at the provider (a lease not released, a token still valid). Never
-	// fatal, and never a reason to read the declaration as not having taken.
-	Warnings []string `json:"warnings,omitempty"`
-}
-
-func renderDeclareEphemeral(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, addr(argString(msg, "resource_addr")), width)
-	}
-	var e declareEphemeralView
-	if !parseContent(msg, &e) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := e.ResourceAddr
-	if target == "" {
-		target = argString(msg, "resource_addr")
-	}
-	summary := addr(target)
-	switch {
-	case e.Removed:
-		summary += dot() + bold("removed", styles.Success)
-	case e.Declared:
-		summary += dot() + bold("declared", styles.Success)
-	}
-	if tally := ephemeralOpenTally(e.Opens); tally != "" {
-		summary += dot() + tally
-	}
-	if n := len(e.Replan); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d replan", n))
-	}
-
-	var detail []string
-	if len(e.Opens) > 0 {
-		detail = append(detail, section("opens"))
-		detail = append(detail, dataReadLines(e.Opens, "  ", 20)...)
-	}
-	if len(e.Replan) > 0 {
-		detail = append(detail, section("replan"))
-		detail = append(detail, listLines(e.Replan, "  ", 20)...)
-	}
-	detail = append(detail, warningLines(e.Warnings)...)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_declare_var ---------------------------------------------------------
-
-type declareVarView struct {
-	Address  string `json:"address"`
-	Name     string `json:"name"`
-	Declared bool   `json:"declared"`
-	Removed  bool   `json:"removed"`
-	Message  string `json:"message"`
-}
-
-func renderDeclareVar(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "name")), width)
-	}
-	var v declareVarView
-	if !parseContent(msg, &v) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := v.Address
-	if target == "" {
-		target = v.Name
-	}
-	summary := addr(target)
-	switch {
-	case v.Removed:
-		summary += dot() + bold("removed", styles.Success)
-	case v.Declared:
-		summary += dot() + bold("declared", styles.Success)
-	}
-	// The result echoes no declaration detail, so the one fact worth carrying —
-	// that this variable may never be written down — comes from the request.
-	if argBool(msg, "ephemeral") {
-		summary += dot() + styles.WarningStyle.Render("ephemeral")
-	}
-	var detail []string
-	if v.Message != "" {
-		detail = append(detail, muted(v.Message))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_declare_backend -----------------------------------------------------
-
-type declareBackendView struct {
-	Type   string         `json:"type"`
-	File   string         `json:"file"`
-	Config map[string]any `json:"config"`
-}
-
-func renderDeclareBackend(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "type")), width)
-	}
-	var b declareBackendView
-	if !parseContent(msg, &b) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	summary := addr(b.Type) + dot() + bold("declared", styles.Success)
-	if b.File != "" {
-		summary += dot() + muted(b.File)
-	}
-	detail := kvLines(b.Config, "  ", 20)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_declare_provider ------------------------------------------------------
-
-type declareProviderView struct {
-	Address         string   `json:"address"`
-	Name            string   `json:"name"`
-	RequirementFile string   `json:"requirement_file"`
-	BlockFile       string   `json:"block_file"`
-	Declared        bool     `json:"declared"`
-	Removed         []string `json:"removed"`
-	Message         string   `json:"message"`
-}
-
-func renderDeclareProvider(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "name")), width)
-	}
-	var p declareProviderView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := p.Address
-	if target == "" {
-		target = p.Name
-	}
-	summary := addr(target)
-	switch {
-	case len(p.Removed) > 0:
-		summary += dot() + bold("removed", styles.Success)
-	case p.Declared:
-		summary += dot() + bold("declared", styles.Success)
-	}
-	var detail []string
-	if p.RequirementFile != "" {
-		detail = append(detail, muted("requirement: ")+p.RequirementFile)
-	}
-	if p.BlockFile != "" {
-		detail = append(detail, muted("block: ")+p.BlockFile)
-	}
-	for _, r := range p.Removed {
-		detail = append(detail, muted("removed: ")+r)
-	}
-	if p.Message != "" {
-		detail = append(detail, muted(p.Message))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // --- turf_config_show ------------------------------------------------------------
 
 type configShowEntryView struct {
@@ -2741,10 +2097,11 @@ type configShowEntryView struct {
 	// Type is carried only by a backend entry, whose address is the bare word
 	// "backend" — the one entry whose block type is not in its address. Every
 	// other kind spells its type out there (random_pet.x), so the field is empty.
-	Type   string `json:"type,omitempty"`
-	File   string `json:"file"`
-	Intent string `json:"intent,omitempty"`
-	Note   string `json:"note,omitempty"`
+	Type string `json:"type,omitempty"`
+	File string `json:"file"`
+	// Note is returned only for an address query: how to read this declaration's
+	// body and how to change it.
+	Note string `json:"note,omitempty"`
 }
 
 // label names the entry's block type, plus the backend type when there is one:
@@ -2759,9 +2116,6 @@ func (e configShowEntryView) label() string {
 }
 
 type configShowView struct {
-	// Dialect is the configuration directory's dialect: "plot" (turf-authored)
-	// or "tofu" (a plain root module).
-	Dialect string                `json:"dialect"`
 	Path    string                `json:"path"`
 	Entries []configShowEntryView `json:"entries"`
 }
@@ -2774,7 +2128,7 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	if !parseContent(msg, &c) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	summary := muted(fmt.Sprintf("%s · %d declared address(es)", c.Dialect, len(c.Entries)))
+	summary := muted(fmt.Sprintf("%d declared address(es)", len(c.Entries)))
 	if len(c.Entries) == 1 {
 		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].label())
 	}
@@ -2786,47 +2140,9 @@ func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionS
 			break
 		}
 		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.label()))
-		if e.Intent != "" {
-			detail = append(detail, muted("  "+e.Intent))
-		}
 		if e.Note != "" {
 			detail = append(detail, muted("  "+e.Note))
 		}
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_config_promote ---------------------------------------------------
-//
-// config_promote graduates a plot into a plain tofu configuration (a
-// strip-fold-rename), reporting the resulting dialect, the .tf files written,
-// and the units removed.
-
-type configPromoteView struct {
-	Dialect string   `json:"dialect"`
-	Path    string   `json:"path"`
-	Files   []string `json:"files"`
-	Removed []string `json:"removed"`
-	Message string   `json:"message"`
-}
-
-func renderConfigPromote(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "promoting plot", width)
-	}
-	var c configPromoteView
-	if !parseContent(msg, &c) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	summary := muted(fmt.Sprintf("promoted to %s · %d file(s), %d removed", c.Dialect, len(c.Files), len(c.Removed)))
-	var detail []string
-	const maxRows = 30
-	for i, f := range c.Files {
-		if i == maxRows {
-			detail = append(detail, muted(fmt.Sprintf("…(+%d more)", len(c.Files)-maxRows)))
-			break
-		}
-		detail = append(detail, muted(f))
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
@@ -2875,6 +2191,74 @@ func renderActionInvoke(msg *types.Message, s spinner.Spinner, ss service.Sessio
 		detail = append(detail, kvLines(a.Config, "  ", 30)...)
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// --- turf_action_trigger / turf_action_untrigger ----------------------------
+//
+// action_trigger attaches a PHASE ACTION to the open Draft: an address-targeted
+// action trigger (plus any inline action definitions) that exists for this phase
+// only, composed into the walk in memory and never written to the configuration
+// directory. action_untrigger detaches one by name. Both re-project the plan, but
+// the line keeps to the attachment itself — the plan is what replan/plan_new and
+// the approval gate show — with the rendered HCL (the block a human would commit
+// to make the trigger durable) on expand.
+
+type actionTriggerView struct {
+	Name    string   `json:"name"`
+	Target  string   `json:"target"`
+	Events  []string `json:"events"`
+	Actions []string `json:"actions"`
+	HCL     string   `json:"hcl"`
+}
+
+func renderActionTrigger(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, targetBody(argString(msg, "name")), width)
+	}
+	var a actionTriggerView
+	if !parseContent(msg, &a) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	name := a.Name
+	if name == "" {
+		name = argString(msg, "name")
+	}
+	summary := appendDot(targetBody(name), bold("attached", styles.Success))
+	if a.Target != "" {
+		summary = appendDot(summary, muted("on ")+addr(a.Target))
+	}
+	if len(a.Events) > 0 {
+		summary = appendDot(summary, muted(strings.Join(a.Events, ", ")))
+	}
+	var detail []string
+	if len(a.Actions) > 0 {
+		detail = append(detail, section("actions"))
+		detail = append(detail, listLines(a.Actions, "  ", 20)...)
+	}
+	if hcl := strings.TrimSpace(a.HCL); hcl != "" {
+		detail = append(detail, section("hcl"))
+		detail = append(detail, listLines(strings.Split(hcl, "\n"), "  ", 40)...)
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+type actionUntriggerView struct {
+	Name string `json:"name"`
+}
+
+func renderActionUntrigger(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, targetBody(argString(msg, "name")), width)
+	}
+	var a actionUntriggerView
+	if !parseContent(msg, &a) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	name := a.Name
+	if name == "" {
+		name = argString(msg, "name")
+	}
+	return line(msg, s, appendDot(targetBody(name), bold("detached", styles.Success)), width)
 }
 
 // --- turf_effect_cancel -----------------------------------------------------
