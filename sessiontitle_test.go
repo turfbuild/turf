@@ -59,11 +59,6 @@ func TestTitleDigestTitle(t *testing.T) {
 			want:  "myapp · destroyed -4",
 		},
 		{
-			name:  "promoted",
-			setup: func(d *titleDigest) { d.label = "myapp"; d.stage = stagePromoted },
-			want:  "myapp · promoted",
-		},
-		{
 			name:  "no label yet",
 			setup: func(d *titleDigest) { d.stage = stagePlan; d.added = 1 },
 			want:  "",
@@ -103,7 +98,6 @@ func TestAutoTitlePattern(t *testing.T) {
 		{label: "a", stage: stagePlan, destroyed: 4},
 		{label: "a", stage: stageApplied, added: 2, destroyed: 3},
 		{label: "a", stage: stageApplied, destroyed: 4},
-		{label: "a", stage: stagePromoted},
 	}
 	for _, d := range digests {
 		got := d.title()
@@ -111,6 +105,12 @@ func TestAutoTitlePattern(t *testing.T) {
 			continue
 		}
 		t.Errorf("title() = %q is neither empty, the label, nor matched by isAutoTitle", got)
+	}
+
+	// A legacy "· promoted" title (from a turf that still had config_promote) stays
+	// curator-owned, so resuming such a session keeps updating its title.
+	if !isAutoTitle("a · promoted") {
+		t.Error(`isAutoTitle("a · promoted") = false, want true (legacy auto-title shape)`)
 	}
 
 	// Human titles must NOT be mistaken for auto titles.

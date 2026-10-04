@@ -17,7 +17,7 @@ import (
 //     "turf · apply", …; see turfToolGroups) instead of the flat "turf" heading —
 //     the dialog's Tools section groups by Category, and cagent's own guidance is
 //     that a Category is a functional bucket, not the toolset name. This breaks the
-//     ~34-tool wall into scannable groups (replacing the generic "mcp" bucket the
+//     ~32-tool wall into scannable groups (replacing the generic "mcp" bucket the
 //     MCP toolset hardcodes onto every tool).
 //   - Tools() also strips the redundant "turf_" prefix for display by setting each
 //     tool's Annotations.Title to the bare name ("plan_approve" rather than
@@ -88,32 +88,22 @@ var turfToolInfo = map[string]struct {
 	"workspace_list":   {"workspace", "List Workspaces"},
 	"workspace_close":  {"workspace", "Close Workspace"},
 	"workspace_delete": {"workspace", "Delete Workspace"},
-	// config — the durable configuration directory
-	"config_init":      {"config", "Init Config"},
-	"config_show":      {"config", "Show Config"},
-	"config_promote":   {"config", "Promote Config"},
-	"declare_backend":  {"config", "Declare Backend"},
-	"declare_provider": {"config", "Declare Provider"},
+	// config — the durable configuration directory (discovery; the agent edits
+	// the .tf files themselves with its own file tools)
+	"config_init": {"config", "Init Config"},
+	"config_show": {"config", "Show Config"},
 	// plan — building & approving the Draft
-	"plan_new":         {"plan", "Start Draft"},
-	"plan_cancel":      {"plan", "Cancel Draft"},
-	"plan_approve":     {"plan", "Approve Plan"},
-	"plan_export":      {"plan", "Export Plan JSON"},
-	"replan":           {"plan", "Replan Config"},
-	"module_init":      {"plan", "Init Module"},
-	"declare_module":   {"plan", "Declare Module"},
-	"declare_resource": {"plan", "Declare Resource"},
-	"declare_var":      {"plan", "Declare Variable"},
-	"declare_action":   {"plan", "Declare Action"},
-	"declare_outputs":  {"plan", "Declare Outputs"},
-	// declare_datasource groups with the declare family rather than with
-	// datasource_read below: it requires an open Draft and writes configuration.
-	"declare_datasource": {"plan", "Declare Data Source"},
-	// declare_ephemeral likewise: it authors an `ephemeral` block and opens it in
-	// the same call. No imperative counterpart exists — an imperative read would
-	// have to return the value, which is the one thing an ephemeral resource is for
-	// never doing.
-	"declare_ephemeral": {"plan", "Declare Ephemeral"},
+	"plan_new":     {"plan", "Start Draft"},
+	"plan_cancel":  {"plan", "Cancel Draft"},
+	"plan_approve": {"plan", "Approve Plan"},
+	"plan_export":  {"plan", "Export Plan JSON"},
+	"replan":       {"plan", "Replan Config"},
+	"module_init":  {"plan", "Init Module"},
+	// action_trigger / action_untrigger attach and detach a phase-scoped trigger
+	// on the open Draft (in memory only), so they group with the Draft's planning
+	// verbs rather than with action_invoke's immediate execution below.
+	"action_trigger":   {"plan", "Attach Phase Action"},
+	"action_untrigger": {"plan", "Detach Phase Action"},
 	// apply — executing approved effects & imperative actions
 	"effect_apply":  {"apply", "Apply Effect"},
 	"effect_cancel": {"apply", "Cancel Effect"},
@@ -127,7 +117,7 @@ var turfToolInfo = map[string]struct {
 	"resource_refresh": {"state", "Refresh Resource"},
 	// skills — workflow guides
 	"skill_core":      {"skills", "Core Skill"},
-	"skill_adhoc":     {"skills", "Ad-hoc Skill"},
+	"skill_authoring": {"skills", "Authoring Skill"},
 	"skill_codified":  {"skills", "Codified Skill"},
 	"skill_demo":      {"skills", "Demo Skill"},
 	"read_skill_file": {"skills", "Read Skill File"},

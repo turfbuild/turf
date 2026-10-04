@@ -9,15 +9,20 @@ package main
 // pre-approves ALL of turf's own tools — the permission layer never fires a
 // prompt for a turf tool — and moves confirmation of consequential actions into
 // the agent, which seeks a user_prompt yes/no per the persona (see
-// workflowInstructions in agent.go): once before editing a coded (tofu-dialect)
-// configuration — the user's own .tf/.tfvars, edited via the filesystem
-// write_file/edit_file tools (ad-hoc plot authoring via declare_* is NOT gated —
-// the plan gate covers it); once before plan_approve for a whole phase; and
-// per-call for standalone destructive ops (workspace_delete, resource_import,
-// config_promote, a directly-invoked action_invoke). This trades the deterministic
-// per-tool permission gate for agent-driven confirmation, on purpose — the old
-// gate double-prompted right after the user had already approved a plan, which is
-// friction on the tools that are the heart of the UX.
+// workflowInstructions in agent.go). A configuration is ordinary Terraform the
+// agent edits with the filesystem write_file/edit_file tools, so the policy is:
+//   - files the agent CREATES for a new configuration (a natural-language request
+//     in a new/empty directory) need no separate confirmation — the plan gate
+//     covers them before anything is applied;
+//   - edits to PRE-EXISTING .tf/.tfvars files (the user's own) get one
+//     confirmation per edit set, summarizing the intended edits;
+//   - once before plan_approve for a whole phase; and
+//   - per-call for standalone consequential ops (workspace_delete,
+//     resource_import, a directly-invoked action_invoke).
+// This trades the deterministic per-tool permission gate for agent-driven
+// confirmation, on purpose — the old gate double-prompted right after the user
+// had already approved a plan, which is friction on the tools that are the heart
+// of the UX.
 //
 // Why this stays safe:
 //   - Names are the LLM-facing, turf_-prefixed tool names (the MCP toolset is
@@ -62,26 +67,17 @@ var preApprovedTurfTools = []string{
 	"turf_workspace_show",
 	"turf_workspace_close",
 	"turf_workspace_delete",
-	// State / outputs. state_list, outputs, and the *_outputs reads are read-only;
+	// State / outputs. state_list, outputs, and module_outputs are read-only;
 	// resource_refresh only reconciles state to live reality (like `tofu refresh`)
 	// so it is benign and runs silently; resource_import adopts existing infra into
 	// state and the persona confirms it (see agentConfirmTurfTools).
 	"turf_state_list",
 	"turf_outputs",
-	"turf_declare_outputs",
 	"turf_module_outputs",
 	"turf_resource_import",
 	"turf_resource_refresh",
-	// Data sources. datasource_read is a read-only lookup that writes nothing;
-	// declare_datasource is a declare-family tool that authors a `data` block into
-	// the plot and reads it in the same call, so it is pre-approved on the same
-	// terms as the rest of the declare family below.
+	// Data sources. datasource_read is a read-only lookup that writes nothing.
 	"turf_datasource_read",
-	"turf_declare_datasource",
-	// declare_ephemeral authors an `ephemeral` block and opens it at the provider.
-	// The server annotates it non-destructive and it returns the open's
-	// classification only — never the value — so it needs no agent confirmation.
-	"turf_declare_ephemeral",
 	// Draft / phase lifecycle. plan_approve seals the Draft into an Execution and
 	// effect_apply/effect_cancel run the approved effects — their confirmation is
 	// the single phase-level user_prompt the persona seeks before plan_approve, not
@@ -93,29 +89,24 @@ var preApprovedTurfTools = []string{
 	"turf_replan",
 	"turf_effect_apply",
 	"turf_effect_cancel",
-	// Config / module authoring. The declare family authors a turf-owned plot
-	// (git-recoverable checkout mutations, not live infra); it is deliberately NOT
-	// edit-gated by the persona — ad-hoc stays streamlined, and the plan gate covers
-	// it before apply. (The persona's coded-config edit gate is over write_file/
-	// edit_file on the user's own .tf/.tfvars, not these plot tools.) config_promote
-	// graduates a plot into a plain tofu configuration — a one-way directory
-	// transformation the persona confirms (see agentConfirmTurfTools).
+	// Configuration discovery. The configuration itself is ordinary Terraform the
+	// agent authors with the filesystem write_file/edit_file tools; the persona's
+	// edit gate (one confirmation per edit set to the user's pre-existing
+	// .tf/.tfvars files) lives there, not on these read/discovery tools.
 	"turf_config_init",
 	"turf_config_show",
-	"turf_config_promote",
-	"turf_declare_backend",
-	"turf_declare_provider",
 	"turf_module_init",
-	"turf_declare_module",
-	// Resource / action planning — accumulates into the Draft. action_invoke fires
-	// an imperative side effect; the persona confirms a directly-invoked one.
-	"turf_declare_resource",
-	"turf_declare_var",
-	"turf_declare_action",
+	// Actions. action_invoke fires an imperative side effect; the persona confirms
+	// a directly-invoked one. action_trigger/action_untrigger attach/detach a
+	// phase-scoped trigger on the open Draft — in memory only, never written to the
+	// configuration directory — so whatever they attach is reviewed and covered by
+	// the plan gate (plan_approve) like any other planned behavior.
 	"turf_action_invoke",
+	"turf_action_trigger",
+	"turf_action_untrigger",
 	// Skills / docs.
 	"turf_skill_core",
-	"turf_skill_adhoc",
+	"turf_skill_authoring",
 	"turf_skill_codified",
 	"turf_skill_demo",
 	"turf_read_skill_file",
@@ -209,13 +200,12 @@ func preApprovedTools() []string {
 // confirmation shapes, spelled out in the persona (see agent.go):
 //   - effect_apply / effect_cancel are covered by the single phase-level
 //     confirmation the persona seeks before plan_approve — NOT prompted per-effect;
-//   - workspace_delete, resource_import, config_promote, and a directly-invoked
-//     action_invoke are standalone ops confirmed with their own targeted user_prompt.
+//   - workspace_delete, resource_import, and a directly-invoked action_invoke are
+//     standalone ops confirmed with their own targeted user_prompt.
 var agentConfirmTurfTools = []string{
 	"turf_effect_apply",     // applies real infra changes (confirmed at plan_approve)
 	"turf_effect_cancel",    // can cascade-cancel dependents (confirmed at plan_approve)
 	"turf_action_invoke",    // imperative side effects
 	"turf_workspace_delete", // irreversible state deletion — warn it cannot be undone
 	"turf_resource_import",  // adopts existing infra into state
-	"turf_config_promote",   // one-way plot → tofu configuration transformation
 }

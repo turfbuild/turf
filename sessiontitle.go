@@ -62,7 +62,6 @@ var titleCuratorTools = []string{
 	"turf_replan",
 	"turf_plan_approve",
 	"turf_effect_apply",
-	"turf_config_promote",
 }
 
 func newSessionTitleCurator(store session.Store) *sessionTitleCurator {
@@ -147,6 +146,10 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 
 // autoTitleRe matches the shapes titleDigest.title() produces beyond the bare
 // label. TestAutoTitlePattern locks it to the format so the two can't drift.
+// "promoted" is a legacy shape: the curator no longer produces it (config_promote
+// is gone from the server), but a session titled by an older turf may still carry
+// it, and recognizing it keeps that title curator-owned on resume rather than
+// mistaking it for a human one and freezing it.
 var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes)|destroyed -\d+|promoted)$`)
 
 // isAutoTitle reports whether s looks like a curator-generated milestone title
@@ -206,10 +209,6 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 			c.digest.stage = stageApplied
 		}
 		return true
-
-	case "turf_config_promote":
-		c.digest.stage = stagePromoted
-		return true
 	}
 	return false
 }
@@ -250,7 +249,6 @@ const (
 	stageNone titleStage = iota
 	stagePlan
 	stageApplied
-	stagePromoted
 )
 
 // defaultWorkspaceName is the OpenTofu workspace every configuration has when
@@ -352,8 +350,6 @@ func (d *titleDigest) title() string {
 			return d.label + " · destroyed " + destroyCount(d.destroyed)
 		}
 		return d.label + " · applied " + d.counts()
-	case stagePromoted:
-		return d.label + " · promoted"
 	default:
 		// Pre-plan: config known, nothing done yet. The " · init" suffix makes it
 		// a regular auto-title shape (matched by isAutoTitle) rather than a bare

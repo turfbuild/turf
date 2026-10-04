@@ -35,13 +35,6 @@ func renderFor(name, content string, ss service.SessionStateReader) string {
 	return renderWithArgs(name, content, "", ss, 1)
 }
 
-// renderArgs renders a COMPLETED call with request arguments, for the handful of
-// renderers that read a fact off the request because the result does not carry it.
-// Sized for the expanded view, since that is where such a fact usually lands.
-func renderArgs(name, content, argsJSON string) string {
-	return renderWithArgs(name, content, argsJSON, service.StaticSessionState{}, 10)
-}
-
 func renderWithArgs(name, content, argsJSON string, ss service.SessionStateReader, height int) string {
 	msg := &types.Message{
 		Content:        content,
@@ -75,66 +68,56 @@ func renderErrArgs(name, content, argsJSON string, ss service.SessionStateReader
 	return b.View()
 }
 
-func TestResourcePlan_CompactVsDetailed(t *testing.T) {
-	const content = `{
-		"resource_addr": "random_pet.this",
+// TestPlanSummary_CompactVsDetailed: the compact line is the tally alone; the
+// expansion unfolds each row's before→after diff with its values.
+func TestPlanSummary_CompactVsDetailed(t *testing.T) {
+	const content = `{"phase_id": "ph_001", "resources": [{
+		"address": "random_pet.this",
 		"provider": "random",
 		"action": "+",
-		"action_reason": "resource not in state",
 		"before": null,
 		"after": {"id": "x", "length": 2, "separator": "-"}
-	}`
+	}]}`
 
-	compact := renderFor("turf_declare_resource", content, hiddenState{})
-	if !strings.Contains(compact, "random_pet.this") || !strings.Contains(compact, "create") {
-		t.Fatalf("compact missing addr/action: %q", compact)
+	compact := renderFor("turf_replan", content, hiddenState{})
+	if !strings.Contains(compact, "+1") {
+		t.Fatalf("compact missing the tally: %q", compact)
 	}
-	if strings.Contains(compact, "provider") || strings.Contains(compact, "reason:") {
-		t.Fatalf("compact should not include detail block: %q", compact)
+	if strings.Contains(compact, "random_pet.this") || strings.Contains(compact, "separator") {
+		t.Fatalf("compact should not include the detail block: %q", compact)
 	}
 	if strings.Contains(strings.TrimRight(compact, " "), "\n") {
 		t.Fatalf("compact should be a single line: %q", compact)
 	}
 
-	detailed := renderFor("turf_declare_resource", content, service.StaticSessionState{})
-	if !strings.Contains(detailed, "provider") || !strings.Contains(detailed, "reason:") {
-		t.Fatalf("detailed missing detail block: %q", detailed)
-	}
+	detailed := renderFor("turf_replan", content, service.StaticSessionState{})
 	// The expanded view unfolds the before→after diff with values (the quoted
 	// values appear only in the diff, not the compact summary).
-	for _, want := range []string{"separator", `"-"`, `"x"`} {
+	for _, want := range []string{"random_pet.this", "separator", `"-"`, `"x"`} {
 		if !strings.Contains(detailed, want) {
 			t.Fatalf("expanded diff missing %q: %q", want, detailed)
 		}
 	}
 }
 
-func TestResourcePlan_ReplaceDiff(t *testing.T) {
+func TestPlanSummary_UpdateDiff(t *testing.T) {
 	// A ~ change should render old → new with both values.
-	const content = `{
-		"resource_addr": "random_pet.first",
+	const content = `{"phase_id": "ph_001", "resources": [{
+		"address": "random_pet.first",
 		"provider": "random",
 		"action": "~",
 		"before": {"prefix": "alpha", "length": 2},
 		"after": {"prefix": "gamma", "length": 2}
-	}`
-	out := renderFor("turf_declare_resource", content, service.StaticSessionState{})
+	}]}`
+	out := renderFor("turf_replan", content, service.StaticSessionState{})
 	for _, want := range []string{"prefix", `"alpha"`, "→", `"gamma"`} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("replace diff missing %q: %q", want, out)
+			t.Fatalf("update diff missing %q: %q", want, out)
 		}
 	}
 	// length is unchanged and must be omitted from the diff.
 	if strings.Contains(out, "length") {
 		t.Fatalf("unchanged attr should not appear: %q", out)
-	}
-}
-
-func TestResourcePlan_TitleAndAction(t *testing.T) {
-	const content = `{"resource_addr": "random_pet.my_pet", "action": "+", "after": {"length": 2}}`
-	out := renderFor("turf_declare_resource", content, hiddenState{})
-	if !strings.Contains(out, "Declare Resource") || !strings.Contains(out, "create") {
-		t.Fatalf("expected 'Declare Resource … create' wording: %q", out)
 	}
 }
 
@@ -278,130 +261,27 @@ func TestDatasourceRead_Summary(t *testing.T) {
 	}
 }
 
-// TestDeclareDatasource_ReadVerdicts pins the renderer to the server's actual
-// declareDatasourceResult: the declaration outcome plus a data_source_reads[]
-// *classification* per expanded instance. The value never rides this response, so a
-// successful declare must not claim to show attributes.
-func TestDeclareDatasource_ReadVerdicts(t *testing.T) {
-	t.Run("declared and read", func(t *testing.T) {
-		const content = `{"phase_id": "p1", "resource_addr": "data.aws_ami.latest",
-			"resource_type": "aws_ami", "declared": true,
-			"data_source_reads": [{"address": "data.aws_ami.latest", "action": "read"}]}`
-		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
-		for _, want := range []string{"Declare Data Source", "data.aws_ami.latest", "declared", "read", "reads:"} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("missing %q: %q", want, out)
-			}
-		}
-		if strings.Contains(out, "attr(s)") {
-			t.Fatalf("declare_datasource returns no value, so it must not report attrs: %q", out)
-		}
-	})
-
-	t.Run("deferred on an unapplied depends_on target", func(t *testing.T) {
-		const content = `{"resource_addr": "data.aws_instances.web", "declared": true,
-			"replan": ["aws_lb.front"],
-			"data_source_reads": [{"address": "data.aws_instances.web", "action": "deferred",
-				"reason": "dependency_pending", "depends_on": ["aws_instance.web"]}]}`
-		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
-		// The verdict leads the one-line view; the actionable "what to apply to clear
-		// it" belongs to the expansion, as declare_resource does with its reason.
-		for _, want := range []string{"declared", "deferred", "1 replan", "dependency_pending", "waiting on", "aws_instance.web", "replan:", "aws_lb.front"} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("missing %q: %q", want, out)
-			}
-		}
-		compact := plainNorm(renderFor("turf_declare_datasource", content, hiddenState{}))
-		if !strings.Contains(compact, "deferred") {
-			t.Fatalf("compact view must still carry the verdict: %q", compact)
-		}
-		if strings.Contains(compact, "waiting on") {
-			t.Fatalf("compact view should not include the detail block: %q", compact)
-		}
-	})
-
-	t.Run("count expansion tallies per action", func(t *testing.T) {
-		const content = `{"resource_addr": "data.aws_subnet.each", "declared": true,
-			"data_source_reads": [
-				{"address": "data.aws_subnet.each[0]", "action": "read"},
-				{"address": "data.aws_subnet.each[1]", "action": "read"},
-				{"address": "data.aws_subnet.each[2]", "action": "deferred", "reason": "config_unknown"}]}`
-		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
-		for _, want := range []string{"2 read", "1 deferred", "data.aws_subnet.each[2]", "config_unknown"} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("missing %q: %q", want, out)
-			}
-		}
-	})
-
-	t.Run("provider error on the read", func(t *testing.T) {
-		const content = `{"resource_addr": "data.aws_ami.bad", "declared": true,
-			"data_source_reads": [{"address": "data.aws_ami.bad", "action": "error",
-				"error": "no AMI matched the filter"}]}`
-		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
-		for _, want := range []string{"declared", "error", "no AMI matched the filter"} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("missing %q: %q", want, out)
-			}
-		}
-	})
-
-	// The warning arm: the tool succeeded and the declaration stands, but the
-	// configuration would not walk so nothing was read. A bare "declared" would read
-	// as fully done — especially compact, where the detail block is hidden.
-	t.Run("declared but not read", func(t *testing.T) {
-		const content = `{"resource_addr": "data.aws_ami.latest", "declared": true,
-			"warning": "declared, but the configuration did not walk, so data.aws_ami.latest was not read: module.net not installed — replan once the configuration walks"}`
-		compact := plainNorm(renderFor("turf_declare_datasource", content, hiddenState{}))
-		for _, want := range []string{"declared", "not read"} {
-			if !strings.Contains(compact, want) {
-				t.Fatalf("compact missing %q: %q", want, compact)
-			}
-		}
-		detailed := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
-		if !strings.Contains(detailed, "did not walk") {
-			t.Fatalf("detailed should carry the warning text: %q", detailed)
-		}
-	})
-
-	t.Run("removed", func(t *testing.T) {
-		const content = `{"resource_addr": "data.aws_ami.latest", "removed": true,
-			"replan": ["aws_instance.web"]}`
-		out := plainNorm(renderFor("turf_declare_datasource", content, service.StaticSessionState{}))
-		for _, want := range []string{"removed", "1 replan", "aws_instance.web"} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("missing %q: %q", want, out)
-			}
-		}
-		// Nothing is read on a remove, so there is no verdict to report.
-		if strings.Contains(out, "reads:") {
-			t.Fatalf("a remove reads nothing and must not show a reads section: %q", out)
-		}
-	})
-}
-
-func TestResourcePlan_ReplaceCBDvsDTC(t *testing.T) {
-	// create_before_destroy=true → ± ; false → ∓.
-	cbd := `{"resource_addr": "a.b", "action": "replace", "create_before_destroy": true, "before": {"x": 1}, "after": {"x": 2}}`
-	dtc := `{"resource_addr": "a.b", "action": "replace", "create_before_destroy": false, "before": {"x": 1}, "after": {"x": 2}}`
-	out := renderFor("turf_declare_resource", cbd, hiddenState{})
-	if !strings.Contains(out, "replace") || !strings.Contains(out, "±") {
-		t.Fatalf("CBD replace should show ±: %q", out)
+// TestPlanSummary_ReplaceCBDvsDTC: a replace row's header carries ± for
+// create-before-destroy and ∓ for the default destroy-then-create.
+func TestPlanSummary_ReplaceCBDvsDTC(t *testing.T) {
+	row := func(cbd string) string {
+		return `{"phase_id": "ph_001", "resources": [{"address": "a.b", "action": "replace",` +
+			cbd + ` "before": {"x": 1}, "after": {"x": 2}}]}`
 	}
-	if strings.Contains(out, "∓") {
-		t.Fatalf("CBD replace should not show ∓: %q", out)
+	out := plainNorm(renderFor("turf_replan", row(`"create_before_destroy": true,`), service.StaticSessionState{}))
+	if !strings.Contains(out, "± a.b") || strings.Contains(out, "∓") {
+		t.Fatalf("CBD replace should show ± not ∓: %q", out)
 	}
-	out = renderFor("turf_declare_resource", dtc, hiddenState{})
-	if !strings.Contains(out, "∓") || strings.Contains(out, "±") {
+	out = plainNorm(renderFor("turf_replan", row(`"create_before_destroy": false,`), service.StaticSessionState{}))
+	if !strings.Contains(out, "∓ a.b") || strings.Contains(out, "±") {
 		t.Fatalf("DTC replace should show ∓ not ±: %q", out)
 	}
 
 	// The load-bearing case: the server sends create_before_destroy as a bare bool
 	// with omitempty, so the ordinary delete-then-create replace arrives with the
 	// key ABSENT. Reading absent as ± would render every default replace wrong.
-	absent := `{"resource_addr": "a.b", "action": "replace", "before": {"x": 1}, "after": {"x": 2}}`
-	out = renderFor("turf_declare_resource", absent, hiddenState{})
-	if !strings.Contains(out, "∓") || strings.Contains(out, "±") {
+	out = plainNorm(renderFor("turf_replan", row(""), service.StaticSessionState{}))
+	if !strings.Contains(out, "∓ a.b") || strings.Contains(out, "±") {
 		t.Fatalf("replace with no create_before_destroy is DTC (∓), got: %q", out)
 	}
 }
@@ -470,19 +350,6 @@ func TestPlanSummary_AdoptedRow(t *testing.T) {
 	for _, want := range []string{"adopt id=res-42", "adopt identity"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("row header missing %q: %q", want, out)
-		}
-	}
-}
-
-// TestResourcePlan_Adopting covers the same adoption on declare_resource, whose
-// identity locator also expands into its own detail section.
-func TestResourcePlan_Adopting(t *testing.T) {
-	const content = `{"resource_addr": "aws_s3_bucket.assets", "action": "noop",
-		"importing": {"identity": {"bucket": "mint-hyena", "region": "us-east-1"}}}`
-	out := plainNorm(renderFor("turf_declare_resource", content, service.StaticSessionState{}))
-	for _, want := range []string{"adopt identity", "identity:", `bucket = "mint-hyena"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q: %q", want, out)
 		}
 	}
 }
@@ -558,13 +425,13 @@ func TestFormatEffectID_MoveAndDeposed(t *testing.T) {
 	}
 }
 
-func TestModulePlan_TallySplitsReplace(t *testing.T) {
+func TestPlanSummary_TallySplitsReplace(t *testing.T) {
 	const content = `{"phase_id": "ph_001", "resources": [
 		{"address": "a.x", "action": "replace", "create_before_destroy": true},
 		{"address": "a.y", "action": "replace", "create_before_destroy": false},
 		{"address": "a.z", "action": "create"}
 	]}`
-	out := renderFor("turf_declare_module", content, hiddenState{})
+	out := renderFor("turf_replan", content, hiddenState{})
 	for _, want := range []string{"+1", "±1", "∓1"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tally should split CBD/DTC, missing %q: %q", want, out)
@@ -572,7 +439,7 @@ func TestModulePlan_TallySplitsReplace(t *testing.T) {
 	}
 }
 
-func TestModulePlan_Tally(t *testing.T) {
+func TestPlanSummary_Tally(t *testing.T) {
 	const content = `{
 		"phase_id": "ph_001",
 		"resources": [
@@ -582,7 +449,7 @@ func TestModulePlan_Tally(t *testing.T) {
 		],
 		"outputs": {"url": "v"}
 	}`
-	out := renderFor("turf_declare_module", content, hiddenState{})
+	out := renderFor("turf_replan", content, hiddenState{})
 	if !strings.Contains(out, "+2") || !strings.Contains(out, "~1") {
 		t.Fatalf("tally wrong: %q", out)
 	}
@@ -592,9 +459,9 @@ func TestModulePlan_Tally(t *testing.T) {
 }
 
 // TestPlanSummary_DataSourceReads covers data_source_reads[] on the shared walk
-// summary — plan_new, replan and declare_module all return it. Unlike
-// declare_datasource, a walk reads every declared data source, so the one-line view
-// reports only what did *not* resolve; the expansion lists them all.
+// summary — plan_new and replan both return it. A walk reads every declared data
+// source, so the one-line view reports only what did *not* resolve; the expansion
+// lists them all.
 func TestPlanSummary_DataSourceReads(t *testing.T) {
 	const content = `{"phase_id": "ph_001", "path": "infra/prod",
 		"resources": [{"address": "aws_instance.web", "action": "create"}],
@@ -604,7 +471,7 @@ func TestPlanSummary_DataSourceReads(t *testing.T) {
 				"reason": "dependency_pending", "depends_on": ["aws_instance.web"]},
 			{"address": "data.aws_ami.bad", "action": "error", "error": "no AMI matched"}]}`
 
-	for _, name := range []string{"turf_plan_new", "turf_replan", "turf_declare_module"} {
+	for _, name := range []string{"turf_plan_new", "turf_replan"} {
 		t.Run(name, func(t *testing.T) {
 			compact := plainNorm(renderFor(name, content, hiddenState{}))
 			// "data" qualifies the count so it cannot be read as the resource
@@ -645,38 +512,6 @@ func TestPlanSummary_AllReadCostsNoSummaryWidth(t *testing.T) {
 	detailed := plainNorm(renderFor("turf_replan", content, service.StaticSessionState{}))
 	if !strings.Contains(detailed, "data sources:") || !strings.Contains(detailed, "data.aws_ami.latest") {
 		t.Fatalf("expansion should still list the reads: %q", detailed)
-	}
-}
-
-func TestOutputsPlan_UnknownAndSensitive(t *testing.T) {
-	const content = `{
-		"phase_id": "ph_001",
-		"outputs": {"pet_name": "__cty_unknown__", "region": "us-east-1", "token": "__cty_sensitive__"},
-		"unknown": ["pet_name"]
-	}`
-
-	compact := renderFor("turf_declare_outputs", content, hiddenState{})
-	for _, want := range []string{"Declare Outputs", "3 declared", "1 known after apply", "1 sensitive"} {
-		if !strings.Contains(compact, want) {
-			t.Fatalf("compact missing %q: %q", want, compact)
-		}
-	}
-	if strings.Contains(strings.TrimRight(compact, " "), "\n") {
-		t.Fatalf("compact should be a single line: %q", compact)
-	}
-	if strings.Contains(compact, "us-east-1") {
-		t.Fatalf("compact should not dump output values: %q", compact)
-	}
-
-	detailed := renderFor("turf_declare_outputs", content, service.StaticSessionState{})
-	for _, want := range []string{"pet_name", "known after apply", "region", `"us-east-1"`, "token", "(sensitive)"} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("detailed missing %q: %q", want, detailed)
-		}
-	}
-	// The raw sentinel must be masked, never shown verbatim.
-	if strings.Contains(detailed, "__cty_sensitive__") {
-		t.Fatalf("sensitive sentinel leaked into detail: %q", detailed)
 	}
 }
 
@@ -904,15 +739,15 @@ func TestErrorLine_EmptyContentFallsBackToFailed(t *testing.T) {
 // and the compact one-line form, so the error is as scannable as a success line.
 func TestErrorLine_ShowsRequestTarget(t *testing.T) {
 	const addr = "kubernetes_deployment_v1.web"
-	errText := "Failed to evaluate config: metadata: namespace: unresolved references"
+	errText := "Failed to read resource: the server could not find the requested resource"
 	args := `{"resource_addr":"` + addr + `","workspace_alias":"k8s"}`
 
-	shown := renderErrArgs("turf_declare_resource", errText, args, service.StaticSessionState{})
+	shown := renderErrArgs("turf_resource_refresh", errText, args, service.StaticSessionState{})
 	if !strings.Contains(plainNorm(shown), addr) {
 		t.Fatalf("expanded error should lead with the request target %q: %q", addr, shown)
 	}
 
-	compact := renderErrArgs("turf_declare_resource", errText, args, hiddenState{})
+	compact := renderErrArgs("turf_resource_refresh", errText, args, hiddenState{})
 	if !strings.Contains(plainNorm(compact), addr) {
 		t.Fatalf("compact error should keep the request target %q visible: %q", addr, compact)
 	}
@@ -1002,10 +837,6 @@ func TestNewRenderers_Smoke(t *testing.T) {
 	}{
 		{"turf_workspace_delete", `{"workspace_name":"staging","resource_count":0,"deleted":true}`,
 			[]string{"Delete Workspace", "staging", "deleted"}},
-		{"turf_declare_ephemeral", `{"resource_addr":"ephemeral.vault_kv_secret_v2.creds",
-			"resource_type":"vault_kv_secret_v2","declared":true,
-			"ephemeral_opens":[{"address":"ephemeral.vault_kv_secret_v2.creds","action":"opened"}]}`,
-			[]string{"Declare Ephemeral", "ephemeral.vault_kv_secret_v2.creds", "declared", "opened"}},
 		{"turf_plan_cancel", `{"phase_id":"ph_003","status":"cancelled","message":"Draft discarded."}`,
 			[]string{"Cancel Draft", "ph_003", "cancelled", "Draft discarded."}},
 		{"turf_config_init", `{"path":"infra/prod","backend":{"type":"s3"},"workspace":{"name":"main"},
@@ -1017,12 +848,13 @@ func TestNewRenderers_Smoke(t *testing.T) {
 		{"turf_module_init", `{"source":"Azure/x/azurerm","version":"0.4.0",
 			"required_providers":{"azurerm":{"source":"hashicorp/azurerm"}}}`,
 			[]string{"Init Module", "Azure/x/azurerm", "v0.4.0", "1 provider(s)"}},
-		{"turf_declare_action", `{"action_addr":"action.aws_lambda_invoke.warm",
-			"action_type":"aws_lambda_invoke","name":"warm","declared":true}`,
-			[]string{"Declare Action", "action.aws_lambda_invoke.warm", "declared"}},
-		{"turf_declare_action", `{"action_addr":"action.aws_lambda_invoke.warm",
-			"action_type":"aws_lambda_invoke","name":"warm","removed":true}`,
-			[]string{"Declare Action", "action.aws_lambda_invoke.warm", "removed"}},
+		{"turf_action_trigger", `{"name":"reboot_first","target":"aws_instance.web",
+			"events":["before_update"],"actions":["action.aws_ec2_reboot.web"],"on_failure":"halt",
+			"hcl":"action_trigger \"reboot_first\" {\n  target = aws_instance.web\n}"}`,
+			[]string{"Attach Phase Action", "reboot_first", "attached", "aws_instance.web", "before_update",
+				"action.aws_ec2_reboot.web", `action_trigger "reboot_first" {`, "target = aws_instance.web"}},
+		{"turf_action_untrigger", `{"name":"reboot_first"}`,
+			[]string{"Detach Phase Action", "reboot_first", "detached"}},
 		{"turf_action_invoke", `{"action_type":"aws_lambda_invoke","provider":"aws",
 			"status":"completed","progress":["invoked"]}`,
 			[]string{"Invoke Action", "aws_lambda_invoke", "completed", "invoked"}},
@@ -1107,12 +939,12 @@ func TestActionInvoke_ResolvedConfigExpandsNested(t *testing.T) {
 	}
 }
 
-// TestResourcePlan_CollectionAttrExpands proves the fix reaches the diff path too: a
+// TestPlanSummary_CollectionAttrExpands proves the fix reaches the diff path too: a
 // collection-valued attribute expands instead of dumping JSON.
-func TestResourcePlan_CollectionAttrExpands(t *testing.T) {
-	const content = `{"resource_addr":"aws_s3_bucket.b","action":"+","before":null,
-		"after":{"bucket":"b","tags":{"env":"prod"}}}`
-	out := plainNorm(renderFor("turf_declare_resource", content, service.StaticSessionState{}))
+func TestPlanSummary_CollectionAttrExpands(t *testing.T) {
+	const content = `{"phase_id":"ph_001","resources":[{"address":"aws_s3_bucket.b","action":"+",
+		"before":null,"after":{"bucket":"b","tags":{"env":"prod"}}}]}`
+	out := plainNorm(renderFor("turf_replan", content, service.StaticSessionState{}))
 	for _, want := range []string{"tags = {", `env = "prod"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("collection attr not expanded, missing %q: %q", want, out)
@@ -1308,10 +1140,12 @@ func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
 		content string
 		want    string
 	}{
-		{"turf_declare_resource", `{
-			"resource_addr": "random_password.pw", "action": "create",
-			"after": {"result": "` + secret + `", "length": 16},
-			"after_sensitive": {"result": true}
+		{"turf_replan", `{
+			"resources": [{
+				"address": "random_password.pw", "action": "create",
+				"after": {"result": "` + secret + `", "length": 16},
+				"after_sensitive": {"result": true}
+			}]
 		}`, "+ result = (sensitive)"},
 		{"turf_plan_new", `{
 			"resources": [{
@@ -1418,46 +1252,6 @@ func sortedKeys(m map[string]any) []string {
 
 // --- ephemeral resources ------------------------------------------------------
 
-// An ephemeral value never reaches the wire, so the only thing to render is the
-// open's classification. The compact line must say what happened; the expansion
-// must list the instances — and neither may invent a value.
-func TestDeclareEphemeral_OpensAndReplan(t *testing.T) {
-	const content = `{
-		"resource_addr": "ephemeral.vault_kv_secret_v2.creds",
-		"resource_type": "vault_kv_secret_v2",
-		"declared": true,
-		"replan": ["aws_db_instance.main"],
-		"ephemeral_opens": [
-			{"address": "ephemeral.vault_kv_secret_v2.creds[0]", "action": "opened"},
-			{"address": "ephemeral.vault_kv_secret_v2.creds[1]", "action": "deferred",
-			 "reason": "dependency_pending", "depends_on": ["vault_mount.kv"]}
-		],
-		"warnings": ["close failed: lease may still be held at the provider"]
-	}`
-
-	compact := renderFor("turf_declare_ephemeral", content, hiddenState{})
-	for _, want := range []string{"ephemeral.vault_kv_secret_v2.creds", "declared", "1 opened", "1 deferred", "1 replan"} {
-		if !strings.Contains(plainNorm(compact), want) {
-			t.Fatalf("compact missing %q: %q", want, plainNorm(compact))
-		}
-	}
-	if strings.Contains(strings.TrimRight(compact, " "), "\n") {
-		t.Fatalf("compact should be a single line: %q", compact)
-	}
-
-	detailed := plainNorm(renderFor("turf_declare_ephemeral", content, service.StaticSessionState{}))
-	for _, want := range []string{
-		"opens:", "creds[0]", "opened", "creds[1]", "dependency_pending",
-		"waiting on", "vault_mount.kv",
-		"replan:", "aws_db_instance.main",
-		"⚠", "lease may still be held",
-	} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("detail missing %q: %q", want, detailed)
-		}
-	}
-}
-
 // Every walk re-opens every declared ephemeral resource, so a plan that opened
 // them all has nothing to report on its summary line — tallying "3 opened" there
 // would read as a change that did not happen. What did NOT open is the signal.
@@ -1538,14 +1332,14 @@ func TestPlanSummary_ProviderStatusSilentWhenAllConfigured(t *testing.T) {
 // label every configuration wrong.
 func TestConfigInit_BackendDefaultedPolarity(t *testing.T) {
 	declared := plainNorm(renderFor("turf_config_init",
-		`{"path":"infra","dialect":"tofu","backend":{"type":"s3"},"workspace":{"name":"main"}}`,
+		`{"path":"infra","backend":{"type":"s3"},"workspace":{"name":"main"}}`,
 		hiddenState{}))
 	if !strings.Contains(declared, "backend s3") || strings.Contains(declared, "(default)") {
 		t.Fatalf("a declared backend must not read as defaulted: %q", declared)
 	}
 
 	synthesized := plainNorm(renderFor("turf_config_init",
-		`{"path":"infra","dialect":"plot","backend":{"type":"local","defaulted":true},"workspace":{"name":"main"}}`,
+		`{"path":"infra","backend":{"type":"local","defaulted":true},"workspace":{"name":"main"}}`,
 		hiddenState{}))
 	if !strings.Contains(synthesized, "backend local (default)") {
 		t.Fatalf("the synthesized default must say so: %q", synthesized)
@@ -1555,14 +1349,14 @@ func TestConfigInit_BackendDefaultedPolarity(t *testing.T) {
 // Drift is what the NEXT plan will do about this directory — orphan destroys and
 // pending creates — so it earns a summary segment, in the plan's own glyph idiom.
 func TestConfigInit_Drift(t *testing.T) {
-	const content = `{"path":"infra","dialect":"plot","backend":{"type":"local","defaulted":true},
+	const content = `{"path":"infra","backend":{"type":"local","defaulted":true},
 		"workspace":{"name":"main"},"scratch":true,
 		"drift":[{"workspace_alias":"default",
 			"in_state_not_declared":["aws_s3_bucket.old"],
 			"declared_not_in_state":["aws_s3_bucket.new","random_pet.this"]}]}`
 
 	compact := plainNorm(renderFor("turf_config_init", content, hiddenState{}))
-	for _, want := range []string{"plot", "scratch", "+2", "-1", "drift"} {
+	for _, want := range []string{"scratch", "+2", "-1", "drift"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact missing %q: %q", want, compact)
 		}
@@ -1580,7 +1374,7 @@ func TestConfigInit_Drift(t *testing.T) {
 // constraint; an ephemeral variable may never be stored. Both are things the
 // reader has to be able to tell apart from the declared/ordinary case.
 func TestConfigInit_InferredAndEphemeralBadges(t *testing.T) {
-	const content = `{"path":"infra","dialect":"plot","workspace":{"name":"main"},
+	const content = `{"path":"infra","workspace":{"name":"main"},
 		"required_providers":{"random":{"source":"hashicorp/random","inferred":true},
 			"aws":{"source":"hashicorp/aws","version":"5.1.0"}},
 		"variables":[{"name":"token","required":true,"ephemeral":true},
@@ -1605,9 +1399,9 @@ func TestConfigInit_InferredAndEphemeralBadges(t *testing.T) {
 // rides on the entry instead. Dropping it leaves the one entry whose identity
 // the address cannot carry saying nothing at all.
 func TestConfigShow_BackendCarriesItsType(t *testing.T) {
-	const content = `{"dialect":"plot","path":"infra","entries":[
-		{"address":"backend","kind":"backend","type":"s3","file":"backend.tfplot.hcl"},
-		{"address":"random_pet.this","kind":"resource","file":"random_pet.this.tfplot.hcl"}]}`
+	const content = `{"config_alias":"infra","path":"infra","entries":[
+		{"address":"backend","kind":"backend","type":"s3","file":"backend.tf"},
+		{"address":"random_pet.this","kind":"resource","file":"main.tf"}]}`
 
 	out := plainNorm(renderFor("turf_config_show", content, service.StaticSessionState{}))
 	if !strings.Contains(out, "backend s3") {
@@ -1615,17 +1409,21 @@ func TestConfigShow_BackendCarriesItsType(t *testing.T) {
 	}
 	// An ordinary entry has no type field and must not grow a trailing space
 	// where one would go.
-	if !strings.Contains(out, "random_pet.this.tfplot.hcl · resource") {
+	if !strings.Contains(out, "main.tf · resource") {
 		t.Fatalf("non-backend entry should read unchanged: %q", out)
+	}
+	// A multi-entry index summarizes as the bare entry count.
+	if !strings.Contains(out, "2 declared address(es)") {
+		t.Fatalf("index summary should count the entries: %q", out)
 	}
 }
 
 // A single-entry query is summarized on the compact line, which is the whole
 // answer when results are hidden — so the type has to reach that line too.
 func TestConfigShow_SingleBackendSummary(t *testing.T) {
-	const content = `{"dialect":"plot","path":"infra","entries":[
-		{"address":"backend","kind":"backend","type":"local","file":"backend.tfplot.hcl",
-		 "note":"turf-authored unit in backend.tfplot.hcl"}]}`
+	const content = `{"config_alias":"infra","path":"infra","entries":[
+		{"address":"backend","kind":"backend","type":"local","file":"backend.tf",
+		 "note":"declared in backend.tf; edit the file and replan to change it"}]}`
 
 	compact := plainNorm(renderFor("turf_config_show", content, hiddenState{}))
 	if !strings.Contains(compact, "backend · backend local") {
@@ -1634,46 +1432,6 @@ func TestConfigShow_SingleBackendSummary(t *testing.T) {
 }
 
 // --- remaining field signal ---------------------------------------------------
-
-func TestDeclareResource_ReplanAndDemotedDeferral(t *testing.T) {
-	const content = `{"resource_addr":"aws_db_instance.main","provider":"aws","action":"?",
-		"before":null,"after":{},"replan":["aws_route53_record.db"],
-		"deferred":{"reason":"provider_config_unknown","last_error":"dial tcp: connection refused"}}`
-
-	compact := plainNorm(renderFor("turf_declare_resource", content, hiddenState{}))
-	if !strings.Contains(compact, "1 replan") {
-		t.Fatalf("compact should count stale plans: %q", compact)
-	}
-
-	detailed := plainNorm(renderFor("turf_declare_resource", content, service.StaticSessionState{}))
-	for _, want := range []string{
-		"deferred: provider_config_unknown",
-		"connection refused", // a DEMOTED provider failure must not read as an ordinary wait
-		"replan:", "aws_route53_record.db",
-	} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("detail missing %q: %q", want, detailed)
-		}
-	}
-}
-
-// An output that failed to evaluate is absent from outputs[], so without the
-// errors map the line would report it as simply not declared.
-func TestDeclareOutputs_Errors(t *testing.T) {
-	const content = `{"phase_id":"ph_1","outputs":{"url":"https://x"},
-		"errors":{"arn":"Unsupported attribute: this object has no argument named \"arn\""}}`
-
-	compact := plainNorm(renderFor("turf_declare_outputs", content, hiddenState{}))
-	if !strings.Contains(compact, "1 error(s)") {
-		t.Fatalf("compact should count the failures: %q", compact)
-	}
-	detailed := plainNorm(renderFor("turf_declare_outputs", content, service.StaticSessionState{}))
-	for _, want := range []string{"errors:", "arn", "Unsupported attribute"} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("detail missing %q: %q", want, detailed)
-		}
-	}
-}
 
 // A tainted object is replaced by the next plan and a deposed one is still real
 // infrastructure — neither is visible in a plain address listing.
@@ -1692,20 +1450,5 @@ func TestStateList_TaintedAndDeposed(t *testing.T) {
 	detailed := plainNorm(renderFor("turf_state_list", content, service.StaticSessionState{}))
 	if !strings.Contains(detailed, "aws_instance.web") || !strings.Contains(detailed, "tainted") {
 		t.Fatalf("detail missing the tainted row: %q", detailed)
-	}
-}
-
-// declare_var's result echoes no declaration detail, so the one fact worth
-// carrying — that this value may never be written down — comes from the request.
-func TestDeclareVar_EphemeralBadgeFromArgs(t *testing.T) {
-	const content = `{"name":"vault_token","address":"var.vault_token","declared":true}`
-
-	plain := plainNorm(renderArgs("turf_declare_var", content, `{"name":"vault_token"}`))
-	if strings.Contains(plain, "ephemeral") {
-		t.Fatalf("an ordinary variable must not read as ephemeral: %q", plain)
-	}
-	marked := plainNorm(renderArgs("turf_declare_var", content, `{"name":"vault_token","ephemeral":true}`))
-	if !strings.Contains(marked, "ephemeral") {
-		t.Fatalf("an ephemeral declaration must say so: %q", marked)
 	}
 }
