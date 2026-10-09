@@ -5,15 +5,15 @@ go 1.26.6
 replace github.com/docker/docker-agent => ./docker-agent
 
 require (
-	charm.land/bubbletea/v2 v2.0.9
-	github.com/charmbracelet/x/ansi v0.11.8
+	charm.land/bubbletea/v2 v2.1.0
+	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/docker/docker-agent v1.118.0-turf.2
 	github.com/goccy/go-yaml v1.19.2
 	github.com/mattn/go-isatty v0.0.24
 	github.com/opentofu/svchost v0.0.0-20250610175836-86c9e5e3d8c8
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/oauth2 v0.36.0
-	golang.org/x/term v0.45.0
+	golang.org/x/oauth2 v0.37.0
+	golang.org/x/term v0.47.0
 )
 
 require (
@@ -57,7 +57,7 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260720091822-7cc6674724ac // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20251113172435-cef867b85f6a // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -103,10 +103,10 @@ require (
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741 // indirect
 	github.com/k3a/html2text v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
-	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
+	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
-	github.com/mattn/go-runewidth v0.0.27 // indirect
+	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.6.1 // indirect
@@ -131,7 +131,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.9-0.20250401010720-46d686821e33 // indirect
-	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/xo/terminfo v1.0.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.8.4 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
@@ -149,7 +149,7 @@ require (
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
