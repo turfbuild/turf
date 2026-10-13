@@ -117,6 +117,7 @@ var turfToolInfo = map[string]struct {
 	"skill_authoring": {"skills", "Authoring Skill"},
 	"skill_codified":  {"skills", "Codified Skill"},
 	"skill_demo":      {"skills", "Demo Skill"},
+	"skill_guide":     {"skills", "Guide Skill"},
 	"read_skill_file": {"skills", "Read Skill File"},
 }
 

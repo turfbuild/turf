@@ -125,6 +125,7 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_skill_authoring":   builder(renderSkill),
 		"turf_skill_codified":    builder(renderSkill),
 		"turf_skill_demo":        builder(renderSkill),
+		"turf_skill_guide":       builder(renderSkill),
 		"turf_read_skill_file":   builder(renderReadSkillFile),
 	}
 }

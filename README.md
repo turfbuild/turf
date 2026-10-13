@@ -59,8 +59,8 @@ export TURF_MCP_SERVER=/path/to/turf-mcp-server
 # Interactive infrastructure management (TUI)
 turf chat
 
-# Start the guided product demo (type inside the session)
-turf chat  # then: /demo
+# Get started with a use-case walkthrough, or tour the features (type inside the session)
+turf chat  # then: /guide — or /demo
 
 # Deploy from HCL configuration in the current directory
 turf up
@@ -82,7 +82,13 @@ turf login app.terraform.io
 turf logout app.terraform.io
 ```
 
-Type `/demo` inside `turf chat` to launch the guided walkthrough. It covers workspaces, remote backends, registry modules, Terraform Actions, and a live Kubernetes stack converged via deferrals. **Showcase** is the recommended starting point — a fast, cross-cutting grand tour — but you can jump straight to any deep-dive topic (`/demo actions`, `/demo deferrals`, etc.).
+Type `/guide` inside `turf chat` to get started with what Turf is for, on real examples from
+[turf-examples](https://github.com/turfbuild/turf-examples): deploy the NVIDIA AI Cluster Runtime
+(AICR) on a kind cluster, take a node through the day-2 maintenance runbook as Terraform actions,
+a product that installs itself, promotion across environments, your TACO as the control plane, and
+deploying with guardrails (`/guide day 2`, `/guide guardrails`, …).
+
+Type `/demo` inside `turf chat` to launch the feature tour. It covers workspaces, remote backends, registry modules, Terraform Actions, and a live Kubernetes stack converged via deferrals. **Showcase** is the recommended starting point — a fast, cross-cutting grand tour — but you can jump straight to any deep-dive topic (`/demo actions`, `/demo deferrals`, etc.).
 
 ### Flags
 
