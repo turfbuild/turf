@@ -124,10 +124,8 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_untaint":           builder(renderTaint),
 		"turf_provider_search":   builder(renderProviderSearch),
 		"turf_provider_describe": builder(renderProviderDescribe),
-		"turf_skill_core":        builder(renderSkill),
+		"turf_skill_deployment":  builder(renderSkill),
 		"turf_skill_authoring":   builder(renderSkill),
-		"turf_skill_codified":    builder(renderSkill),
-		"turf_skill_demo":        builder(renderSkill),
 		"turf_skill_guide":       builder(renderSkill),
 		"turf_read_skill_file":   builder(renderReadSkillFile),
 	}
@@ -2461,7 +2459,7 @@ func renderProviderSearch(msg *types.Message, s spinner.Spinner, ss service.Sess
 // with no expand detail; the leading title already names which skill this is.
 
 func renderSkill(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	// The title (e.g. "Core Skill") already names which skill this is, so the body
+	// The title (e.g. "Deployment Skill") already names which skill this is, so the body
 	// just carries load status — no need to repeat the slug.
 	if running(msg) {
 		return line(msg, s, "", width)
@@ -2485,8 +2483,8 @@ func renderReadSkillFile(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		return out
 	}
 	summary := addr(path)
-	if slug := argString(msg, "slug"); slug != "" {
-		summary += dot() + muted(slug)
+	if skill := argString(msg, "skill_name"); skill != "" {
+		summary += dot() + muted(skill)
 	}
 	if n := lineCount(msg.Content); n > 0 {
 		summary += muted(fmt.Sprintf(" (%d lines)", n))

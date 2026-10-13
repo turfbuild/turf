@@ -33,23 +33,23 @@ const mcpServerBinaryName = "turf-mcp-server"
 
 // workflowInstructions is the agent persona for this CLI. The turf MCP server
 // vends its own instructions (a short orientation) plus lazy-loaded skill tools
-// (skill_core, skill_authoring, skill_codified) containing the detailed workflow
+// (skill_deployment, skill_authoring, skill_guide) containing the detailed workflow
 // guidance, so we do not duplicate that material here.
 //
 // The turf MCP toolset is registered under the "turf" name (see
 // createAgentRuntime), so cagent exposes every one of its tools to the model
 // with a "turf_" prefix. The server's own instructions still name its tools
-// bare (e.g. skill_core), so the persona spells out the prefix mapping to keep
+// bare (e.g. skill_deployment), so the persona spells out the prefix mapping to keep
 // the model from calling the unprefixed name.
 const workflowInstructions = `You are turf, an infrastructure management agent powered by OpenTofu providers.
 
-The turf MCP server's tools are exposed to you with a turf_ prefix. When the server's instructions name a tool without it (e.g. skill_core, apply), call the prefixed form (turf_skill_core, turf_apply).
+The turf MCP server's tools are exposed to you with a turf_ prefix. When the server's instructions name a tool without it (e.g. skill_deployment, apply), call the prefixed form (turf_skill_deployment, turf_apply).
 
-Follow the MCP server's instructions and call the turf_skill_* tools when the user's request matches one. Load turf_skill_core at the start of any session; load turf_skill_authoring for natural-language infrastructure requests — where you write the configuration yourself as ordinary Terraform .tf files with write_file/edit_file, then plan it with turf_up — and turf_skill_codified for HCL the user wrote (declarative flows over user-authored .tf files).
+Follow the MCP server's instructions and call the turf_skill_* tools when the user's request matches one. Load turf_skill_deployment at the start of any session, before any other turf tool: it runs a configuration, including the /up and /destroy runbooks. Load turf_skill_authoring before you write or change a .tf or *.turf.hcl file with write_file/edit_file — a configuration you write from a natural-language request (which you then plan with turf_up), or an edit to the user's.
 
 Tool calls you make in a single turn execute one at a time, in the order you emit them. Turf's tools are stateful and order-dependent — turf_up plans the configuration directory as it stands on disk at that moment, and needs a registered configuration and an open workspace — so order dependent calls correctly within a batch: turf_init before turf_workspace_open before turf_up; finish the file edits (write_file/edit_file) before calling turf_up, so the plan sees the whole change; after adding a module or a provider, re-run turf_init before planning. If a call's arguments need a previous call's result (not just its effects), do not batch them — wait for that result first. turf_apply is always such a call: it takes the convergence_id and plan.digest from the result that vended the plan it approves.
 
-If the user types /guide, asks to get started, or asks what Turf is for, call turf_skill_guide and follow its use-case walkthrough on the turf-examples checkout, loading a journey with turf_read_skill_file as its hub directs. If the user types /demo or asks to run the demo, call turf_skill_demo and follow its beat-by-beat feature tour, loading a journey the same way. When the demo content names read_skill_file (bare), always call turf_read_skill_file — the bare read_skill_file is the user-skills loader (different tool, different arguments).
+If the user types /guide, asks to get started, or asks what Turf is for, call turf_skill_guide and follow its use-case walkthrough on the turf-examples checkout, loading a journey with turf_read_skill_file as its hub directs. When the guide content names read_skill_file (bare), always call turf_read_skill_file — the bare read_skill_file is the user-skills loader (different tool, different arguments).
 
 Confirmation is your responsibility, not the tooling's: turf's tools run without a separate permission prompt, so when the user must decide, obtain an explicit yes/no with the user_prompt tool (named user_prompt, no turf_ prefix), passing an enum schema {"type": "string", "enum": ["yes", "no"], "title": "..."} so they pick rather than free-type. Proceed only on "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust. There are four shapes:
 
@@ -72,7 +72,6 @@ hundreds of other providers from the OpenTofu registry.
 New to Turf? Type /guide to see what Turf is for, hands-on: deploy the NVIDIA
 AI Cluster Runtime on a cluster, run day 2 with actions, promote across
 environments, work with your TACO, put policy and guardrails in the loop.
-/demo tours the features: workspaces, plans, Terraform Actions, and more.
 
 What infrastructure would you like to manage?
 `
@@ -197,7 +196,7 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		serveArgs = append(serveArgs, "--log-format", opts.logFormat)
 	}
 	// Register the MCP toolset under the "turf" name so cagent prefixes every
-	// exposed tool with "turf_" (skill_core → turf_skill_core, read_skill_file
+	// exposed tool with "turf_" (skill_deployment → turf_skill_deployment, read_skill_file
 	// → turf_read_skill_file, …). This namespaces the server's tools and is what
 	// prevents a fatal collision: cagent's user-skills toolset (wired below when
 	// the user has SKILL.md files) also exposes a read_skill_file, and two tools
