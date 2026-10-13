@@ -11,12 +11,13 @@ import (
 // user_prompt tool, registered only on the non-interactive (--auto-approve /
 // headless) path.
 //
-// The /up and /destroy MCP prompts instruct the agent to seek explicit approval
-// before plan_approve, and the model satisfies that by calling user_prompt.
+// The persona has the agent seek explicit approval with user_prompt before it
+// approves a consequential plan (turf_apply), and before other steps the user must
+// decide.
 // cagent's real user_prompt routes through the runtime's elicitation handler,
 // which hard-declines whenever the runtime is non-interactive (there is no
 // client to answer) — so the approval request fails and an unattended run
-// stalls before it applies a later, e.g. deferred, phase. This tool answers
+// stalls before it applies a later, e.g. deferred, round. This tool answers
 // every prompt with "accept" *directly*, without any elicitation round-trip,
 // giving --auto-approve runs the "proceed without asking" behavior they intend.
 //
@@ -44,7 +45,7 @@ func (autoConfirmUserPrompt) Instructions() string {
 	return `## User Prompt Tool
 
 Ask the user a question when you need confirmation or a decision (e.g. approving a plan
-before plan_approve). This session is non-interactive: every prompt is auto-confirmed — the
+before turf_apply). This session is non-interactive: every prompt is auto-confirmed — the
 response is always "accept" — so use it to record the approval checkpoint and then proceed.`
 }
 

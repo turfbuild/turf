@@ -1,0 +1,253 @@
+{
+  "format_version": "1.2",
+  "variables": {
+    "password": {
+      "value": "hunter2"
+    },
+    "region": {
+      "value": "eu-west-1"
+    }
+  },
+  "planned_values": {
+    "outputs": {
+      "conn": {
+        "sensitive": true,
+        "value": "postgres://hunter2@db"
+      },
+      "id": {
+        "sensitive": false,
+        "value": "db-1"
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_db_instance.main",
+          "values": {
+            "password": "hunter2",
+            "port": 5432
+          },
+          "sensitive_values": {
+            "password": true
+          }
+        }
+      ],
+      "child_modules": [
+        {
+          "resources": [
+            {
+              "address": "module.m.random_password.p",
+              "values": {
+                "result": "s3cr3t",
+                "keepers": [
+                  "a",
+                  "b"
+                ]
+              },
+              "sensitive_values": {
+                "result": true,
+                "keepers": [
+                  false,
+                  true
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_db_instance.main",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "password": "hunter2",
+          "port": 5432
+        },
+        "after_sensitive": {
+          "password": true
+        }
+      }
+    },
+    {
+      "address": "aws_instance.web",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "tags": {
+            "k": "old"
+          }
+        },
+        "after": {
+          "tags": {
+            "k": "new"
+          }
+        },
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_instance.old",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {},
+        "after": null
+      }
+    },
+    {
+      "address": "aws_instance.r",
+      "change": {
+        "actions": [
+          "delete",
+          "create"
+        ],
+        "before": {},
+        "after": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket.b",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {},
+        "after": {},
+        "importing": {
+          "id": "b"
+        }
+      }
+    },
+    {
+      "address": "data.aws_ami.a",
+      "change": {
+        "actions": [
+          "read"
+        ],
+        "before": null,
+        "after": {}
+      }
+    },
+    {
+      "address": "aws_instance.gone",
+      "change": {
+        "actions": [
+          "forget"
+        ],
+        "before": {},
+        "after": null
+      }
+    }
+  ],
+  "resource_drift": [
+    {
+      "address": "aws_instance.web",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "secret": "x"
+        },
+        "after": {
+          "secret": "y"
+        },
+        "before_sensitive": {
+          "secret": true
+        },
+        "after_sensitive": {
+          "secret": true
+        }
+      }
+    }
+  ],
+  "output_changes": {
+    "conn": {
+      "actions": [
+        "create"
+      ],
+      "before": null,
+      "after": "postgres://hunter2@db",
+      "after_sensitive": true
+    },
+    "id": {
+      "actions": [
+        "no-op"
+      ],
+      "before": "db-1",
+      "after": "db-1"
+    }
+  },
+  "deferred_changes": [
+    {
+      "reason": "resource_config_unknown",
+      "resource_change": {
+        "address": "k8s.x",
+        "change": {
+          "actions": [
+            "create"
+          ],
+          "after": {
+            "token": "t0k"
+          },
+          "after_sensitive": {
+            "token": true
+          }
+        }
+      }
+    }
+  ],
+  "action_invocations": [
+    {
+      "address": "action.turf_confirm.gate",
+      "type": "turf_confirm",
+      "config_values": {
+        "message": "go?"
+      },
+      "config_sensitive": {},
+      "lifecycle_action_trigger": {
+        "triggering_resource_address": "aws_db_instance.main",
+        "action_trigger_event": "before_create",
+        "on_failure": "halt"
+      }
+    }
+  ],
+  "prior_state": {
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "aws_instance.web",
+            "values": {
+              "secret": "x"
+            },
+            "sensitive_values": {
+              "secret": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "configuration": {
+    "root_module": {
+      "variables": {
+        "password": {
+          "sensitive": true
+        },
+        "region": {}
+      }
+    }
+  },
+  "errored": false
+}

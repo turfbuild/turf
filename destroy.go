@@ -32,8 +32,8 @@ func newDestroyCmd() *cobra.Command {
 
 			// Resolve the configuration path AFTER any --worktree chdir so the
 			// explicit path handed to the server's /destroy prompt (and from
-			// there to config_init) lands inside the worktree — the server never
-			// relies on its inherited cwd for the configuration.
+			// there to init) lands inside the worktree — the server never relies
+			// on its inherited cwd for the configuration.
 			absPath, err := filepath.Abs(".")
 			if err != nil {
 				return err
@@ -67,8 +67,9 @@ func newDestroyCmd() *cobra.Command {
 
 			// Render the server's authored /destroy runbook as the first message —
 			// the same content the TUI's /destroy slash command produces — with any
-			// positional args joined into the optional instructions argument.
-			prompt, err := renderServerPrompt(ctx, rt, "destroy", absPath, strings.Join(args, " "))
+			// positional args joined into the optional instructions argument, and
+			// --yes forwarded as the prompt's auto_approve.
+			prompt, err := renderServerPrompt(ctx, rt, "destroy", absPath, strings.Join(args, " "), autoApprove)
 			if err != nil {
 				return err
 			}

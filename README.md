@@ -206,9 +206,9 @@ turf exec --json "reconcile the stack" | jq -e 'select(.type=="error")' && echo 
 ```
 
 **`--yes` / `--auto-approve` — unattended runs.** `exec` is non-interactive, so
-plan-approval questions are auto-confirmed, but the mutation gate (apply,
-imports, refresh) still asks on stdin by default. Pass `--yes` to auto-approve
-those so a run proceeds with no human at the keyboard. Use `--hide-tool-calls`
+the agent's plan-approval questions are auto-confirmed, and turf's own tools
+never ask for permission. Pass `--yes` to auto-approve any other tool call that
+would ask on stdin, so a run proceeds with no human at the keyboard. Use `--hide-tool-calls`
 to print only the agent's prose.
 
 > `exec` still launches `turf-mcp-server`, so it must be on `PATH` (see
@@ -238,7 +238,7 @@ configured that cloud models do not: a **tool-capable** model, and a **context
 window large enough for turf's prompt**.
 
 > **turf's prompt is ~27k tokens before you type anything.** turf exposes
-> ~40 infrastructure tools plus their workflow instructions, and that goes in
+> two dozen infrastructure tools plus their workflow instructions, and that goes in
 > every request. Docker Model Runner's default window is far smaller, so an
 > unconfigured local model rejects turf's very first message with
 > `exceeds the available context size`. Set `context_size` and it works.
@@ -404,7 +404,7 @@ rather than plain `llama3`. See [Model providers](#model-providers).
 ### `model failed: … exceeds the available context size`
 
 A local model is running with a context window smaller than turf's prompt. turf
-sends ~27k tokens before you type anything (roughly 40 infrastructure tools and
+sends ~27k tokens before you type anything (two dozen infrastructure tools and
 their workflow instructions), and Docker Model Runner's default window is far
 smaller — so the very first message is rejected.
 

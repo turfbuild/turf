@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -66,509 +68,6 @@ func renderErrArgs(name, content, argsJSON string, ss service.SessionStateReader
 	b := turfToolRenderers()[name](animation.NewRuntime(), msg, ss)
 	b.SetSize(120, 10)
 	return b.View()
-}
-
-// TestPlanSummary_CompactVsDetailed: the compact line is the tally alone; the
-// expansion unfolds each row's before→after diff with its values.
-func TestPlanSummary_CompactVsDetailed(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "resources": [{
-		"address": "random_pet.this",
-		"provider": "random",
-		"action": "+",
-		"before": null,
-		"after": {"id": "x", "length": 2, "separator": "-"}
-	}]}`
-
-	compact := renderFor("turf_replan", content, hiddenState{})
-	if !strings.Contains(compact, "+1") {
-		t.Fatalf("compact missing the tally: %q", compact)
-	}
-	if strings.Contains(compact, "random_pet.this") || strings.Contains(compact, "separator") {
-		t.Fatalf("compact should not include the detail block: %q", compact)
-	}
-	if strings.Contains(strings.TrimRight(compact, " "), "\n") {
-		t.Fatalf("compact should be a single line: %q", compact)
-	}
-
-	detailed := renderFor("turf_replan", content, service.StaticSessionState{})
-	// The expanded view unfolds the before→after diff with values (the quoted
-	// values appear only in the diff, not the compact summary).
-	for _, want := range []string{"random_pet.this", "separator", `"-"`, `"x"`} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("expanded diff missing %q: %q", want, detailed)
-		}
-	}
-}
-
-func TestPlanSummary_UpdateDiff(t *testing.T) {
-	// A ~ change should render old → new with both values.
-	const content = `{"phase_id": "ph_001", "resources": [{
-		"address": "random_pet.first",
-		"provider": "random",
-		"action": "~",
-		"before": {"prefix": "alpha", "length": 2},
-		"after": {"prefix": "gamma", "length": 2}
-	}]}`
-	out := renderFor("turf_replan", content, service.StaticSessionState{})
-	for _, want := range []string{"prefix", `"alpha"`, "→", `"gamma"`} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("update diff missing %q: %q", want, out)
-		}
-	}
-	// length is unchanged and must be omitted from the diff.
-	if strings.Contains(out, "length") {
-		t.Fatalf("unchanged attr should not appear: %q", out)
-	}
-}
-
-func TestEffectApply_ReadyNextBelowNewState(t *testing.T) {
-	const content = `{"kind": "create", "state": "done", "resource_addr": "a.b",
-		"new_state": {"id": "x"}, "ready": ["+/c.d/create"]}`
-	out := renderFor("turf_effect_apply", content, service.StaticSessionState{})
-	ns := strings.Index(out, "new state")
-	rn := strings.Index(out, "ready to effect")
-	if ns < 0 || rn < 0 {
-		t.Fatalf("expected both sections: %q", out)
-	}
-	if ns > rn {
-		t.Fatalf("new state should precede ready to effect: %q", out)
-	}
-}
-
-func TestProviderDescribe_Summary(t *testing.T) {
-	const content = `{"type": "random_pet", "description": "Generates random pet names.",
-		"properties": {"length": {"type": "number", "usage": "optional"},
-		"id": {"type": "string", "usage": "computed", "sensitive": false}},
-		"required": []}`
-	out := renderFor("turf_provider_describe", content, service.StaticSessionState{})
-	for _, want := range []string{"Describe Provider", "random_pet", "attr", "length", "optional", "Generates random pet names"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("provider_describe missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestProviderSearch_Summary(t *testing.T) {
-	const content = `{"providers": [
-		{"name": "aws", "version": "5.1.0", "description": "Amazon Web Services"},
-		{"name": "awscc", "version": "1.0.0", "description": "AWS Cloud Control"}]}`
-	out := renderFor("turf_provider_search", content, service.StaticSessionState{})
-	for _, want := range []string{"Search Providers", "2 result(s)", "aws", "5.1.0", "Amazon Web Services"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("provider_search missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestWorkspaceList_Summary(t *testing.T) {
-	const content = `{"workspaces": ["default", "staging", "prod"]}`
-	out := renderFor("turf_workspace_list", content, service.StaticSessionState{})
-	for _, want := range []string{"List Workspaces", "3 found", "staging"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("workspace_list missing %q: %q", want, out)
-		}
-	}
-	empty := renderFor("turf_workspace_list", `{"workspaces": []}`, hiddenState{})
-	if !strings.Contains(empty, "none") {
-		t.Fatalf("empty workspace_list should say none: %q", empty)
-	}
-}
-
-func TestWorkspaceShow_Summary(t *testing.T) {
-	const content = `{"workspaces": [{"workspace_alias": "prod", "backend_type": "s3",
-		"name": "main", "resource_count": 7, "uncommitted_changes": 2,
-		"active_phase_id": "p3", "active_phase_status": "applied"}]}`
-	out := renderFor("turf_workspace_show", content, service.StaticSessionState{})
-	for _, want := range []string{"Show Workspace", "prod", "7 resource(s)", "2 uncommitted", "s3", "phase p3", "applied"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("workspace_show missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestOutputs_SensitiveMasked(t *testing.T) {
-	const content = `{"workspace_alias": "", "outputs": {
-		"url": {"value": "https://x", "sensitive": false},
-		"token": {"value": "__cty_sensitive__", "sensitive": true}}}`
-	out := renderFor("turf_outputs", content, service.StaticSessionState{})
-	for _, want := range []string{"Read Outputs", "2 declared", "1 sensitive", "url", "(sensitive)"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("outputs missing %q: %q", want, out)
-		}
-	}
-	if strings.Contains(out, "__cty_sensitive__") {
-		t.Fatalf("sensitive sentinel leaked: %q", out)
-	}
-}
-
-func TestDatasourceRead_Summary(t *testing.T) {
-	const content = `{"resource_addr": "data.aws_ami.latest",
-		"state": {"id": "ami-123", "name": "ubuntu"}}`
-	out := renderFor("turf_datasource_read", content, service.StaticSessionState{})
-	for _, want := range []string{"data", "data.aws_ami.latest", "2 attr(s)", "ami-123"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("datasource_read missing %q: %q", want, out)
-		}
-	}
-}
-
-// TestPlanSummary_ReplaceCBDvsDTC: a replace row's header carries ± for
-// create-before-destroy and ∓ for the default destroy-then-create.
-func TestPlanSummary_ReplaceCBDvsDTC(t *testing.T) {
-	row := func(cbd string) string {
-		return `{"phase_id": "ph_001", "resources": [{"address": "a.b", "action": "replace",` +
-			cbd + ` "before": {"x": 1}, "after": {"x": 2}}]}`
-	}
-	out := plainNorm(renderFor("turf_replan", row(`"create_before_destroy": true,`), service.StaticSessionState{}))
-	if !strings.Contains(out, "± a.b") || strings.Contains(out, "∓") {
-		t.Fatalf("CBD replace should show ± not ∓: %q", out)
-	}
-	out = plainNorm(renderFor("turf_replan", row(`"create_before_destroy": false,`), service.StaticSessionState{}))
-	if !strings.Contains(out, "∓ a.b") || strings.Contains(out, "±") {
-		t.Fatalf("DTC replace should show ∓ not ±: %q", out)
-	}
-
-	// The load-bearing case: the server sends create_before_destroy as a bare bool
-	// with omitempty, so the ordinary delete-then-create replace arrives with the
-	// key ABSENT. Reading absent as ± would render every default replace wrong.
-	out = plainNorm(renderFor("turf_replan", row(""), service.StaticSessionState{}))
-	if !strings.Contains(out, "∓ a.b") || strings.Contains(out, "±") {
-		t.Fatalf("replace with no create_before_destroy is DTC (∓), got: %q", out)
-	}
-}
-
-// TestPlanSummary_MovedRecords covers the state relocations a phase's `moved {}`
-// blocks produce. They are not resource changes, so they get their own summary
-// segment and their own detail section rather than a tally bucket — and they are
-// reported by plan_new/replan even when the re-plan finds nothing left to move.
-func TestPlanSummary_MovedRecords(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "path": "infra/prod",
-		"resources": [{"address": "aws_s3_bucket.assets", "action": "noop"}],
-		"moved": [
-			{"from": "aws_s3_bucket.old", "to": "aws_s3_bucket.assets"},
-			{"from": "module.net.aws_vpc.a", "to": "module.network.aws_vpc.a"}
-		]}`
-	out := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
-	if !strings.Contains(out, "⇄2 moved") {
-		t.Fatalf("summary should count relocations: %q", out)
-	}
-	for _, want := range []string{"moved:", "aws_s3_bucket.old", "→", "module.network.aws_vpc.a"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expanded block missing %q: %q", want, out)
-		}
-	}
-	// Compact stays a one-liner: the count is in the summary, the pairs are not.
-	compact := plainNorm(renderFor("turf_plan_new", content, hiddenState{}))
-	if strings.Contains(compact, "aws_s3_bucket.old") {
-		t.Errorf("compact line should not list relocations: %q", compact)
-	}
-}
-
-// TestPlanSummary_DeposedRow covers the destroy of an object deposed under an
-// address by an interrupted create-before-destroy replace. Two rows can share one
-// address, told apart only by deposed_key, so the header has to carry it.
-func TestPlanSummary_DeposedRow(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "path": "infra/prod", "resources": [
-		{"address": "aws_instance.web", "action": "create", "after": {"ami": "ami-1"}},
-		{"address": "aws_instance.web", "action": "delete", "deposed_key": "abc12345",
-		 "before": {"ami": "ami-0"}}
-	]}`
-	out := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
-	if !strings.Contains(out, "aws_instance.web (deposed abc12345)") {
-		t.Fatalf("deposed row should name its deposed key: %q", out)
-	}
-	// It is an ordinary destroy for tally purposes.
-	if !strings.Contains(out, "-1") || !strings.Contains(out, "+1") {
-		t.Errorf("deposed destroy should count in the - bucket: %q", out)
-	}
-}
-
-// TestPlanSummary_AdoptedRow covers a change that adopts an existing object named
-// by an `import {}` block. Its before half is the real remote object, so it plans
-// as a no-op — a bucket planTally omits — and without its own segment the whole
-// plan would headline as "no changes".
-func TestPlanSummary_AdoptedRow(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "path": "infra/prod", "resources": [
-		{"address": "tfcoremock_simple_resource.adopted", "action": "noop",
-		 "importing": {"id": "res-42"}},
-		{"address": "aws_s3_bucket.byid", "action": "noop",
-		 "importing": {"identity": {"bucket": "mint-hyena"}}}
-	]}`
-	out := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
-	if !strings.Contains(out, "↧2 adopted") {
-		t.Fatalf("adoption must survive the no-op tally: %q", out)
-	}
-	for _, want := range []string{"adopt id=res-42", "adopt identity"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("row header missing %q: %q", want, out)
-		}
-	}
-}
-
-// TestEffectApply_DeposedOutputsMessage covers the three result fields the apply
-// line used to drop. The message matters most for a move effect: the from→to
-// relocation reaches the wire only there.
-func TestEffectApply_DeposedOutputsMessage(t *testing.T) {
-	const content = `{"kind": "move", "state": "applied", "resource_addr": "random_pet.renamed",
-		"ready": [], "message": "moved random_pet.old to random_pet.renamed in state"}`
-	out := plainNorm(renderFor("turf_effect_apply", content, service.StaticSessionState{}))
-	for _, want := range []string{"random_pet.renamed", "move", "applied", "moved random_pet.old to"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("move effect missing %q: %q", want, out)
-		}
-	}
-
-	const applied = `{"kind": "create", "state": "applied", "resource_addr": "aws_instance.web",
-		"new_state": {"id": "i-1"},
-		"deposed_state": {"id": "i-0"},
-		"outputs": {"url": {"value": "https://x"}, "pw": {"value": "s3cret", "sensitive": true}}}`
-	out = plainNorm(renderFor("turf_effect_apply", applied, service.StaticSessionState{}))
-	for _, want := range []string{"2 output(s)", "deposed state:", `id = "i-0"`, "outputs:", `url = "https://x"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("apply detail missing %q: %q", want, out)
-		}
-	}
-	// The per-output sensitive flag IS the mask here — a revealed secret must not
-	// reach the timeline just because it arrived in the clear.
-	if strings.Contains(out, "s3cret") {
-		t.Errorf("sensitive output leaked into the timeline: %q", out)
-	}
-	if !strings.Contains(out, "(sensitive)") {
-		t.Errorf("sensitive output should render masked: %q", out)
-	}
-}
-
-// TestResourceImport_IdentityAndWarning covers an import located by a
-// provider-declared identity, and the warning that says the import was recorded
-// but never flushed to the state backend — which must not read as a clean success.
-func TestResourceImport_IdentityAndWarning(t *testing.T) {
-	const content = `{"resource_addr": "aws_s3_bucket.data",
-		"imported_state": {"id": "my-bucket"},
-		"identity": {"bucket": "my-bucket", "region": "us-east-1"},
-		"warning": "state could not be flushed to the backend"}`
-	out := plainNorm(renderFor("turf_resource_import", content, service.StaticSessionState{}))
-	for _, want := range []string{"imported", "identity", "not flushed", "could not be flushed", `bucket = "my-bucket"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q: %q", want, out)
-		}
-	}
-	// No import_id was given or returned, so nothing should claim one.
-	if strings.Contains(out, "id my-bucket") {
-		t.Errorf("identity import should not report an id locator: %q", out)
-	}
-}
-
-// TestFormatEffectID_MoveAndDeposed pins the two effect-ID grammars the moved and
-// deposed work introduced: a "→" action label, and an address segment that now
-// carries a space and parentheses.
-func TestFormatEffectID_MoveAndDeposed(t *testing.T) {
-	out := plainNorm(formatEffectID("→/random_pet.renamed/move"))
-	for _, want := range []string{"→", "random_pet.renamed", "move"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("move effect id missing %q: %q", want, out)
-		}
-	}
-	out = plainNorm(formatEffectID("-/aws_instance.web (deposed abc12345)/destroy"))
-	for _, want := range []string{"-", "aws_instance.web (deposed abc12345)", "destroy"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("deposed effect id missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestPlanSummary_TallySplitsReplace(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "resources": [
-		{"address": "a.x", "action": "replace", "create_before_destroy": true},
-		{"address": "a.y", "action": "replace", "create_before_destroy": false},
-		{"address": "a.z", "action": "create"}
-	]}`
-	out := renderFor("turf_replan", content, hiddenState{})
-	for _, want := range []string{"+1", "±1", "∓1"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("tally should split CBD/DTC, missing %q: %q", want, out)
-		}
-	}
-}
-
-func TestPlanSummary_Tally(t *testing.T) {
-	const content = `{
-		"phase_id": "ph_001",
-		"resources": [
-			{"address": "a.x", "action": "+"},
-			{"address": "a.y", "action": "+"},
-			{"address": "a.z", "action": "~"}
-		],
-		"outputs": {"url": "v"}
-	}`
-	out := renderFor("turf_replan", content, hiddenState{})
-	if !strings.Contains(out, "+2") || !strings.Contains(out, "~1") {
-		t.Fatalf("tally wrong: %q", out)
-	}
-	if !strings.Contains(out, "1 output") {
-		t.Fatalf("missing outputs count: %q", out)
-	}
-}
-
-// TestPlanSummary_DataSourceReads covers data_source_reads[] on the shared walk
-// summary — plan_new and replan both return it. A walk reads every declared data
-// source, so the one-line view reports only what did *not* resolve; the expansion
-// lists them all.
-func TestPlanSummary_DataSourceReads(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "path": "infra/prod",
-		"resources": [{"address": "aws_instance.web", "action": "create"}],
-		"data_source_reads": [
-			{"address": "data.aws_ami.latest", "action": "read"},
-			{"address": "data.aws_instances.web", "action": "deferred",
-				"reason": "dependency_pending", "depends_on": ["aws_instance.web"]},
-			{"address": "data.aws_ami.bad", "action": "error", "error": "no AMI matched"}]}`
-
-	for _, name := range []string{"turf_plan_new", "turf_replan"} {
-		t.Run(name, func(t *testing.T) {
-			compact := plainNorm(renderFor(name, content, hiddenState{}))
-			// "data" qualifies the count so it cannot be read as the resource
-			// deferral tally sitting next to it on the same line.
-			for _, want := range []string{"+1", "1 data deferred", "1 data error"} {
-				if !strings.Contains(compact, want) {
-					t.Fatalf("compact missing %q: %q", want, compact)
-				}
-			}
-			// A plain read is the ordinary case and must not spend summary width.
-			if strings.Contains(compact, "data read") {
-				t.Fatalf("summary should not count plain reads: %q", compact)
-			}
-
-			detailed := plainNorm(renderFor(name, content, service.StaticSessionState{}))
-			for _, want := range []string{
-				"data sources:", "data.aws_ami.latest", "read",
-				"data.aws_instances.web", "dependency_pending", "waiting on", "aws_instance.web",
-				"data.aws_ami.bad", "no AMI matched",
-			} {
-				if !strings.Contains(detailed, want) {
-					t.Fatalf("detailed missing %q: %q", want, detailed)
-				}
-			}
-		})
-	}
-}
-
-// An all-read walk is the ordinary case: it should cost the summary line nothing,
-// while the expansion still says which data sources were read.
-func TestPlanSummary_AllReadCostsNoSummaryWidth(t *testing.T) {
-	const content = `{"phase_id": "ph_001", "resources": [{"address": "a.x", "action": "create"}],
-		"data_source_reads": [{"address": "data.aws_ami.latest", "action": "read"}]}`
-	compact := plainNorm(renderFor("turf_replan", content, hiddenState{}))
-	if strings.Contains(compact, "data") {
-		t.Fatalf("an all-read walk should add nothing to the summary: %q", compact)
-	}
-	detailed := plainNorm(renderFor("turf_replan", content, service.StaticSessionState{}))
-	if !strings.Contains(detailed, "data sources:") || !strings.Contains(detailed, "data.aws_ami.latest") {
-		t.Fatalf("expansion should still list the reads: %q", detailed)
-	}
-}
-
-func TestEffectApply_State(t *testing.T) {
-	const content = `{"kind": "create", "state": "done", "resource_addr": "random_pet.this", "phase_status": "complete"}`
-	out := renderFor("turf_effect_apply", content, hiddenState{})
-	if !strings.Contains(out, "random_pet.this") || !strings.Contains(out, "done") {
-		t.Fatalf("effect apply missing fields: %q", out)
-	}
-}
-
-func TestEffectApply_ReadySetFormatted(t *testing.T) {
-	// The ready set is formatted (symbol / addr / op split), and the noisy
-	// execution URI is dropped from the unfold.
-	const content = `{"kind": "destroy", "state": "done", "resource_addr": "random_string.demo2",
-		"phase_status": "executing", "ready": ["±/random_string.demo2/create"],
-		"execution_uri": "turf://workspaces/demo/phases/ph_002/execution"}`
-	out := renderFor("turf_effect_apply", content, service.StaticSessionState{})
-	if !strings.Contains(out, "random_string.demo2") || !strings.Contains(out, "create") {
-		t.Fatalf("ready set not formatted: %q", out)
-	}
-	if strings.Contains(out, "±/random_string.demo2/create") {
-		t.Fatalf("ready set should be split, not raw: %q", out)
-	}
-	if strings.Contains(out, "execution:") || strings.Contains(out, "turf://") {
-		t.Fatalf("execution URI should be dropped: %q", out)
-	}
-}
-
-// A workspace is opened against a CONFIGURATION, and that binding — not a provider
-// list — is what the line reports. The server renamed `name` to `workspace_name` and
-// stopped echoing resolved_providers (the walk configures providers now), so this
-// pins the field turf actually has to read: reverting the rename leaves the line
-// with an empty name, silently, which is how the drift went unnoticed.
-func TestWorkspaceOpen_Summary(t *testing.T) {
-	// workspace_alias is EMPTY here on purpose: this is the default workspace with a
-	// named state slot. The server normalizes an input alias of "default" to "", so
-	// the two never disagree that way on the wire (session.NormalizeAlias).
-	const content = `{"workspace_alias": "", "backend_type": "inmem",
-		"workspace_name": "prod", "config_alias": "app", "config_path": "infra/prod",
-		"state_path": "infra/prod/terraform.tfstate",
-		"backend_config": {"bucket": "tf-state"},
-		"resources": ["random_pet.this"],
-		"warnings": ["state records provider hashicorp/null, which the configuration no longer declares"]}`
-
-	compact := renderFor("turf_workspace_open", content, hiddenState{})
-	for _, want := range []string{"prod", "inmem", "infra/prod"} {
-		if !strings.Contains(compact, want) {
-			t.Fatalf("workspace open missing %q: %q", want, compact)
-		}
-	}
-
-	detailed := plainNorm(renderFor("turf_workspace_open", content, service.StaticSessionState{}))
-	for _, want := range []string{
-		"state:", "terraform.tfstate",
-		"backend config:", "bucket", "tf-state",
-		"1 resource(s) in state", "random_pet.this",
-		"⚠", "no longer declares",
-	} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("workspace open detail missing %q: %q", want, detailed)
-		}
-	}
-}
-
-// Naming a workspace on the timeline is one rule everywhere (workspaceName): the
-// session alias wins, the OpenTofu state slot is the fallback. The alias is set
-// exactly when several workspaces are open — and there the slot is usually the
-// literal "default" for all of them, so preferring it would name them identically.
-func TestWorkspaceOpen_PrefersAliasOverStateSlot(t *testing.T) {
-	out := renderFor("turf_workspace_open",
-		`{"workspace_alias": "prod", "workspace_name": "default",
-		  "backend_type": "s3", "config_path": "infra/app"}`,
-		hiddenState{})
-	if !strings.Contains(out, "prod") {
-		t.Fatalf("the line should lead with the alias the user passes to every later call: %q", out)
-	}
-
-	// And workspace_show must agree for the very same workspace.
-	show := renderFor("turf_workspace_show",
-		`{"workspaces":[{"workspace_alias":"prod","workspace_name":"default",
-		  "backend_type":"s3","resource_count":1}]}`,
-		hiddenState{})
-	if !strings.Contains(show, "prod") {
-		t.Fatalf("workspace_show disagrees with workspace_open: %q", show)
-	}
-}
-
-// The same rename hit workspace_show and workspace_delete, and the session-title
-// curator reads workspace_open's name too — so pin all three together.
-func TestWorkspaceNameFieldSurvives(t *testing.T) {
-	// workspaceName prefers the session alias; the renamed field is what the line
-	// falls back to when a workspace was opened without one.
-	show := renderFor("turf_workspace_show",
-		`{"workspaces":[{"backend_type":"s3","workspace_name":"prod",
-			"resource_count":3,"uncommitted_changes":0}]}`,
-		hiddenState{})
-	if !strings.Contains(show, "prod") {
-		t.Fatalf("workspace show lost the workspace name: %q", show)
-	}
-
-	del := renderFor("turf_workspace_delete",
-		`{"workspace_name":"staging","resource_count":0,"deleted":true}`, hiddenState{})
-	if !strings.Contains(del, "staging") {
-		t.Fatalf("workspace delete lost the workspace name: %q", del)
-	}
 }
 
 func TestSkill_LoadedLineNotBody(t *testing.T) {
@@ -646,10 +145,10 @@ func TestErrorLine_CompactTruncatedExpandedMultiline(t *testing.T) {
 	const tail = "ZZZ_TAIL_TOKEN"
 	errText := "Cannot invoke action: configuration has unresolved references. " +
 		strings.Repeat("filler word ", 15) + tail
-	title := turfToolTitle("action_invoke")
+	title := turfToolTitle("invoke")
 
 	// Expanded (turf default): leads with the title, wraps across lines, full text.
-	shown := renderErr("turf_action_invoke", errText, service.StaticSessionState{})
+	shown := renderErr("turf_invoke", errText, service.StaticSessionState{})
 	if !strings.Contains(shown, title) {
 		t.Fatalf("errored line should lead with title %q: %q", title, shown)
 	}
@@ -661,7 +160,7 @@ func TestErrorLine_CompactTruncatedExpandedMultiline(t *testing.T) {
 	}
 
 	// Compact (Ctrl+O): single line, truncated before the tail, ellipsis shown.
-	compact := renderErr("turf_action_invoke", errText, hiddenState{})
+	compact := renderErr("turf_invoke", errText, hiddenState{})
 	if !strings.Contains(compact, title) {
 		t.Fatalf("compact errored line should lead with title %q: %q", title, compact)
 	}
@@ -690,15 +189,15 @@ func TestErrorLine_EmptyContentFallsBackToFailed(t *testing.T) {
 // and the compact one-line form, so the error is as scannable as a success line.
 func TestErrorLine_ShowsRequestTarget(t *testing.T) {
 	const addr = "kubernetes_deployment_v1.web"
-	errText := "Failed to read resource: the server could not find the requested resource"
-	args := `{"resource_addr":"` + addr + `","workspace_alias":"k8s"}`
+	errText := "Cannot taint: the workspace is held by convergence p-1"
+	args := `{"addrs":["` + addr + `"],"workspace_alias":"k8s"}`
 
-	shown := renderErrArgs("turf_resource_refresh", errText, args, service.StaticSessionState{})
+	shown := renderErrArgs("turf_taint", errText, args, service.StaticSessionState{})
 	if !strings.Contains(plainNorm(shown), addr) {
 		t.Fatalf("expanded error should lead with the request target %q: %q", addr, shown)
 	}
 
-	compact := renderErrArgs("turf_resource_refresh", errText, args, hiddenState{})
+	compact := renderErrArgs("turf_taint", errText, args, hiddenState{})
 	if !strings.Contains(plainNorm(compact), addr) {
 		t.Fatalf("compact error should keep the request target %q visible: %q", addr, compact)
 	}
@@ -708,15 +207,14 @@ func TestErrorLine_ShowsRequestTarget(t *testing.T) {
 }
 
 // TestErrorTarget_FallsBackToWorkspaceAlias covers the universal fallback: a tool with no
-// specific target arg (plan_cancel) still surfaces the workspace alias on failure — the
-// screenshot's "Cancel Draft" case.
+// specific target arg (up) still surfaces the workspace alias on failure.
 func TestErrorTarget_FallsBackToWorkspaceAlias(t *testing.T) {
 	// The error text deliberately omits the alias, so a passing test proves the target
 	// prefix (not the message) carries it.
-	out := renderErrArgs("turf_plan_cancel", "no draft phase to cancel",
+	out := renderErrArgs("turf_up", "the workspace is held by another convergence",
 		`{"workspace_alias":"prod-db"}`, service.StaticSessionState{})
 	if !strings.Contains(plainNorm(out), "prod-db") {
-		t.Fatalf("plan_cancel error should surface the workspace alias: %q", out)
+		t.Fatalf("up error should surface the workspace alias: %q", out)
 	}
 }
 
@@ -780,54 +278,6 @@ func TestThink_SuppressesThoughtBody(t *testing.T) {
 	}
 }
 
-func TestNewRenderers_Smoke(t *testing.T) {
-	cases := []struct {
-		name    string
-		content string
-		wants   []string
-	}{
-		{"turf_workspace_delete", `{"workspace_name":"staging","resource_count":0,"deleted":true}`,
-			[]string{"Delete Workspace", "staging", "deleted"}},
-		{"turf_plan_cancel", `{"phase_id":"ph_003","status":"cancelled","message":"Draft discarded."}`,
-			[]string{"Cancel Draft", "ph_003", "cancelled", "Draft discarded."}},
-		{"turf_config_init", `{"path":"infra/prod","backend":{"type":"s3"},"workspace":{"name":"main"},
-			"required_providers":{"aws":{"source":"hashicorp/aws","version":"5.1.0"}},
-			"variables":[{"name":"region","required":true}],"outputs":[{"name":"url"}]}`,
-			[]string{"Init Config", "main", "infra/prod", "1 provider(s)", "1 variable(s)", "1 output(s)", "region", "url"}},
-		{"turf_plan_new", `{"phase_id":"ph_001","config_dir":"infra/prod","path":"infra/prod","resources":[]}`,
-			[]string{"ph_001", "opened", "infra/prod"}},
-		{"turf_action_trigger", `{"name":"reboot_first","target":"aws_instance.web",
-			"events":["before_update"],"actions":["action.aws_ec2_reboot.web"],"on_failure":"halt",
-			"hcl":"action_trigger \"reboot_first\" {\n  target = aws_instance.web\n}"}`,
-			[]string{"Attach Phase Action", "reboot_first", "attached", "aws_instance.web", "before_update",
-				"action.aws_ec2_reboot.web", `action_trigger "reboot_first" {`, "target = aws_instance.web"}},
-		{"turf_action_untrigger", `{"name":"reboot_first"}`,
-			[]string{"Detach Phase Action", "reboot_first", "detached"}},
-		{"turf_action_invoke", `{"action_type":"aws_lambda_invoke","provider":"aws",
-			"status":"completed","progress":["invoked"]}`,
-			[]string{"Invoke Action", "aws_lambda_invoke", "completed", "invoked"}},
-		{"turf_effect_cancel", `{"effect_id":"ph/x/a.b/create","state":"cancelled",
-			"cascaded":["~/c.d/update"],"ready":["+/e.f/create"]}`,
-			[]string{"Cancel Effect", "cancelled", "1 cascaded", "c.d", "e.f"}},
-		{"turf_resource_import", `{"resource_addr":"aws_s3_bucket.data","import_id":"my-bucket",
-			"imported_state":{"id":"my-bucket","arn":"arn:x"}}`,
-			[]string{"Import Resource", "aws_s3_bucket.data", "imported", "my-bucket", "2 attr(s)", "arn"}},
-		{"turf_resource_refresh", `{"resource_addr":"aws_s3_bucket.data","exists":true,
-			"refreshed_state":{"id":"my-bucket"}}`,
-			[]string{"Refresh Resource", "aws_s3_bucket.data", "refreshed", "1 attr(s)"}},
-		{"turf_resource_refresh", `{"resource_addr":"aws_s3_bucket.gone","exists":false}`,
-			[]string{"Refresh Resource", "aws_s3_bucket.gone", "no longer exists"}},
-	}
-	for _, c := range cases {
-		out := renderFor(c.name, c.content, service.StaticSessionState{})
-		for _, w := range c.wants {
-			if !strings.Contains(out, w) {
-				t.Errorf("%s missing %q: %q", c.name, w, out)
-			}
-		}
-	}
-}
-
 // TestRenderValueNesting exercises the shared value renderer directly: nested maps and
 // lists expand across =-aligned lines, short scalar lists stay inline, sentinels are
 // masked, and no raw JSON leaks — the behavior every kv-based block now inherits.
@@ -852,7 +302,7 @@ func TestRenderValueNesting(t *testing.T) {
 		"rules = [", // list holding a map expands
 		`id = "r1"`,
 		"(known after apply)",
-		"(sensitive)",
+		"(sensitive value)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("nesting missing %q:\n%s", want, out)
@@ -863,43 +313,6 @@ func TestRenderValueNesting(t *testing.T) {
 	}
 	if strings.Contains(out, "__cty_") {
 		t.Fatalf("nesting leaked sentinel:\n%s", out)
-	}
-}
-
-// TestActionInvoke_ResolvedConfigExpandsNested is the motivating case: a dry-run resolved
-// config with nested values renders as a multi-line block, not raw JSON.
-func TestActionInvoke_ResolvedConfigExpandsNested(t *testing.T) {
-	const content = `{"action_type":"tfcoremock_simple_resource","provider":"tfcoremock",
-		"status":"dry_run",
-		"config":{"bucket":"mint-hyena","tags":{"env":"prod","team":"infra"},
-		"ports":[80,443],"arn":"__cty_unknown__","kms":"__cty_sensitive__"}}`
-	out := plainNorm(renderFor("turf_action_invoke", content, service.StaticSessionState{}))
-	for _, want := range []string{"resolved config", "tags = {", `env = "prod"`, "ports = [80, 443]", "(known after apply)", "(sensitive)"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("resolved config missing %q: %q", want, out)
-		}
-	}
-	if strings.Contains(out, `{"`) {
-		t.Fatalf("resolved config leaked raw JSON: %q", out)
-	}
-	if strings.Contains(out, "__cty_") {
-		t.Fatalf("resolved config leaked sentinel: %q", out)
-	}
-}
-
-// TestPlanSummary_CollectionAttrExpands proves the fix reaches the diff path too: a
-// collection-valued attribute expands instead of dumping JSON.
-func TestPlanSummary_CollectionAttrExpands(t *testing.T) {
-	const content = `{"phase_id":"ph_001","resources":[{"address":"aws_s3_bucket.b","action":"+",
-		"before":null,"after":{"bucket":"b","tags":{"env":"prod"}}}]}`
-	out := plainNorm(renderFor("turf_replan", content, service.StaticSessionState{}))
-	for _, want := range []string{"tags = {", `env = "prod"`} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("collection attr not expanded, missing %q: %q", want, out)
-		}
-	}
-	if strings.Contains(out, `{"`) {
-		t.Fatalf("collection attr leaked raw JSON: %q", out)
 	}
 }
 
@@ -968,7 +381,7 @@ func TestAttrDiff_MaskRedactsRevealedValues(t *testing.T) {
 
 	create := plainNorm(strings.Join(attrDiff(nil, vals, nil, mask, ""), "\n"))
 	secretAbsent(t, create, secret, "create diff")
-	for _, want := range []string{"+ pw = (sensitive)", "+ token = (sensitive)", `+ env = "prod"`} {
+	for _, want := range []string{"+ pw = (sensitive value)", "+ token = (sensitive value)", `+ env = "prod"`} {
 		if !strings.Contains(create, want) {
 			t.Fatalf("create diff missing %q:\n%s", want, create)
 		}
@@ -976,7 +389,7 @@ func TestAttrDiff_MaskRedactsRevealedValues(t *testing.T) {
 
 	destroy := plainNorm(strings.Join(attrDiff(vals, nil, mask, nil, ""), "\n"))
 	secretAbsent(t, destroy, secret, "destroy diff")
-	if !strings.Contains(destroy, "- pw = (sensitive)") {
+	if !strings.Contains(destroy, "- pw = (sensitive value)") {
 		t.Fatalf("destroy diff missing masked scalar:\n%s", destroy)
 	}
 
@@ -986,8 +399,8 @@ func TestAttrDiff_MaskRedactsRevealedValues(t *testing.T) {
 		map[string]any{"pw": "old"}, map[string]any{"pw": secret},
 		nil, map[string]any{"pw": true}, ""), "\n"))
 	secretAbsent(t, added, secret, "newly-sensitive diff")
-	if !strings.Contains(added, `~ pw = "old" → (sensitive)`) {
-		t.Fatalf("newly-sensitive attr should read old → (sensitive): %q", added)
+	if !strings.Contains(added, `~ pw = "old" → (sensitive value)`) {
+		t.Fatalf("newly-sensitive attr should read old → (sensitive value): %q", added)
 	}
 
 	// A changed collection expands the new value, and the mask still bites inside it.
@@ -997,6 +410,31 @@ func TestAttrDiff_MaskRedactsRevealedValues(t *testing.T) {
 		map[string]any{"keepers": map[string]any{"token": true}},
 		map[string]any{"keepers": map[string]any{"token": true}}, ""), "\n"))
 	secretAbsent(t, coll, secret, "collection diff")
+}
+
+// TestMasks_WholeValueSensitive: OpenTofu writes a bare `true` when a whole value is
+// marked. Every attribute beneath it must collapse, in a diff and in a plain view.
+func TestMasks_WholeValueSensitive(t *testing.T) {
+	const secret = "hunter2"
+	vals := map[string]any{"user": "root", "pass": secret, "nested": map[string]any{"k": secret}}
+
+	create := plainNorm(strings.Join(attrDiff(nil, vals, nil, true, ""), "\n"))
+	secretAbsent(t, create, secret, "whole-value create")
+	secretAbsent(t, create, "root", "whole-value create")
+	if !strings.Contains(create, "+ pass = (sensitive value)") {
+		t.Fatalf("whole-value mask should mask each attribute:\n%s", create)
+	}
+
+	update := plainNorm(strings.Join(attrDiff(
+		map[string]any{"pass": "old-" + secret}, map[string]any{"pass": secret}, true, true, ""), "\n"))
+	secretAbsent(t, update, secret, "whole-value update")
+	if !strings.Contains(update, "~ pass = (sensitive value) → (sensitive value)") {
+		t.Fatalf("whole-value update should read (sensitive value) → (sensitive value):\n%s", update)
+	}
+
+	plain := plainNorm(strings.Join(kvLinesMasked(vals, true, "", 0), "\n"))
+	secretAbsent(t, plain, secret, "whole-value kvLinesMasked")
+	secretAbsent(t, plain, "root", "whole-value kvLinesMasked")
 }
 
 // TestAttrDiff_MaskedChange covers the two halves of an unprintable change: redacted,
@@ -1026,8 +464,8 @@ func TestAttrDiff_MaskedChange(t *testing.T) {
 		mask, mask, ""), "\n"))
 	secretAbsent(t, shown, "old-secret", "masked change")
 	secretAbsent(t, shown, "new-secret", "masked change")
-	if !strings.Contains(shown, "~ pw = (sensitive) → (sensitive)") {
-		t.Fatalf("a proven change to an unprintable value should read (sensitive) → (sensitive): %q", shown)
+	if !strings.Contains(shown, "~ pw = (sensitive value) → (sensitive value)") {
+		t.Fatalf("a proven change to an unprintable value should read (sensitive value) → (sensitive value): %q", shown)
 	}
 
 	// A revealed *collection* takes the same shape rather than expanding and losing
@@ -1037,7 +475,7 @@ func TestAttrDiff_MaskedChange(t *testing.T) {
 		map[string]any{"pw": map[string]any{"k": "new-secret"}},
 		mask, mask, ""), "\n"))
 	secretAbsent(t, coll, "old-secret", "masked collection change")
-	if !strings.Contains(coll, "~ pw = (sensitive) → (sensitive)") {
+	if !strings.Contains(coll, "~ pw = (sensitive value) → (sensitive value)") {
 		t.Fatalf("a masked collection change should take the same shape: %q", coll)
 	}
 }
@@ -1064,9 +502,9 @@ func TestKvLinesMasked_CollapsesSensitiveSubtrees(t *testing.T) {
 		`id = "x"`,
 		"config = {",
 		`user = "root"`,
-		"pass = (sensitive)",
-		"whole = (sensitive)", // the whole subtree collapses; no brace, no keys
-		"ports = [80, (sensitive)]",
+		"pass = (sensitive value)",
+		"whole = (sensitive value)", // the whole subtree collapses; no brace, no keys
+		"ports = [80, (sensitive value)]",
 		`nothing = "plain"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -1075,59 +513,6 @@ func TestKvLinesMasked_CollapsesSensitiveSubtrees(t *testing.T) {
 	}
 	if strings.Contains(out, "whole = {") {
 		t.Fatalf("a wholly-sensitive map must not expand:\n%s", out)
-	}
-}
-
-// TestRenderers_MasksSurviveToTheTimeline drives the real renderers with the payload a
-// show_sensitive call produces — plaintext values plus their mask — and asserts nothing
-// reaches the rendered line. This is the end the mask plumbing exists for.
-func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
-	const secret = "hunter2"
-	cases := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{"turf_replan", `{
-			"resources": [{
-				"address": "random_password.pw", "action": "create",
-				"after": {"result": "` + secret + `", "length": 16},
-				"after_sensitive": {"result": true}
-			}]
-		}`, "+ result = (sensitive)"},
-		{"turf_plan_new", `{
-			"resources": [{
-				"address": "random_pet.p", "action": "update",
-				"before": {"keepers": {"pw": "` + secret + `"}},
-				"after": {"keepers": {"pw": "` + secret + `-next"}},
-				"before_sensitive": {"keepers": {"pw": true}},
-				"after_sensitive": {"keepers": {"pw": true}}
-			}]
-		}`, "pw = (sensitive)"},
-		{"turf_effect_apply", `{
-			"kind": "create", "state": "done", "resource_addr": "random_password.pw",
-			"new_state": {"result": "` + secret + `"},
-			"sensitive_values": {"result": true}
-		}`, "result = (sensitive)"},
-		{"turf_outputs", `{
-			"workspace_alias": "default",
-			"outputs": {"pw": {"value": "` + secret + `", "sensitive": true},
-			            "name": {"value": "plain", "sensitive": false}}
-		}`, "pw = (sensitive)"},
-		{"turf_datasource_read", `{
-			"resource_addr": "data.vault_generic_secret.db",
-			"state": {"data": {"password": "` + secret + `"}},
-			"sensitive_values": {"data": true}
-		}`, "data = (sensitive)"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			out := renderFor(tc.name, tc.content, service.StaticSessionState{})
-			secretAbsent(t, out, secret, tc.name)
-			if !strings.Contains(plainNorm(out), tc.want) {
-				t.Fatalf("%s missing %q:\n%s", tc.name, tc.want, out)
-			}
-		})
 	}
 }
 
@@ -1198,205 +583,842 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-// --- ephemeral resources ------------------------------------------------------
+// --- convergence (up / destroy / refresh / import / invoke / apply / cancel) --
+//
+// The fixtures below are the v1 server's own results, recorded on the wire during the
+// manual suite's smoke run (doof docs/development/testing/manual-mcp-e2e-suite.md,
+// Run 1) against fixture `core`, paths shortened. Each tool's line is asserted in both
+// detail levels.
 
-// Every walk re-opens every declared ephemeral resource, so a plan that opened
-// them all has nothing to report on its summary line — tallying "3 opened" there
-// would read as a change that did not happen. What did NOT open is the signal.
-func TestPlanSummary_EphemeralOpensOnlyReportIssues(t *testing.T) {
-	allOpened := `{"phase_id":"ph_1","path":"infra","resources":[],"ephemeral_opens":[
-		{"address":"ephemeral.vault_kv_secret_v2.a","action":"opened"},
-		{"address":"ephemeral.vault_kv_secret_v2.b","action":"opened"}]}`
+// upRound1 is `up` stopping at round 1's approval point: four creates, one resource
+// deferred to round 2 (it reads an id round 1 creates).
+const upRound1 = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
+	"outcome":"awaiting_approval","round":1,
+	"plan":{"path":"/work/v1-run/srv-tmp/plans/p-5f3d7adf-round1.json",
+		"digest":"sha256:247f7cef0852f871bf01d5f31401523a80452ff87e3cbfb4130d64264db75c1b",
+		"add":4,"change":0,"destroy":0,"deferred":1,"outputs":3},
+	"expires_at":"2026-10-10T23:44:36Z",
+	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":5,"deferred":1,"applied":0}],
+	"next":"Review the plan document at plan.path …"}`
 
-	compact := plainNorm(renderFor("turf_replan", allOpened, hiddenState{}))
-	if strings.Contains(compact, "opened") || strings.Contains(compact, "ephemeral") {
-		t.Fatalf("a fully-opened walk should say nothing on the summary line: %q", compact)
+// applyRound2 is the apply of round 1: it applied four, planned round 2, and stopped.
+const applyRound2 = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
+	"outcome":"awaiting_approval","round":2,
+	"plan":{"path":"/work/v1-run/srv-tmp/plans/p-5f3d7adf-round2.json",
+		"digest":"sha256:0badac7182bcbfe386f11b873c546139305dd621e8df846bda54fab498a487fc",
+		"add":2,"change":0,"destroy":0,"outputs":1},
+	"expires_at":"2026-10-10T23:45:20Z",
+	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
+		{"round":2,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
+	"next":"Review the plan document at plan.path …"}`
+
+// applyConverged is the apply of round 2: nothing left deferred.
+const applyConverged = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
+	"outcome":"converged",
+	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
+		{"round":2,"status":"applied","approval":"asked","planned":6,"deferred":0,"applied":2}],
+	"outputs":{"finalized":["fan","password","pet"]},
+	"next":"Done: nothing is left deferred."}`
+
+// upNoChange is an up whose single round planned nothing to apply: it converged
+// without pausing.
+const upNoChange = `{"convergence_id":"p-14f188d8","workspace_alias":"default","kind":"up",
+	"outcome":"converged",
+	"rounds":[{"round":1,"status":"applied","approval":"unneeded","planned":6,"deferred":0,"applied":0}],
+	"outputs":{"finalized":["fan","password","pet"]},"next":"Done."}`
+
+const destroyRound1 = `{"convergence_id":"d-b75b58b2","workspace_alias":"default","kind":"destroy",
+	"outcome":"awaiting_approval","round":1,
+	"plan":{"path":"/work/v1-run/srv-tmp/plans/d-b75b58b2-round1.json",
+		"digest":"sha256:6a6bd549bc3088b216e54764b10d2166004b4645eb1d6e07ae47cbf9fc1964b1",
+		"add":0,"change":0,"destroy":6,"outputs":3},
+	"expires_at":"2026-10-10T23:46:30Z",
+	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
+	"next":"Review the plan document …"}`
+
+const destroyConverged = `{"convergence_id":"d-b75b58b2","workspace_alias":"default","kind":"destroy",
+	"outcome":"converged",
+	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":6,"deferred":0,"applied":6}],
+	"next":"The destroy is complete."}`
+
+func TestConvergence_UpAwaitingApproval(t *testing.T) {
+	compact := plainNorm(renderFor("turf_up", upRound1, hiddenState{}))
+	for _, want := range []string{"Deploy", "p-5f3d7adf", "round 1", "+4", "1 deferred", "3 output change(s)", "awaiting approval"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("up compact missing %q: %q", want, compact)
+		}
 	}
-	// It still belongs in the expansion — that is where you go to see the opens.
-	detailed := plainNorm(renderFor("turf_replan", allOpened, service.StaticSessionState{}))
-	for _, want := range []string{"ephemeral:", "vault_kv_secret_v2.a", "opened"} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("detail missing %q: %q", want, detailed)
+	// The default workspace is noise on a convergence line; the next-step guidance is
+	// the agent's, not the reader's; and an up line is titled by its kind already.
+	for _, absent := range []string{"default", "Review the plan", "deploy"} {
+		if strings.Contains(compact, absent) {
+			t.Fatalf("up compact should not show %q: %q", absent, compact)
 		}
 	}
 
-	oneDeferred := `{"phase_id":"ph_1","path":"infra","resources":[],"ephemeral_opens":[
-		{"address":"ephemeral.vault_kv_secret_v2.a","action":"opened"},
-		{"address":"ephemeral.vault_kv_secret_v2.b","action":"deferred","reason":"config_unknown"}]}`
-	out := plainNorm(renderFor("turf_replan", oneDeferred, hiddenState{}))
-	if !strings.Contains(out, "1 ephemeral deferred") {
-		t.Fatalf("summary should surface the deferral: %q", out)
-	}
-}
-
-// --- provider instance status -------------------------------------------------
-
-// The walk, not workspace_open, configures providers now — and an unresolved
-// instance is usually the reason a plan deferred, so the line has to say so.
-func TestPlanSummary_ProviderStatus(t *testing.T) {
-	const content = `{"phase_id":"ph_1","path":"infra","resources":[],"providers":[
-		{"ref":"random","status":"configured"},
-		{"ref":"aws.west","status":"configured_with_unknowns",
-		 "unknown_paths":["assume_role.role_arn"],
-		 "feeding_addresses":["aws_iam_role.deploy"],
-		 "teardown_config":"prior_state"},
-		{"ref":"vault","status":"deferred","last_error":"dial tcp: connection refused"}]}`
-
-	compact := plainNorm(renderFor("turf_plan_new", content, hiddenState{}))
-	if !strings.Contains(compact, "2 provider(s) unresolved") {
-		t.Fatalf("summary should count only the unresolved instances: %q", compact)
-	}
-
-	detailed := plainNorm(renderFor("turf_plan_new", content, service.StaticSessionState{}))
+	shown := plainNorm(renderFor("turf_up", upRound1, service.StaticSessionState{}))
 	for _, want := range []string{
-		"providers:", "random", "configured",
-		"aws.west", "configured_with_unknowns",
-		"unknown", "assume_role.role_arn",
-		"feeds from", "aws_iam_role.deploy",
-		"teardown prior_state",
-		"vault", "deferred", "connection refused",
+		"plan:", "/work/v1-run/srv-tmp/plans/p-5f3d7adf-round1.json", "sha256:247f7cef0852", "expires 2026-10-10T23:44:36Z",
+		"rounds:", "round 1 · awaiting approval · 5 planned · 1 deferred",
 	} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("provider detail missing %q: %q", want, detailed)
+		if !strings.Contains(shown, want) {
+			t.Fatalf("up expanded missing %q:\n%s", want, shown)
+		}
+	}
+	if strings.Contains(shown, "247f7cef0852f871") {
+		t.Fatalf("the digest should be shortened: %s", shown)
+	}
+}
+
+func TestConvergence_ApplyPausesAtTheNextRound(t *testing.T) {
+	out := plainNorm(renderFor("turf_apply", applyRound2, service.StaticSessionState{}))
+	for _, want := range []string{
+		"Apply Plan", "p-5f3d7adf · deploy · round 2", "+2", "1 output change(s)", "awaiting approval",
+		"round 1 · applied · 4 applied · 1 deferred · approved",
+		"round 2 · awaiting approval · 6 planned",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("apply (round 2) missing %q:\n%s", want, out)
 		}
 	}
 }
 
-// A walk where every provider configured is the ordinary case and must cost the
-// summary line nothing.
-func TestPlanSummary_ProviderStatusSilentWhenAllConfigured(t *testing.T) {
-	const content = `{"phase_id":"ph_1","path":"infra","resources":[],
-		"providers":[{"ref":"random","status":"configured"}]}`
-	out := plainNorm(renderFor("turf_plan_new", content, hiddenState{}))
-	if strings.Contains(out, "unresolved") {
-		t.Fatalf("all-configured walk should not claim an issue: %q", out)
-	}
-}
-
-// --- config_init discovery ----------------------------------------------------
-
-// The server states `defaulted` positively and omits the false, so ABSENCE means
-// the directory really declares a backend. Reading it the other way round would
-// label every configuration wrong.
-func TestConfigInit_BackendDefaultedPolarity(t *testing.T) {
-	declared := plainNorm(renderFor("turf_config_init",
-		`{"path":"infra","backend":{"type":"s3"},"workspace":{"name":"main"}}`,
-		hiddenState{}))
-	if !strings.Contains(declared, "backend s3") || strings.Contains(declared, "(default)") {
-		t.Fatalf("a declared backend must not read as defaulted: %q", declared)
-	}
-
-	synthesized := plainNorm(renderFor("turf_config_init",
-		`{"path":"infra","backend":{"type":"local","defaulted":true},"workspace":{"name":"main"}}`,
-		hiddenState{}))
-	if !strings.Contains(synthesized, "backend local (default)") {
-		t.Fatalf("the synthesized default must say so: %q", synthesized)
-	}
-}
-
-// Drift is what the NEXT plan will do about this directory — orphan destroys and
-// pending creates — so it earns a summary segment, in the plan's own glyph idiom.
-func TestConfigInit_Drift(t *testing.T) {
-	const content = `{"path":"infra","backend":{"type":"local","defaulted":true},
-		"workspace":{"name":"main"},"scratch":true,
-		"drift":[{"workspace_alias":"default",
-			"in_state_not_declared":["aws_s3_bucket.old"],
-			"declared_not_in_state":["aws_s3_bucket.new","random_pet.this"]}]}`
-
-	compact := plainNorm(renderFor("turf_config_init", content, hiddenState{}))
-	for _, want := range []string{"scratch", "+2", "-1", "drift"} {
+func TestConvergence_Converged(t *testing.T) {
+	compact := plainNorm(renderFor("turf_apply", applyConverged, hiddenState{}))
+	for _, want := range []string{"Apply Plan", "p-5f3d7adf", "deploy", "converged", "2 rounds", "6 applied"} {
 		if !strings.Contains(compact, want) {
-			t.Fatalf("compact missing %q: %q", want, compact)
+			t.Fatalf("converged compact missing %q: %q", want, compact)
 		}
 	}
+	shown := plainNorm(renderFor("turf_apply", applyConverged, service.StaticSessionState{}))
+	if !strings.Contains(shown, "finalized fan, password, pet") {
+		t.Fatalf("converged expansion should name the finalized outputs:\n%s", shown)
+	}
 
-	detailed := plainNorm(renderFor("turf_config_init", content, service.StaticSessionState{}))
-	for _, want := range []string{"drift:", "default", "+ aws_s3_bucket.new", "- aws_s3_bucket.old"} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("drift detail missing %q: %q", want, detailed)
+	// A deploy with nothing to apply converges in its first call, and says so.
+	none := plainNorm(renderFor("turf_up", upNoChange, service.StaticSessionState{}))
+	for _, want := range []string{"converged", "no changes", "nothing to approve"} {
+		if !strings.Contains(none, want) {
+			t.Fatalf("no-change up missing %q:\n%s", want, none)
 		}
 	}
 }
 
-// An inferred requirement was never written down and carries no version
-// constraint; an ephemeral variable may never be stored. Both are things the
-// reader has to be able to tell apart from the declared/ordinary case.
-func TestConfigInit_InferredAndEphemeralBadges(t *testing.T) {
-	const content = `{"path":"infra","workspace":{"name":"main"},
-		"required_providers":{"random":{"source":"hashicorp/random","inferred":true},
-			"aws":{"source":"hashicorp/aws","version":"5.1.0"}},
-		"variables":[{"name":"token","required":true,"ephemeral":true},
-			{"name":"region","required":true}]}`
-
-	detailed := plainNorm(renderFor("turf_config_init", content, service.StaticSessionState{}))
-	for _, want := range []string{"random hashicorp/random inferred", "token", "ephemeral"} {
-		if !strings.Contains(detailed, want) {
-			t.Fatalf("init detail missing %q: %q", want, detailed)
+// A destroy is "done", not "converged": converging is a deploy's word.
+func TestConvergence_Destroy(t *testing.T) {
+	plan := plainNorm(renderFor("turf_destroy", destroyRound1, hiddenState{}))
+	for _, want := range []string{"Destroy", "d-b75b58b2", "round 1", "-6", "awaiting approval"} {
+		if !strings.Contains(plan, want) {
+			t.Fatalf("destroy plan missing %q: %q", want, plan)
 		}
 	}
-	// The declared provider and the ordinary variable must NOT pick up a badge.
-	if strings.Contains(detailed, "hashicorp/aws 5.1.0 inferred") {
-		t.Fatalf("a declared requirement must not read as inferred: %q", detailed)
+	done := plainNorm(renderFor("turf_apply", destroyConverged, hiddenState{}))
+	for _, want := range []string{"d-b75b58b2", "destroy", "done", "6 applied"} {
+		if !strings.Contains(done, want) {
+			t.Fatalf("destroy apply missing %q: %q", want, done)
+		}
+	}
+	if strings.Contains(done, "converged") {
+		t.Fatalf("a destroy should end \"done\": %q", done)
 	}
 }
 
-// --- config_show index --------------------------------------------------------
-
-// Every entry's address spells out its type — random_pet.this, module.vpc — but
-// the backend's address is the bare word "backend", so the type it declares
-// rides on the entry instead. Dropping it leaves the one entry whose identity
-// the address cannot carry saying nothing at all.
-func TestConfigShow_BackendCarriesItsType(t *testing.T) {
-	const content = `{"config_alias":"infra","path":"infra","entries":[
-		{"address":"backend","kind":"backend","type":"s3","file":"backend.tf"},
-		{"address":"random_pet.this","kind":"resource","file":"main.tf"}]}`
-
-	out := plainNorm(renderFor("turf_config_show", content, service.StaticSessionState{}))
-	if !strings.Contains(out, "backend s3") {
-		t.Fatalf("backend entry must name its type: %q", out)
+// A convergence that fails arrives as an MCP error that still carries the whole
+// result. The line must read it as a convergence, not dump the JSON as error text.
+func TestConvergence_FailedArrivesAsAnErrorWithItsBody(t *testing.T) {
+	const content = `{"convergence_id":"p-9","workspace_alias":"default","kind":"up","outcome":"failed",
+		"rounds":[{"round":1,"status":"failed","approval":"auto","planned":3,"deferred":0,"applied":2,"failed":1,
+			"failures":[{"address":"aws_s3_bucket.logs","error":"BucketAlreadyExists: the name is taken"}],
+			"warnings":["provider returned a deprecation warning"]}],
+		"error":"round 1 failed: 1 effect failed","next":"Fix the configuration and run up again."}`
+	compact := plainNorm(renderErr("turf_apply", content, hiddenState{}))
+	for _, want := range []string{"p-9", "failed", "2 applied", "1 failed"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("failed compact missing %q: %q", want, compact)
+		}
 	}
-	// An ordinary entry has no type field and must not grow a trailing space
-	// where one would go.
-	if !strings.Contains(out, "main.tf · resource") {
-		t.Fatalf("non-backend entry should read unchanged: %q", out)
+	shown := plainNorm(renderErr("turf_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"round 1 · failed · 2 applied · 1 failed · auto-approved",
+		"✗ aws_s3_bucket.logs: BucketAlreadyExists: the name is taken",
+		"⚠ provider returned a deprecation warning",
+		"round 1 failed: 1 effect failed",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("failed expansion missing %q:\n%s", want, shown)
+		}
 	}
-	// A multi-entry index summarizes as the bare entry count.
-	if !strings.Contains(out, "2 declared address(es)") {
-		t.Fatalf("index summary should count the entries: %q", out)
+	if strings.Contains(shown, `{"`) || strings.Contains(shown, "convergence_id") {
+		t.Fatalf("a failed convergence leaked its raw JSON:\n%s", shown)
+	}
+
+	// A refusal is plain text and stays an ordinary error line, led by the convergence
+	// the call named.
+	const refusal = `stale plan digest: plan_digest "sha256:0000" is not the digest of the plan round 1 waits on.`
+	ref := plainNorm(renderErrArgs("turf_apply", refusal, `{"convergence_id":"p-5f3d7adf","plan_digest":"sha256:0000"}`, service.StaticSessionState{}))
+	for _, want := range []string{"Apply Plan", "p-5f3d7adf", "stale plan digest"} {
+		if !strings.Contains(ref, want) {
+			t.Fatalf("refusal missing %q: %q", want, ref)
+		}
 	}
 }
 
-// A single-entry query is summarized on the compact line, which is the whole
-// answer when results are hidden — so the type has to reach that line too.
-func TestConfigShow_SingleBackendSummary(t *testing.T) {
-	const content = `{"config_alias":"infra","path":"infra","entries":[
-		{"address":"backend","kind":"backend","type":"local","file":"backend.tf",
-		 "note":"declared in backend.tf; edit the file and replan to change it"}]}`
-
-	compact := plainNorm(renderFor("turf_config_show", content, hiddenState{}))
-	if !strings.Contains(compact, "backend · backend local") {
-		t.Fatalf("compact single-entry summary must carry the type: %q", compact)
+// Stalled, exhausted, declined and cancelled are neutral endings that still owe an
+// account: a stall names how much was left deferred.
+func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
+	const content = `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"stalled",
+		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":4,"deferred":2,"applied":2},
+			{"round":2,"status":"applied","approval":"unneeded","planned":2,"deferred":2,"applied":0}],
+		"outputs":{"finalized":["a"],"carried":["b"]},"next":"…"}`
+	out := plainNorm(renderErr("turf_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{"stalled · 2 deferred", "2 applied", "carried b (still deferred)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stalled missing %q:\n%s", want, out)
+		}
 	}
 }
 
-// --- remaining field signal ---------------------------------------------------
+// awaiting_actions lists every open turf action: what it asks, what a failed answer
+// does, the values it was handed — and which answers the last apply refused.
+func TestConvergence_AwaitingActions(t *testing.T) {
+	const content = `{"convergence_id":"p-3","workspace_alias":"default","kind":"up","outcome":"awaiting_actions","round":1,
+		"action_requests":[
+			{"key":"k1","round":1,"action":"action.turf_action.drain","invocation":"action.turf_action.drain@before_update@aws_instance.web",
+			 "caller":"aws_instance.web","event":"before_update","on_failure":"halt","if_failed":"halts aws_instance.web and what waits on it",
+			 "prompt":"Drain the node before it is updated.","inputs":{"node":"ip-10-0-0-1","timeout":300}},
+			{"key":"k2","round":1,"action":"action.turf_action.ask","invocation":"action.turf_action.ask@invoke",
+			 "event":"invoke","on_failure":"continue","if_failed":"is recorded as a warning; the run continues",
+			 "prompt":"Ask the user to confirm the maintenance window."}],
+		"refused":{"k2":"a result whose verdict and diagnostics disagree"},
+		"rounds":[{"round":1,"status":"applying","approval":"asked","planned":2,"deferred":0,"applied":1}],
+		"next":"…"}`
+	compact := plainNorm(renderFor("turf_apply", content, hiddenState{}))
+	for _, want := range []string{"p-3", "round 1", "awaiting 2 action(s)", "1 refused"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("awaiting_actions compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"2 action(s) waiting:",
+		"k1 · action.turf_action.drain · before_update of aws_instance.web",
+		"Drain the node before it is updated.",
+		"if it fails: halts aws_instance.web and what waits on it",
+		`node = "ip-10-0-0-1"`, "timeout = 300",
+		"k2 · action.turf_action.ask · invoked directly",
+		"refused: a result whose verdict and diagnostics disagree",
+		"round 1 · applying · 1 applied",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("awaiting_actions expansion missing %q:\n%s", want, shown)
+		}
+	}
+}
 
-// A tainted object is replaced by the next plan and a deposed one is still real
-// infrastructure — neither is visible in a plain address listing.
-func TestStateList_TaintedAndDeposed(t *testing.T) {
-	const content = `{"workspace_alias":"default","resources":[
-		{"address":"aws_instance.web","type":"aws_instance","mode":"managed","tainted":true,
-		 "deposed":[{"key":"abc12345"}]},
-		{"address":"random_pet.this","type":"random_pet","mode":"managed"}]}`
+// An answer sent to a convergence that already ended is refused with no open request
+// to sit under; the line must still show it, or the misdirected answer vanishes.
+func TestConvergence_RefusedAfterTheEnd(t *testing.T) {
+	const content = `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"converged",
+		"refused":{"k9":"convergence p-1 is converged: nothing is waiting on a result"},
+		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":1,"deferred":0,"applied":1}],"next":"…"}`
+	out := plainNorm(renderFor("turf_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{"converged", "1 refused", "refused:", "k9: convergence p-1 is converged: nothing is waiting on a result"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("refusal after the end missing %q:\n%s", want, out)
+		}
+	}
+}
 
+// A round lists the invocations that did not simply succeed, in the console's words.
+func TestConvergence_ActionOutcomes(t *testing.T) {
+	const content = `{"convergence_id":"p-4","workspace_alias":"default","kind":"up","outcome":"failed",
+		"rounds":[{"round":1,"status":"failed","approval":"asked","planned":3,"deferred":0,"applied":1,"failed":1,"invoked":3,
+			"actions":[
+				{"invocation":"i1","action":"action.aws_lambda_invoke.migrate","type":"aws_lambda_invoke","caller":"aws_db_instance.main","event":"after_create","status":"failed","on_failure":"taint","detail":"timeout","caller_tainted":true},
+				{"invocation":"i2","action":"action.turf_action.notify","type":"turf_action","caller":"aws_db_instance.main","event":"after_create","status":"failed","on_failure":"continue","detail":"slack is down"},
+				{"invocation":"i3","action":"action.turf_action.gate","type":"turf_action","caller":"aws_db_instance.main","event":"before_create","status":"skipped"},
+				{"invocation":"i4","action":"action.turf_action.log","type":"turf_action","status":"invoked","warnings":["log retention is short"]}],
+			"actions_omitted":2}],
+		"next":"…"}`
+	out := plainNorm(renderErr("turf_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"action.aws_lambda_invoke.migrate · after_create of aws_db_instance.main · failed · tainted its caller: timeout",
+		"action.turf_action.notify · after_create of aws_db_instance.main · failed · continued: slack is down",
+		"action.turf_action.gate · before_create of aws_db_instance.main · skipped — its condition was false",
+		"action.turf_action.log · invoked directly · invoked",
+		"⚠ log retention is short",
+		"…(+2 more actions)",
+		"3 invoked",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("action outcomes missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// The plan tally follows Terraform's summary: a replace counts in both + and -, with
+// import, forget and the actions to invoke as words beside it.
+func TestConvergence_PlanTallySegments(t *testing.T) {
+	const content = `{"convergence_id":"p-5","workspace_alias":"west","kind":"up","outcome":"awaiting_approval","round":1,
+		"plan":{"path":"/tmp/p.json","digest":"sha256:ab","add":2,"change":1,"destroy":1,"replace":1,"import":1,"forget":1,"read":2,
+			"drift":1,"invocations":[{"address":"action.turf_action.gate","type":"turf_action","caller":"aws_instance.web","event":"before_create","on_failure":"halt"},
+				{"address":"action.aws_lambda_invoke.ping","type":"aws_lambda_invoke","event":"after_update","caller":"aws_instance.web","on_failure":"continue"}]},
+		"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],"next":"…"}`
+	// Long enough to wrap at the test width, so newlines are folded before asserting.
+	compact := plainNorm(strings.ReplaceAll(renderFor("turf_up", content, hiddenState{}), "\n", " "))
+	for _, want := range []string{"west", "+2 ~1 -1", "1 replaced", "1 to import", "1 to forget", "2 to read", "2 to invoke", "1 drifted"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("tally missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_up", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"2 to invoke:",
+		"action.turf_action.gate · before_create of aws_instance.web",
+		"action.aws_lambda_invoke.ping · after_update of aws_instance.web · on failure: continue",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("invocations missing %q:\n%s", want, shown)
+		}
+	}
+	// halt is the default, so it is not spelled out.
+	if strings.Contains(shown, "on failure: halt") {
+		t.Fatalf("the default on_failure should not be shown:\n%s", shown)
+	}
+}
+
+// While a convergence call runs there is no result yet, and cagent does not relay the
+// server's progress notifications, so the line says what the call is doing.
+func TestConvergence_RunningWords(t *testing.T) {
+	run := func(name, args string) string {
+		msg := &types.Message{
+			ToolStatus:     types.ToolStatusRunning,
+			ToolCall:       tools.ToolCall{Function: tools.FunctionCall{Name: name, Arguments: args}},
+			ToolDefinition: tools.Tool{Name: name},
+		}
+		b := turfToolRenderers()[name](animation.NewRuntime(), msg, service.StaticSessionState{})
+		b.SetSize(120, 1)
+		return plainNorm(b.View())
+	}
+	cases := []struct{ name, args, want string }{
+		{"turf_up", `{}`, "planning…"},
+		{"turf_destroy", `{"workspace_alias":"west"}`, "west · planning…"},
+		{"turf_apply", `{"convergence_id":"p-1","plan_digest":"sha256:ab"}`, "p-1 · applying…"},
+		{"turf_apply", `{"convergence_id":"p-1","action_results":{"k1":{"succeeded":true}}}`, "answering actions…"},
+		{"turf_cancel", `{}`, "cancelling…"},
+	}
+	for _, c := range cases {
+		if out := run(c.name, c.args); !strings.Contains(out, c.want) {
+			t.Errorf("%s running line missing %q: %q", c.name, c.want, out)
+		}
+	}
+}
+
+// --- show ---------------------------------------------------------------------
+
+func readTestdata(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The recorded round-2 plan of fixture core: two creates whose ids are unknown until
+// apply, four no-ops, and one output change.
+func TestShow_PlanDocument(t *testing.T) {
+	doc := readTestdata(t, "show-plan-core.json")
+	compact := plainNorm(renderWithArgs("turf_show", doc, `{"convergence_id":"p-5f3d7adf","round":2}`, hiddenState{}, 1))
+	for _, want := range []string{"Show", "plan · p-5f3d7adf · round 2", "+2", "1 output change(s)"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("show compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderWithArgs("turf_show", doc, `{}`, service.StaticSessionState{}, 1))
+	for _, want := range []string{
+		"+ terraform_data.fan[0]",
+		`+ input = "v1-happy-buffalo-0"`,
+		"+ id = (known after apply)",
+		"+ output = (known after apply)",
+		"outputs:",
+		"+ fan = [(known after apply), (known after apply)]",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("show expansion missing %q:\n%s", want, shown)
+		}
+	}
+	// Terraform lists no no-ops, and neither does a sentinel reach the screen.
+	for _, absent := range []string{"local_file.marker", "random_pet.name", "__cty_", "triggers_replace"} {
+		if strings.Contains(shown, absent) {
+			t.Fatalf("show expansion should not contain %q:\n%s", absent, shown)
+		}
+	}
+}
+
+// One of every change a plan document can carry, in Terraform's glyphs — and the
+// document is NOT redacted (show_sensitive), so its masks are all that stands between
+// the secrets and the screen.
+func TestShow_EveryActionAndItsMasks(t *testing.T) {
+	doc := readTestdata(t, "show-plan-every-action.json")
+	compact := plainNorm(renderFor("turf_show", doc, hiddenState{}))
+	for _, want := range []string{"+2 ~1 -2", "1 replaced", "1 to import", "1 to forget", "1 to read", "1 to invoke", "1 deferred", "1 drifted", "1 output change(s)"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("every-action compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_show", doc, service.StaticSessionState{}))
+	for _, want := range []string{
+		"+ aws_db_instance.main",
+		"+ password = (sensitive value)",
+		"+ port = 5432",
+		"~ aws_instance.web",
+		`~ tags = {`,
+		"- aws_instance.old",
+		"-/+ aws_instance.r",
+		"aws_s3_bucket.b · adopt id=b",
+		"<= data.aws_ami.a",
+		". aws_instance.gone",
+		"changed outside Turf:",
+		"aws_instance.web · drifted",
+		"~ secret = (sensitive value) → (sensitive value)",
+		"deferred:",
+		"+ k8s.x · resource_config_unknown",
+		"+ conn = (sensitive value)",
+		"1 to invoke:",
+		"action.turf_confirm.gate · before_create of aws_db_instance.main",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("every-action expansion missing %q:\n%s", want, shown)
+		}
+	}
+	// t0k is the deferred change's sensitive value; deferred rows render header-only,
+	// so its absence is a tripwire for a future body rather than proof of its mask.
+	for _, secret := range []string{"hunter2", "t0k"} {
+		secretAbsent(t, shown, secret, "show")
+	}
+}
+
+// A change whose after is unknown as a whole has no attributes to diff: it reads
+// "(known after apply)", and an update must not turn into a list of removals.
+func TestShow_WhollyUnknownAfter(t *testing.T) {
+	const doc = `{"planned_values":{},"resource_changes":[
+		{"address":"k8s_manifest.a","change":{"actions":["create"],"before":null,"after":null,"after_unknown":true}},
+		{"address":"k8s_manifest.b","change":{"actions":["update"],"before":{"spec":"old"},"after":null,"after_unknown":true}}]}`
+	out := plainNorm(renderFor("turf_show", doc, service.StaticSessionState{}))
+	if strings.Count(out, "(known after apply)") != 2 {
+		t.Fatalf("each wholly-unknown change should read (known after apply) once:\n%s", out)
+	}
+	if strings.Contains(out, "- spec") {
+		t.Fatalf("a wholly-unknown update rendered as a removal:\n%s", out)
+	}
+}
+
+// An empty state document is a workspace with nothing in it, not an unparseable one.
+func TestShow_EmptyStateDocument(t *testing.T) {
+	out := plainNorm(renderWithArgs("turf_show", `{"format_version":"1.0"}`, `{"what":"state"}`, hiddenState{}, 1))
+	if !strings.Contains(out, "state · 0 resource(s)") {
+		t.Fatalf("empty state document: %q", out)
+	}
+}
+
+// The engine's document spells an invocation's event and on_failure as Terraform's
+// binary prints them; the line spells them as the configuration does.
+func TestShow_InvocationSpelling(t *testing.T) {
+	const doc = `{"format_version":"1.2","planned_values":{},"resource_changes":[],
+		"action_invocations":[{"address":"action.turf_action.notify","type":"turf_action",
+			"lifecycle_action_trigger":{"triggering_resource_address":"aws_instance.web","action_trigger_event":"AfterUpdate","on_failure":"ActionOnFailureContinue"}}]}`
+	out := plainNorm(renderFor("turf_show", doc, service.StaticSessionState{}))
+	if !strings.Contains(out, "action.turf_action.notify · after_update of aws_instance.web · on failure: continue") {
+		t.Fatalf("invocation not in the configuration's spelling:\n%s", out)
+	}
+	// Like Terraform's "Actions: 1 to invoke", the invocation is the plan's whole
+	// story: no resource bucket, and no "no changes" contradicting it.
+	if !strings.Contains(out, "plan · 1 to invoke") || strings.Contains(out, "no changes") {
+		t.Fatalf("an actions-only plan should tally its invocations alone: %s", out)
+	}
+}
+
+func TestShow_StateDocument(t *testing.T) {
+	const doc = `{"format_version":"1.0","values":{
+		"outputs":{"pw":{"sensitive":true,"value":"hunter2"},"name":{"sensitive":false,"value":"v1-happy-buffalo"}},
+		"root_module":{"resources":[
+			{"address":"random_pet.name","values":{"id":"v1-happy-buffalo","length":2},"sensitive_values":{}},
+			{"address":"random_password.db","values":{"result":"hunter2","length":20},"sensitive_values":{"result":true},"tainted":true}],
+		"child_modules":[{"resources":[{"address":"module.net.aws_vpc.this","values":{"cidr_block":"10.0.0.0/16"}}]}]}}}`
+	compact := plainNorm(renderWithArgs("turf_show", doc, `{"what":"state"}`, hiddenState{}, 1))
+	for _, want := range []string{"Show", "state", "3 resource(s)", "2 output(s)"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("state compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderWithArgs("turf_show", doc, `{"what":"state","show_sensitive":true}`, service.StaticSessionState{}, 1))
+	for _, want := range []string{
+		"random_password.db · tainted", "result = (sensitive value)", "length = 20",
+		"module.net.aws_vpc.this", `cidr_block = "10.0.0.0/16"`,
+		"pw = (sensitive value)", `name = "v1-happy-buffalo"`,
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("state expansion missing %q:\n%s", want, shown)
+		}
+	}
+	secretAbsent(t, shown, "hunter2", "show state")
+}
+
+func TestPlanAction_TerraformGlyphs(t *testing.T) {
+	cases := []struct {
+		actions []string
+		glyph   string
+	}{
+		{[]string{"create"}, "+"},
+		{[]string{"update"}, "~"},
+		{[]string{"delete"}, "-"},
+		{[]string{"delete", "create"}, "-/+"},
+		{[]string{"create", "delete"}, "+/-"},
+		{[]string{"forget", "create"}, "./+"},
+		{[]string{"read"}, "<="},
+		{[]string{"forget"}, "."},
+		{[]string{"no-op"}, ""},
+		{[]string{"bogus"}, "?"},
+	}
+	for _, c := range cases {
+		if _, _, g := planAction(c.actions); g != c.glyph {
+			t.Errorf("planAction(%v) glyph = %q, want %q", c.actions, g, c.glyph)
+		}
+	}
+}
+
+func TestWithUnknowns(t *testing.T) {
+	after := map[string]any{"input": "x", "tags": map[string]any{"a": "1"}, "list": []any{"k", nil}}
+	unknown := map[string]any{"id": true, "tags": map[string]any{"b": true}, "list": []any{false, true}, "input": false}
+	got := withUnknowns(after, unknown).(map[string]any)
+	if got["id"] != unknownSentinel || got["input"] != "x" {
+		t.Fatalf("scalar overlay wrong: %#v", got)
+	}
+	if tags := got["tags"].(map[string]any); tags["a"] != "1" || tags["b"] != unknownSentinel {
+		t.Fatalf("nested overlay wrong: %#v", tags)
+	}
+	if list := got["list"].([]any); list[0] != "k" || list[1] != unknownSentinel {
+		t.Fatalf("list overlay wrong: %#v", list)
+	}
+	// A wholly unknown value, and no mask at all.
+	if withUnknowns(nil, true) != unknownSentinel {
+		t.Fatal("a wholly unknown value should be the sentinel")
+	}
+	if v := withUnknowns("x", nil); v != "x" {
+		t.Fatalf("no mask should leave the value alone: %#v", v)
+	}
+	// An empty mask must not turn a destroy's null `after` into an empty object.
+	if v := withUnknowns(nil, map[string]any{}); v != nil {
+		t.Fatalf("an empty mask should leave null alone: %#v", v)
+	}
+	if after["id"] != nil {
+		t.Fatal("withUnknowns must not mutate its input")
+	}
+}
+
+// --- init / workspaces / state / outputs ------------------------------------
+
+// initCore is init's result for fixture core, recorded, with the hashes and package
+// directories dropped.
+const initCore = `{"config_alias":"","path":"/work/v1-run/core","backend":{"type":"local","defaulted":true},"workspace":"default",
+	"required_providers":{"local":{"source":"hashicorp/local","version":"~> 2.5"},"random":{"source":"hashicorp/random","version":"~> 3.6"},
+		"terraform":{"source":"terraform.io/builtin/terraform","inferred":true}},
+	"providers":[{"local_name":"local","source":"registry.opentofu.org/hashicorp/local","constraint":"~> 2.5","version":"2.9.1"},
+		{"local_name":"random","source":"registry.opentofu.org/hashicorp/random","constraint":"~> 3.6","version":"3.9.1"},
+		{"local_name":"terraform","source":"terraform.io/builtin/terraform","builtin":true}],
+	"lock_file":{"path":"/work/v1-run/core/.terraform.lock.hcl","status":"created"},
+	"variables":[{"name":"prefix","type":"string","default":"v1","required":false}],
+	"outputs":[{"name":"fan"},{"name":"password","sensitive":true},{"name":"pet"}]}`
+
+func TestInit_Core(t *testing.T) {
+	compact := plainNorm(renderFor("turf_init", initCore, hiddenState{}))
+	for _, want := range []string{"Init Configuration", "/work/v1-run/core", "backend local (default)", "3 provider(s) · 1 variable(s) · 3 output(s)"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("init compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_init", initCore, service.StaticSessionState{}))
+	for _, want := range []string{
+		"local hashicorp/local ~> 2.5 → v2.9.1",
+		"random hashicorp/random ~> 3.6 → v3.9.1",
+		"terraform terraform.io/builtin/terraform inferred built in",
+		"prefix string",
+		"password sensitive",
+		"lock file created",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("init expansion missing %q:\n%s", want, shown)
+		}
+	}
+}
+
+// A named configuration leads with its alias; a declared backend says nothing about
+// defaults; an import block and a failed install each earn a segment.
+func TestInit_AliasImportsAndInstallErrors(t *testing.T) {
+	const content = `{"config_alias":"web","path":"infra/web","backend":{"type":"s3"},"workspace":"default",
+		"required_providers":{"aws":{"source":"hashicorp/aws","version":"~> 6.0"}},
+		"providers":[{"local_name":"aws","source":"registry.opentofu.org/hashicorp/aws","constraint":"~> 6.0","error":"no version matches ~> 6.0"}],
+		"provider_configs":[{"type":"aws"},{"type":"aws","alias":"west"}],
+		"imports":[{"to":"aws_s3_bucket.logs","id":"my-logs"}],"modules_installed":true}`
+	out := plainNorm(renderFor("turf_init", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"web · infra/web · backend s3", "1 to import", "1 provider(s) failed to install",
+		"aws hashicorp/aws ~> 6.0 no version matches ~> 6.0",
+		"provider configurations:", "aws, aws.west",
+		"aws_s3_bucket.logs · id=my-logs", "modules installed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("init missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "(default)") {
+		t.Fatalf("a declared backend must not read as defaulted: %s", out)
+	}
+}
+
+func TestWorkspaceOpen_Binding(t *testing.T) {
+	const content = `{"workspace_alias":"default","config_alias":"default","config_path":"/work/v1-run/core",
+		"workspace_name":"default","backend_type":"local","state_path":"/work/v1-run/core/terraform.tfstate",
+		"lineage":"fa47e9cf","serial":5,"resource_count":6}`
+	compact := plainNorm(renderFor("turf_workspace_open", content, hiddenState{}))
+	for _, want := range []string{"Open Workspace", "default · local · /work/v1-run/core · 6 resource(s)"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("workspace_open compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_workspace_open", content, service.StaticSessionState{}))
+	if !strings.Contains(shown, "/work/v1-run/core/terraform.tfstate · serial 5 · lineage fa47e9cf") {
+		t.Fatalf("workspace_open expansion missing the statefile:\n%s", shown)
+	}
+}
+
+// Reopening a workspace a convergence still holds is how a paused round survives a
+// restart; the open line has to say so.
+func TestWorkspaceOpen_ReportsTheHoldingConvergence(t *testing.T) {
+	const content = `{"workspace_alias":"prod","config_alias":"web","config_path":"infra/web","workspace_name":"default",
+		"backend_type":"s3","resource_count":4,
+		"convergence":{"id":"p-5f3d7adf","kind":"up","stage":"awaiting_approval","round":2,"followed":true,"next":"…"}}`
+	out := plainNorm(renderFor("turf_workspace_open", content, hiddenState{}))
+	for _, want := range []string{"prod", "holds p-5f3d7adf · deploy · awaiting approval · round 2"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("workspace_open missing %q: %q", want, out)
+		}
+	}
+	// The alias is the session's handle for the workspace, so it wins over the state
+	// slot's name ("default").
+	if strings.Contains(out, "default") {
+		t.Fatalf("the alias should win over the workspace name: %q", out)
+	}
+}
+
+func TestWorkspaceShow_Entries(t *testing.T) {
+	const content = `{"workspaces":[
+		{"workspace_alias":"prod","config_alias":"web","config_path":"infra/web","workspace_name":"default","backend_type":"s3",
+		 "opened_at":"2026-10-13T10:00:00Z","convergence":{"id":"p-3","kind":"up","stage":"awaiting_actions","round":1,"open_questions":2,"followed":true}},
+		{"workspace_alias":"dev","config_alias":"web","config_path":"infra/web","workspace_name":"dev","opened_at":"2026-10-13T10:05:00Z",
+		 "warning":"the engine is unreachable"}]}`
+	compact := plainNorm(renderFor("turf_workspace_show", content, hiddenState{}))
+	if !strings.Contains(compact, "2 open") {
+		t.Fatalf("workspace_show compact: %q", compact)
+	}
+	shown := plainNorm(renderFor("turf_workspace_show", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"prod · s3 · infra/web · opened 2026-10-13T10:00:00Z",
+		"holds p-3 · deploy · awaiting 2 action(s) · round 1",
+		"dev · infra/web",
+		"⚠ the engine is unreachable",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("workspace_show missing %q:\n%s", want, shown)
+		}
+	}
+	single := plainNorm(renderFor("turf_workspace_show", `{"workspaces":[{"workspace_alias":"default","workspace_name":"default","config_path":"/c","opened_at":"t"}]}`, hiddenState{}))
+	if !strings.Contains(single, "default · /c") {
+		t.Fatalf("a single workspace leads with its name: %q", single)
+	}
+}
+
+func TestWorkspaceClose_Detached(t *testing.T) {
+	plain := plainNorm(renderFor("turf_workspace_close", `{"workspace_alias":"default"}`, hiddenState{}))
+	if !strings.Contains(plain, "default · closed") || strings.Contains(plain, "engine") {
+		t.Fatalf("workspace_close: %q", plain)
+	}
+	det := plainNorm(renderFor("turf_workspace_close", `{"workspace_alias":"prod","detached":"p-5f3d7adf"}`, hiddenState{}))
+	if !strings.Contains(det, "prod · closed · left p-5f3d7adf running in the engine") {
+		t.Fatalf("workspace_close should name the convergence it detached from: %q", det)
+	}
+}
+
+func TestWorkspaceList_Summary(t *testing.T) {
+	const content = `{"workspaces": ["default", "staging", "prod"]}`
+	out := renderFor("turf_workspace_list", content, service.StaticSessionState{})
+	for _, want := range []string{"List Workspaces", "3 found", "staging"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("workspace_list missing %q: %q", want, out)
+		}
+	}
+	empty := renderFor("turf_workspace_list", `{"workspaces": []}`, hiddenState{})
+	if !strings.Contains(empty, "none") {
+		t.Fatalf("empty workspace_list should say none: %q", empty)
+	}
+}
+
+func TestWorkspaceDelete_Summary(t *testing.T) {
+	out := plainNorm(renderFor("turf_workspace_delete", `{"workspace_name":"staging","resource_count":2,"deleted":true}`, hiddenState{}))
+	for _, want := range []string{"Delete Workspace", "staging · deleted · 2 orphaned resource(s)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("workspace_delete missing %q: %q", want, out)
+		}
+	}
+}
+
+// outputCore is output's result for fixture core, recorded.
+const outputCore = `{"outputs":{"fan":{"sensitive":false,"type":["tuple",["string","string"]],"value":["v1-happy-buffalo-0","v1-happy-buffalo-1"]},
+	"password":{"sensitive":true,"type":"string","value":"__cty_sensitive__"},
+	"pet":{"sensitive":false,"type":"string","value":"v1-happy-buffalo"}},"workspace_alias":"default"}`
+
+func TestOutput_Core(t *testing.T) {
+	compact := plainNorm(renderFor("turf_output", outputCore, hiddenState{}))
+	for _, want := range []string{"Read Outputs", "3 output(s) · 1 sensitive"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("output compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_output", outputCore, service.StaticSessionState{}))
+	for _, want := range []string{`fan = ["v1-happy-buffalo-0", "v1-happy-buffalo-1"]`, "password = (sensitive value)", `pet = "v1-happy-buffalo"`} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("output expansion missing %q:\n%s", want, shown)
+		}
+	}
+	if strings.Contains(shown, "__cty_") || strings.Contains(shown, "tuple") {
+		t.Fatalf("output leaked a sentinel or a type:\n%s", shown)
+	}
+	// Asked for one output by name, the line leads with it.
+	one := plainNorm(renderWithArgs("turf_output", `{"outputs":{"pet":{"sensitive":false,"value":"x"}},"workspace_alias":"default"}`, `{"name":"pet"}`, hiddenState{}, 1))
+	if !strings.Contains(one, "Read Outputs pet") {
+		t.Fatalf("a named output should lead the line: %q", one)
+	}
+}
+
+func TestStateList_ValuesTaintedDeposed(t *testing.T) {
+	const content = `{"tofu_version":"1.12.6","workspace_alias":"default","lineage":"fa47e9cf","serial":5,"resources":[
+		{"address":"random_password.db","mode":"managed","type":"random_password","name":"db","provider_name":"registry.opentofu.org/hashicorp/random","schema_version":3,
+		 "values":{"length":20,"result":"__cty_sensitive__"},"sensitive_values":{"result":true}},
+		{"address":"aws_instance.web","mode":"managed","type":"aws_instance","name":"web","provider_name":"registry.opentofu.org/hashicorp/aws","schema_version":1,
+		 "tainted":true,"deposed":["00000001"],"identity":{"id":"i-123"}},
+		{"address":"data.aws_ami.a","mode":"data","type":"aws_ami","name":"a","provider_name":"registry.opentofu.org/hashicorp/aws","schema_version":0}],
+		"outputs":{"pet":{"sensitive":false,"value":"x"}},"warnings":["state records provider null, which the configuration no longer declares"]}`
 	compact := plainNorm(renderFor("turf_state_list", content, hiddenState{}))
-	for _, want := range []string{"2 resource(s)", "1 tainted", "1 deposed"} {
+	for _, want := range []string{"List State", "3 resource(s) · 1 tainted · 1 deposed · 1 output(s) · serial 5"} {
 		if !strings.Contains(compact, want) {
-			t.Fatalf("compact missing %q: %q", want, compact)
+			t.Fatalf("state_list compact missing %q: %q", want, compact)
 		}
 	}
-	detailed := plainNorm(renderFor("turf_state_list", content, service.StaticSessionState{}))
-	if !strings.Contains(detailed, "aws_instance.web") || !strings.Contains(detailed, "tainted") {
-		t.Fatalf("detail missing the tainted row: %q", detailed)
+	shown := plainNorm(renderFor("turf_state_list", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"random_password.db", "length = 20", "result = (sensitive value)",
+		"aws_instance.web · tainted · deposed 00000001 · identity",
+		"data.aws_ami.a · data",
+		"outputs:", `pet = "x"`,
+		"⚠ state records provider null",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("state_list expansion missing %q:\n%s", want, shown)
+		}
+	}
+}
+
+func TestTaint_Line(t *testing.T) {
+	out := plainNorm(renderWithArgs("turf_taint", `{"workspace_alias":"default","addrs":["aws_instance.web","aws_instance.db"],"status":"tainted","serial":8}`,
+		`{"addrs":["aws_instance.web","aws_instance.db"]}`, hiddenState{}, 1))
+	if !strings.Contains(out, "Taint Resource aws_instance.web, aws_instance.db · tainted · serial 8") {
+		t.Fatalf("taint line: %q", out)
+	}
+	un := plainNorm(renderFor("turf_untaint", `{"workspace_alias":"default","addrs":["aws_instance.web"],"status":"untainted","serial":9}`, hiddenState{}))
+	if !strings.Contains(un, "Untaint Resource aws_instance.web · untainted · serial 9") {
+		t.Fatalf("untaint line: %q", un)
+	}
+}
+
+func TestProviderDescribe_Summary(t *testing.T) {
+	const content = `{"schema_version":0,"provider":"registry.opentofu.org/hashicorp/random","type":"random_pet",
+		"description": "Generates random pet names.",
+		"properties": {"length": {"type": "number", "usage": "optional"},
+		"id": {"type": "string", "usage": "computed", "sensitive": false}},
+		"required": [], "identity_schema": null}`
+	out := renderWithArgs("turf_provider_describe", content, `{"provider":"hashicorp/random","provider_version":"3.6.0","resource_type":"random_pet"}`, service.StaticSessionState{}, 1)
+	for _, want := range []string{"Describe Provider", "random_pet", "2 attr(s)", "hashicorp/random", "length", "optional", "Generates random pet names"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("provider_describe missing %q: %q", want, out)
+		}
+	}
+	if strings.Contains(plainNorm(out), "identity") {
+		t.Fatalf("a type with no identity schema should not claim one: %q", out)
+	}
+}
+
+// Asked for the builtin turf provider with no type, provider_describe answers with the
+// provider's whole schema, which lists Turf's own actions.
+func TestProviderDescribe_WholeProvider(t *testing.T) {
+	const content = `{"provider":{"type":"","properties":{}},"resources":{},"data_sources":{},
+		"actions":{"turf_action":{"type":"turf_action","properties":{"prompt":{"type":"string"}}}},"version":"0.0.0"}`
+	out := plainNorm(renderWithArgs("turf_provider_describe", content, `{"provider":"terraform.io/builtin/turf"}`, service.StaticSessionState{}, 1))
+	for _, want := range []string{"terraform.io/builtin/turf · 1 action(s)", "actions:", "turf_action"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("whole-provider describe missing %q: %q", want, out)
+		}
+	}
+}
+
+func TestProviderSearch_Summary(t *testing.T) {
+	const content = `{"providers": [
+		{"name": "hashicorp/aws", "version": "6.1.0", "description": "Amazon Web Services", "popularity": 0.98},
+		{"name": "hashicorp/awscc", "version": "1.0.0", "description": "AWS Cloud Control", "popularity": 0.5}]}`
+	out := renderWithArgs("turf_provider_search", content, `{"query":"aws"}`, service.StaticSessionState{}, 1)
+	for _, want := range []string{"Search Providers", "aws", "2 result(s)", "hashicorp/aws", "6.1.0", "Amazon Web Services"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("provider_search missing %q: %q", want, out)
+		}
+	}
+}
+
+// TestRenderers_MasksSurviveToTheTimeline drives the real renderers with the payload a
+// show_sensitive call produces — plaintext values plus their mask — and asserts nothing
+// reaches the rendered line. This is the end the mask plumbing exists for.
+func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
+	const secret = "hunter2"
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"turf_show", `{"planned_values":{},"resource_changes":[{
+			"address": "random_password.pw", "change": {"actions": ["create"],
+			"before": null, "after": {"result": "` + secret + `", "length": 16},
+			"after_unknown": {}, "after_sensitive": {"result": true}}}]}`, "+ result = (sensitive value)"},
+		{"turf_show", `{"planned_values":{},"resource_changes":[{
+			"address": "random_pet.p", "change": {"actions": ["update"],
+			"before": {"keepers": {"pw": "` + secret + `"}},
+			"after": {"keepers": {"pw": "` + secret + `-next"}},
+			"before_sensitive": {"keepers": {"pw": true}},
+			"after_sensitive": {"keepers": {"pw": true}}}}]}`, "pw = (sensitive value)"},
+		{"turf_output", `{
+			"workspace_alias": "default",
+			"outputs": {"pw": {"value": "` + secret + `", "sensitive": true},
+			            "name": {"value": "plain", "sensitive": false}}
+		}`, "pw = (sensitive value)"},
+		{"turf_state_list", `{"workspace_alias":"default","resources":[{"address":"random_password.pw","mode":"managed","type":"random_password",
+			"values":{"result":"` + secret + `"},"sensitive_values":{"result":true}}],
+			"outputs":{"pw":{"value":"` + secret + `","sensitive":true}}}`, "result = (sensitive value)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderFor(tc.name, tc.content, service.StaticSessionState{})
+			secretAbsent(t, out, secret, tc.name)
+			if !strings.Contains(plainNorm(out), tc.want) {
+				t.Fatalf("%s missing %q:\n%s", tc.name, tc.want, out)
+			}
+		})
 	}
 }

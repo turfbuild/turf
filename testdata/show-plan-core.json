@@ -1,0 +1,655 @@
+{
+  "configuration": {
+    "provider_config": {
+      "local": {
+        "full_name": "registry.opentofu.org/hashicorp/local",
+        "name": "local",
+        "version_constraint": "~> 2.5"
+      },
+      "random": {
+        "full_name": "registry.opentofu.org/hashicorp/random",
+        "name": "random",
+        "version_constraint": "~> 3.6"
+      },
+      "terraform": {
+        "full_name": "terraform.io/builtin/terraform",
+        "name": "terraform"
+      }
+    },
+    "root_module": {
+      "outputs": {
+        "fan": {
+          "expression": {
+            "references": [
+              "terraform_data.fan"
+            ]
+          }
+        },
+        "password": {
+          "expression": {
+            "references": [
+              "random_password.db.result",
+              "random_password.db"
+            ]
+          },
+          "sensitive": true
+        },
+        "pet": {
+          "expression": {
+            "references": [
+              "random_pet.name.id",
+              "random_pet.name"
+            ]
+          }
+        }
+      },
+      "resources": [
+        {
+          "address": "local_file.marker",
+          "expressions": {
+            "content": {
+              "references": [
+                "random_pet.name.id",
+                "random_pet.name"
+              ]
+            },
+            "filename": {
+              "references": [
+                "path.module",
+                "terraform.workspace"
+              ]
+            }
+          },
+          "mode": "managed",
+          "name": "marker",
+          "provider_config_key": "local",
+          "schema_version": 0,
+          "type": "local_file"
+        },
+        {
+          "address": "random_password.db",
+          "expressions": {
+            "length": {
+              "constant_value": 20
+            }
+          },
+          "mode": "managed",
+          "name": "db",
+          "provider_config_key": "random",
+          "schema_version": 3,
+          "type": "random_password"
+        },
+        {
+          "address": "random_pet.name",
+          "expressions": {
+            "prefix": {
+              "references": [
+                "var.prefix"
+              ]
+            }
+          },
+          "mode": "managed",
+          "name": "name",
+          "provider_config_key": "random",
+          "schema_version": 0,
+          "type": "random_pet"
+        },
+        {
+          "address": "terraform_data.fan",
+          "count_expression": {
+            "references": [
+              "terraform_data.seed.id",
+              "terraform_data.seed"
+            ]
+          },
+          "expressions": {
+            "input": {
+              "references": [
+                "random_pet.name.id",
+                "random_pet.name",
+                "count.index"
+              ]
+            }
+          },
+          "mode": "managed",
+          "name": "fan",
+          "provider_config_key": "terraform",
+          "schema_version": 0,
+          "type": "terraform_data"
+        },
+        {
+          "address": "terraform_data.seed",
+          "expressions": {
+            "input": {
+              "references": [
+                "random_pet.name.id",
+                "random_pet.name"
+              ]
+            }
+          },
+          "mode": "managed",
+          "name": "seed",
+          "provider_config_key": "terraform",
+          "schema_version": 0,
+          "type": "terraform_data"
+        }
+      ],
+      "variables": {
+        "prefix": {
+          "default": "v1",
+          "type": "string"
+        }
+      }
+    }
+  },
+  "errored": false,
+  "format_version": "1.2",
+  "output_changes": {
+    "fan": {
+      "actions": [
+        "create"
+      ],
+      "after": [
+        null,
+        null
+      ],
+      "after_sensitive": false,
+      "after_unknown": [
+        true,
+        true
+      ],
+      "before": null,
+      "before_sensitive": false
+    },
+    "password": {
+      "actions": [
+        "no-op"
+      ],
+      "after": "__cty_sensitive__",
+      "after_sensitive": true,
+      "after_unknown": false,
+      "before": "__cty_sensitive__",
+      "before_sensitive": true
+    },
+    "pet": {
+      "actions": [
+        "no-op"
+      ],
+      "after": "v1-happy-buffalo",
+      "after_sensitive": false,
+      "after_unknown": false,
+      "before": "v1-happy-buffalo",
+      "before_sensitive": false
+    }
+  },
+  "planned_values": {
+    "outputs": {
+      "fan": {
+        "sensitive": false
+      },
+      "password": {
+        "sensitive": true,
+        "type": "string",
+        "value": "__cty_sensitive__"
+      },
+      "pet": {
+        "sensitive": false,
+        "type": "string",
+        "value": "v1-happy-buffalo"
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "local_file.marker",
+          "mode": "managed",
+          "name": "marker",
+          "provider_name": "registry.opentofu.org/hashicorp/local",
+          "schema_version": 0,
+          "sensitive_values": {
+            "sensitive_content": true
+          },
+          "type": "local_file",
+          "values": {
+            "content": "v1-happy-buffalo",
+            "content_base64": null,
+            "content_base64sha256": "a/VL9vMh3a4U5/YJh5C7VFpymqJE3OmtK4N0OTdWhpg=",
+            "content_base64sha512": "xiywGczXSbBncRTZbnhlKt3UFaeZFBMMRuPd678kMRBF0j112F4vh/cNQEehwpjP83euWfe+GGlhGmTZvvnd8w==",
+            "content_md5": "ebe06f40d785a016038cf9893c09482c",
+            "content_sha1": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+            "content_sha256": "6bf54bf6f321ddae14e7f6098790bb545a729aa244dce9ad2b83743937568698",
+            "content_sha512": "c62cb019ccd749b0677114d96e78652addd415a79914130c46e3ddebbf24311045d23d75d85e2f87f70d4047a1c298cff377ae59f7be1869611a64d9bef9ddf3",
+            "directory_permission": "0777",
+            "file_permission": "0777",
+            "filename": "/work/v1-run/core/out/default/marker.txt",
+            "id": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+            "sensitive_content": null,
+            "source": null
+          }
+        },
+        {
+          "address": "random_password.db",
+          "mode": "managed",
+          "name": "db",
+          "provider_name": "registry.opentofu.org/hashicorp/random",
+          "schema_version": 3,
+          "sensitive_values": {
+            "bcrypt_hash": true,
+            "result": true
+          },
+          "type": "random_password",
+          "values": {
+            "bcrypt_hash": "__cty_sensitive__",
+            "id": "none",
+            "keepers": null,
+            "length": 20,
+            "lower": true,
+            "min_lower": 0,
+            "min_numeric": 0,
+            "min_special": 0,
+            "min_upper": 0,
+            "number": true,
+            "numeric": true,
+            "override_special": null,
+            "result": "__cty_sensitive__",
+            "special": true,
+            "upper": true
+          }
+        },
+        {
+          "address": "random_pet.name",
+          "mode": "managed",
+          "name": "name",
+          "provider_name": "registry.opentofu.org/hashicorp/random",
+          "schema_version": 0,
+          "sensitive_values": {},
+          "type": "random_pet",
+          "values": {
+            "id": "v1-happy-buffalo",
+            "keepers": null,
+            "length": 2,
+            "prefix": "v1",
+            "separator": "-"
+          }
+        },
+        {
+          "address": "terraform_data.fan[0]",
+          "index": 0,
+          "mode": "managed",
+          "name": "fan",
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "sensitive_values": {},
+          "type": "terraform_data",
+          "values": {
+            "input": "v1-happy-buffalo-0",
+            "triggers_replace": null
+          }
+        },
+        {
+          "address": "terraform_data.fan[1]",
+          "index": 1,
+          "mode": "managed",
+          "name": "fan",
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "sensitive_values": {},
+          "type": "terraform_data",
+          "values": {
+            "input": "v1-happy-buffalo-1",
+            "triggers_replace": null
+          }
+        },
+        {
+          "address": "terraform_data.seed",
+          "mode": "managed",
+          "name": "seed",
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "sensitive_values": {},
+          "type": "terraform_data",
+          "values": {
+            "id": "faaa7b57-d38c-209a-787a-c8060493fc23",
+            "input": "v1-happy-buffalo",
+            "output": "v1-happy-buffalo",
+            "triggers_replace": null
+          }
+        }
+      ]
+    }
+  },
+  "prior_state": {
+    "format_version": "1.0",
+    "terraform_version": "1.12.6",
+    "values": {
+      "outputs": {
+        "password": {
+          "sensitive": true,
+          "type": "string",
+          "value": "__cty_sensitive__"
+        },
+        "pet": {
+          "sensitive": false,
+          "type": "string",
+          "value": "v1-happy-buffalo"
+        }
+      },
+      "root_module": {
+        "resources": [
+          {
+            "address": "local_file.marker",
+            "depends_on": [
+              "random_pet.name"
+            ],
+            "mode": "managed",
+            "name": "marker",
+            "provider_name": "registry.opentofu.org/hashicorp/local",
+            "schema_version": 0,
+            "sensitive_values": {
+              "sensitive_content": true
+            },
+            "type": "local_file",
+            "values": {
+              "content": "v1-happy-buffalo",
+              "content_base64": null,
+              "content_base64sha256": "a/VL9vMh3a4U5/YJh5C7VFpymqJE3OmtK4N0OTdWhpg=",
+              "content_base64sha512": "xiywGczXSbBncRTZbnhlKt3UFaeZFBMMRuPd678kMRBF0j112F4vh/cNQEehwpjP83euWfe+GGlhGmTZvvnd8w==",
+              "content_md5": "ebe06f40d785a016038cf9893c09482c",
+              "content_sha1": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+              "content_sha256": "6bf54bf6f321ddae14e7f6098790bb545a729aa244dce9ad2b83743937568698",
+              "content_sha512": "c62cb019ccd749b0677114d96e78652addd415a79914130c46e3ddebbf24311045d23d75d85e2f87f70d4047a1c298cff377ae59f7be1869611a64d9bef9ddf3",
+              "directory_permission": "0777",
+              "file_permission": "0777",
+              "filename": "/work/v1-run/core/out/default/marker.txt",
+              "id": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+              "sensitive_content": null,
+              "source": null
+            }
+          },
+          {
+            "address": "random_password.db",
+            "mode": "managed",
+            "name": "db",
+            "provider_name": "registry.opentofu.org/hashicorp/random",
+            "schema_version": 3,
+            "sensitive_values": {
+              "bcrypt_hash": true,
+              "result": true
+            },
+            "type": "random_password",
+            "values": {
+              "bcrypt_hash": "__cty_sensitive__",
+              "id": "none",
+              "keepers": null,
+              "length": 20,
+              "lower": true,
+              "min_lower": 0,
+              "min_numeric": 0,
+              "min_special": 0,
+              "min_upper": 0,
+              "number": true,
+              "numeric": true,
+              "override_special": null,
+              "result": "__cty_sensitive__",
+              "special": true,
+              "upper": true
+            }
+          },
+          {
+            "address": "random_pet.name",
+            "mode": "managed",
+            "name": "name",
+            "provider_name": "registry.opentofu.org/hashicorp/random",
+            "schema_version": 0,
+            "sensitive_values": {},
+            "type": "random_pet",
+            "values": {
+              "id": "v1-happy-buffalo",
+              "keepers": null,
+              "length": 2,
+              "prefix": "v1",
+              "separator": "-"
+            }
+          },
+          {
+            "address": "terraform_data.seed",
+            "depends_on": [
+              "random_pet.name"
+            ],
+            "mode": "managed",
+            "name": "seed",
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "sensitive_values": {},
+            "type": "terraform_data",
+            "values": {
+              "id": "faaa7b57-d38c-209a-787a-c8060493fc23",
+              "input": "v1-happy-buffalo",
+              "output": "v1-happy-buffalo",
+              "triggers_replace": null
+            }
+          }
+        ]
+      }
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "local_file.marker",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {
+          "content": "v1-happy-buffalo",
+          "content_base64": null,
+          "content_base64sha256": "a/VL9vMh3a4U5/YJh5C7VFpymqJE3OmtK4N0OTdWhpg=",
+          "content_base64sha512": "xiywGczXSbBncRTZbnhlKt3UFaeZFBMMRuPd678kMRBF0j112F4vh/cNQEehwpjP83euWfe+GGlhGmTZvvnd8w==",
+          "content_md5": "ebe06f40d785a016038cf9893c09482c",
+          "content_sha1": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+          "content_sha256": "6bf54bf6f321ddae14e7f6098790bb545a729aa244dce9ad2b83743937568698",
+          "content_sha512": "c62cb019ccd749b0677114d96e78652addd415a79914130c46e3ddebbf24311045d23d75d85e2f87f70d4047a1c298cff377ae59f7be1869611a64d9bef9ddf3",
+          "directory_permission": "0777",
+          "file_permission": "0777",
+          "filename": "/work/v1-run/core/out/default/marker.txt",
+          "id": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+          "sensitive_content": null,
+          "source": null
+        },
+        "after_sensitive": {
+          "sensitive_content": true
+        },
+        "after_unknown": {},
+        "before": {
+          "content": "v1-happy-buffalo",
+          "content_base64": null,
+          "content_base64sha256": "a/VL9vMh3a4U5/YJh5C7VFpymqJE3OmtK4N0OTdWhpg=",
+          "content_base64sha512": "xiywGczXSbBncRTZbnhlKt3UFaeZFBMMRuPd678kMRBF0j112F4vh/cNQEehwpjP83euWfe+GGlhGmTZvvnd8w==",
+          "content_md5": "ebe06f40d785a016038cf9893c09482c",
+          "content_sha1": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+          "content_sha256": "6bf54bf6f321ddae14e7f6098790bb545a729aa244dce9ad2b83743937568698",
+          "content_sha512": "c62cb019ccd749b0677114d96e78652addd415a79914130c46e3ddebbf24311045d23d75d85e2f87f70d4047a1c298cff377ae59f7be1869611a64d9bef9ddf3",
+          "directory_permission": "0777",
+          "file_permission": "0777",
+          "filename": "/work/v1-run/core/out/default/marker.txt",
+          "id": "8ebf4722a6db14806ef3e8219dbe657f256decb7",
+          "sensitive_content": null,
+          "source": null
+        },
+        "before_sensitive": {
+          "sensitive_content": true
+        }
+      },
+      "mode": "managed",
+      "name": "marker",
+      "provider_name": "registry.opentofu.org/hashicorp/local",
+      "type": "local_file"
+    },
+    {
+      "address": "random_password.db",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {
+          "bcrypt_hash": "__cty_sensitive__",
+          "id": "none",
+          "keepers": null,
+          "length": 20,
+          "lower": true,
+          "min_lower": 0,
+          "min_numeric": 0,
+          "min_special": 0,
+          "min_upper": 0,
+          "number": true,
+          "numeric": true,
+          "override_special": null,
+          "result": "__cty_sensitive__",
+          "special": true,
+          "upper": true
+        },
+        "after_sensitive": {
+          "bcrypt_hash": true,
+          "result": true
+        },
+        "after_unknown": {},
+        "before": {
+          "bcrypt_hash": "__cty_sensitive__",
+          "id": "none",
+          "keepers": null,
+          "length": 20,
+          "lower": true,
+          "min_lower": 0,
+          "min_numeric": 0,
+          "min_special": 0,
+          "min_upper": 0,
+          "number": true,
+          "numeric": true,
+          "override_special": null,
+          "result": "__cty_sensitive__",
+          "special": true,
+          "upper": true
+        },
+        "before_sensitive": {
+          "bcrypt_hash": true,
+          "result": true
+        }
+      },
+      "mode": "managed",
+      "name": "db",
+      "provider_name": "registry.opentofu.org/hashicorp/random",
+      "type": "random_password"
+    },
+    {
+      "address": "random_pet.name",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {
+          "id": "v1-happy-buffalo",
+          "keepers": null,
+          "length": 2,
+          "prefix": "v1",
+          "separator": "-"
+        },
+        "after_sensitive": {},
+        "after_unknown": {},
+        "before": {
+          "id": "v1-happy-buffalo",
+          "keepers": null,
+          "length": 2,
+          "prefix": "v1",
+          "separator": "-"
+        },
+        "before_sensitive": {}
+      },
+      "mode": "managed",
+      "name": "name",
+      "provider_name": "registry.opentofu.org/hashicorp/random",
+      "type": "random_pet"
+    },
+    {
+      "address": "terraform_data.fan[0]",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "input": "v1-happy-buffalo-0",
+          "triggers_replace": null
+        },
+        "after_sensitive": {},
+        "after_unknown": {
+          "id": true,
+          "output": true
+        },
+        "before": null,
+        "before_sensitive": false
+      },
+      "index": 0,
+      "mode": "managed",
+      "name": "fan",
+      "provider_name": "terraform.io/builtin/terraform",
+      "type": "terraform_data"
+    },
+    {
+      "address": "terraform_data.fan[1]",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "input": "v1-happy-buffalo-1",
+          "triggers_replace": null
+        },
+        "after_sensitive": {},
+        "after_unknown": {
+          "id": true,
+          "output": true
+        },
+        "before": null,
+        "before_sensitive": false
+      },
+      "index": 1,
+      "mode": "managed",
+      "name": "fan",
+      "provider_name": "terraform.io/builtin/terraform",
+      "type": "terraform_data"
+    },
+    {
+      "address": "terraform_data.seed",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {
+          "id": "faaa7b57-d38c-209a-787a-c8060493fc23",
+          "input": "v1-happy-buffalo",
+          "output": "v1-happy-buffalo",
+          "triggers_replace": null
+        },
+        "after_sensitive": {},
+        "after_unknown": {},
+        "before": {
+          "id": "faaa7b57-d38c-209a-787a-c8060493fc23",
+          "input": "v1-happy-buffalo",
+          "output": "v1-happy-buffalo",
+          "triggers_replace": null
+        },
+        "before_sensitive": {}
+      },
+      "mode": "managed",
+      "name": "seed",
+      "provider_name": "terraform.io/builtin/terraform",
+      "type": "terraform_data"
+    }
+  ],
+  "terraform_version": "1.12.6",
+  "timestamp": "2026-10-09T23:45:18Z",
+  "variables": {
+    "prefix": {
+      "value": "v1"
+    }
+  }
+}

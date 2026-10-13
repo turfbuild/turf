@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/docker/docker-agent/pkg/tui/animation"
@@ -29,7 +30,7 @@ import (
 // Design goals (per the experiment): blend into the conversation. Every renderer
 // emits a borderless icon + one colored line, matching the default tool line
 // (✓ Title …) so turf tools read as first-class conversation entries. The line leads
-// with the friendly, English-readable tool title (e.g. "Approve Plan") — resolved via
+// with the friendly, English-readable tool title (e.g. "Apply Plan") — resolved via
 // toolTitle from the shared turfToolInfo source and styled with the same neutral
 // styles.ToolName cagent's built-in renderers use — followed by the target + status.
 // Color and the status glyph come from cagent's theme via the styles package and
@@ -38,10 +39,16 @@ import (
 // Two detail levels, switched by cagent's HideToolResults() toggle (Ctrl+O), which
 // every renderer receives via SessionStateReader:
 //   - hidden  → the compact one-liner.
-//   - shown   → the one-liner PLUS a rich, indented "unfold": full attribute
-//     diffs (before → after, colored +/~/-), applied state, ready sets, evaluated
-//     outputs, provider tables — plenty of detail for inspecting a step. This is
-//     turf's default (see newSession).
+//   - shown   → the one-liner PLUS a rich, indented "unfold": a convergence's
+//     rounds and invocations, a plan document's attribute diffs (before → after,
+//     colored +/~/-), state values, outputs — plenty of detail for inspecting a
+//     step. This is turf's default (see newSession).
+//
+// The vocabulary is Terraform's where Terraform has a word for it (the plan glyphs
+// in planAction, "(known after apply)", "(sensitive value)"), and the Turf engine
+// console's where it is a Turf concept Terraform lacks: a convergence's outcome
+// (converged, stalled, exhausted, declined), a round's status, an action
+// invocation's verdict. Color stays the CLI theme's own.
 //
 // Reusing toolcommon.Icon gives us the live spinner, elapsed-time, and exact
 // left-margin alignment of the built-in tool lines at no cost.
@@ -57,7 +64,7 @@ import (
 // The divergence is one level lower, inside the Renderer bodies, and is deliberate:
 //   - We hand-write each Renderer rather than composing cagent's SimpleRenderer /
 //     SimpleRendererWithResult + RenderTool helpers. Those model a "one arg + one result
-//     string" line; turf's views (attribute diffs, colored tallies, ready-sets, an
+//     string" line; turf's views (attribute diffs, colored tallies, round lists, an
 //     expand/collapse detail block) don't fit that shape. This is also why the leading
 //     title lives in line() (resolved from turfToolInfo) instead of delegating to
 //     RenderTool, which derives its title from msg.ToolDefinition.DisplayName() — not
@@ -97,28 +104,24 @@ func builtinToolRenderers() map[string]tool.Builder {
 // registerTurfToolRenderers.
 func turfToolRenderers() map[string]tool.Builder {
 	return map[string]tool.Builder{
+		"turf_init":              builder(renderInit),
 		"turf_workspace_open":    builder(renderWorkspaceOpen),
 		"turf_workspace_close":   builder(renderWorkspaceClose),
 		"turf_workspace_list":    builder(renderWorkspaceList),
 		"turf_workspace_show":    builder(renderWorkspaceShow),
 		"turf_workspace_delete":  builder(renderWorkspaceDelete),
-		"turf_plan_new":          builder(renderPlanNew),
-		"turf_plan_cancel":       builder(renderPlanCancel),
-		"turf_plan_export":       builder(renderPlanExport),
-		"turf_plan_approve":      builder(renderPlanApprove),
-		"turf_config_init":       builder(renderConfigInit),
-		"turf_config_show":       builder(renderConfigShow),
-		"turf_replan":            builder(renderReplan),
-		"turf_resource_import":   builder(renderResourceImport),
-		"turf_resource_refresh":  builder(renderResourceRefresh),
-		"turf_action_invoke":     builder(renderActionInvoke),
-		"turf_action_trigger":    builder(renderActionTrigger),
-		"turf_action_untrigger":  builder(renderActionUntrigger),
-		"turf_outputs":           builder(renderOutputs),
-		"turf_effect_apply":      builder(renderEffectApply),
-		"turf_effect_cancel":     builder(renderEffectCancel),
+		"turf_up":                builder(renderConvergence),
+		"turf_destroy":           builder(renderConvergence),
+		"turf_refresh":           builder(renderConvergence),
+		"turf_import":            builder(renderConvergence),
+		"turf_invoke":            builder(renderConvergence),
+		"turf_apply":             builder(renderConvergence),
+		"turf_cancel":            builder(renderConvergence),
+		"turf_show":              builder(renderShow),
+		"turf_output":            builder(renderOutput),
 		"turf_state_list":        builder(renderStateList),
-		"turf_datasource_read":   builder(renderDatasourceRead),
+		"turf_taint":             builder(renderTaint),
+		"turf_untaint":           builder(renderTaint),
 		"turf_provider_search":   builder(renderProviderSearch),
 		"turf_provider_describe": builder(renderProviderDescribe),
 		"turf_skill_core":        builder(renderSkill),
@@ -266,40 +269,63 @@ func parseContent[T any](msg *types.Message, v *T) bool {
 	return json.Unmarshal([]byte(msg.Content), v) == nil
 }
 
+// argString reads one request argument as display text. A list of strings (taint's
+// addrs) reads as its comma-joined elements; any other non-string value reads as "".
 func argString(msg *types.Message, key string) string {
 	var m map[string]any
 	if json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &m) != nil {
 		return ""
 	}
-	if v, ok := m[key].(string); ok {
+	switch v := m[key].(type) {
+	case string:
 		return v
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, e := range v {
+			str, ok := e.(string)
+			if !ok {
+				return ""
+			}
+			parts = append(parts, str)
+		}
+		return strings.Join(parts, ", ")
 	}
 	return ""
 }
 
+// argInt reads one numeric request argument (show's round); 0 when absent.
+func argInt(msg *types.Message, key string) int {
+	var m map[string]any
+	if json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &m) != nil {
+		return 0
+	}
+	if f, ok := m[key].(float64); ok {
+		return int(f)
+	}
+	return 0
+}
+
 // turfToolTargetArgs maps a bare turf tool name to its request's target argument(s), in
 // priority order — the identifier that names what the call operates on (a resource,
-// provider, module, workspace, …). It mirrors the target each renderer already picks in
-// its running(msg) branch; errorTarget uses it to give a failed line the same lead
-// context a successful one has. Tools absent here (plan_*, state_list, outputs, skills)
-// fall back to the workspace alias (or nothing, for zero-arg skills). Arg names track the
-// server tool structs in turf-mcp-server's internal/tools package.
+// provider, convergence, workspace, …). It mirrors the target each renderer already
+// picks in its running(msg) branch; errorTarget uses it to give a failed line the same
+// lead context a successful one has. Tools absent here (up, destroy, refresh, import,
+// state_list, skills) fall back to the workspace alias (or nothing, for zero-arg skills).
+// Arg names track the server tool structs in turf-mcp-server's internal/tools package,
+// and TestTurfToolTargetArgsMatchServerSchemas holds them to the live input schemas.
 var turfToolTargetArgs = map[string][]string{
-	"resource_import":   {"resource_addr"},
-	"resource_refresh":  {"resource_addr"},
-	"datasource_read":   {"resource_addr"},
-	"config_init":       {"path"},
-	"config_show":       {"address"},
-	"provider_search":   {"query"},
-	"provider_describe": {"resource_type", "datasource_type", "action_type"},
-	"action_invoke":     {"action_type"},
-	"action_trigger":    {"name"},
-	"action_untrigger":  {"name"},
-	"effect_apply":      {"effect_id"},
-	"effect_cancel":     {"effect_id"},
-	"workspace_open":    {"workspace_name"},
+	"init":              {"path", "config_alias"},
+	"workspace_open":    {"workspace_name", "config_alias"},
 	"workspace_close":   {"workspace_alias"},
 	"workspace_delete":  {"workspace_name"},
+	"invoke":            {"action_addr"},
+	"apply":             {"convergence_id"},
+	"show":              {"convergence_id"},
+	"output":            {"name"},
+	"taint":             {"addrs"},
+	"untaint":           {"addrs"},
+	"provider_search":   {"query"},
+	"provider_describe": {"resource_type", "datasource_type", "action_type", "provider"},
 	"read_skill_file":   {"path"},
 }
 
@@ -338,9 +364,9 @@ func section(label string) string { return muted(label + ":") }
 // --- attribute diff ---------------------------------------------------------
 //
 // The heart of the expanded view: a colored before→after diff, mirroring how
-// `tofu plan` reads. Used by each resource in a walk-summary plan (plan_new /
-// replan). before==nil (a create) renders every attr as an addition; after==nil (a
-// destroy) renders every attr as a removal.
+// `tofu plan` reads. Used by each resource change in a plan document (show).
+// before==nil (a create) renders every attr as an addition; after==nil (a destroy)
+// renders every attr as a removal.
 
 const maxDiffLines = 60
 
@@ -406,8 +432,8 @@ func attrDiff(before, after map[string]any, beforeMask, afterMask any, indent st
 	return out
 }
 
-// kvLines renders a map as aligned "key = value" detail lines (applied state, evaluated
-// outputs, resolved config, imported state, …), expanding nested maps/lists via
+// kvLines renders a map as aligned "key = value" detail lines (state values, outputs,
+// an action request's inputs, …), expanding nested maps/lists via
 // renderValue. Null leaves are skipped; max caps the number of rendered lines. This is
 // the unmarked (no +/-) value view; diffs pass a marker through renderValue instead.
 func kvLines(m map[string]any, indent string, max int) []string {
@@ -415,7 +441,7 @@ func kvLines(m map[string]any, indent string, max int) []string {
 }
 
 // kvLinesMasked is kvLines for a value that came with a sensitive_values mask alongside
-// it (effect_apply's new_state, datasource_read's state). A nil mask is the plain view.
+// it (a state resource's values, a state document's). A nil mask is the plain view.
 func kvLinesMasked(m map[string]any, mask any, indent string, max int) []string {
 	keys := nonNilKeys(m)
 	w := maxKeyWidth(keys)
@@ -615,12 +641,14 @@ func unionKeys(a, b map[string]any) []string {
 // --- sensitivity masks ------------------------------------------------------
 //
 // Every value-bearing turf tool that can reveal a secret returns OpenTofu's
-// sensitive_values shape alongside the values: `true` at a sensitive node (covering
+// sensitive_values shape alongside the values (a plan document's change carries the
+// same shape as before_sensitive/after_sensitive): `true` at a sensitive node (covering
 // its whole subtree), an object with the non-sensitive keys omitted, a positional
 // array for lists/sets/tuples with null at the non-sensitive elements, and the field
 // absent entirely when nothing is sensitive. See objchange.SensitiveValuesFromMarked.
 //
-// The mask matters because show_sensitive puts the real secret on the wire. The
+// The mask matters because show_sensitive (show, output, state_list) puts the real
+// secret on the wire. The
 // server hands it to the model deliberately; the timeline is a different surface — it
 // is also terminal scrollback and the persisted session — so turf redacts at display
 // time from the mask, whatever arrived. In the ordinary (unrevealed) case the values
@@ -630,8 +658,8 @@ func unionKeys(a, b map[string]any) []string {
 // sensitiveLeaf stands in for a value we are not allowed to print. It is exactly what
 // fmtVal renders the __cty_sensitive__ sentinel as, so a mask-redacted value and a
 // pre-redacted one read identically — one form on every surface, including both halves
-// of a diff between two unprintable values.
-const sensitiveLeaf = "(sensitive)"
+// of a diff between two unprintable values. The words are Terraform's own.
+const sensitiveLeaf = "(sensitive value)"
 
 // maskSensitive reports whether a mask node marks its whole subtree sensitive.
 func maskSensitive(mask any) bool {
@@ -640,8 +668,13 @@ func maskSensitive(mask any) bool {
 }
 
 // maskKey descends an object/map mask by attribute name; nil when the mask says
-// nothing about that key (or is not an object at all).
+// nothing about that key (or is not an object at all). A sensitive node covers its
+// whole subtree, so descending from one stays sensitive — which is what keeps a mask
+// that marks a whole value (a bare `true` at the root) from leaking its attributes.
 func maskKey(mask any, k string) any {
+	if maskSensitive(mask) {
+		return true
+	}
 	m, ok := mask.(map[string]any)
 	if !ok {
 		return nil
@@ -650,8 +683,11 @@ func maskKey(mask any, k string) any {
 }
 
 // maskIndex descends a list/set/tuple mask by position; nil when out of range (or the
-// mask is not positional).
+// mask is not positional). Like maskKey, a sensitive node stays sensitive below.
 func maskIndex(mask any, i int) any {
+	if maskSensitive(mask) {
+		return true
+	}
 	s, ok := mask.([]any)
 	if !ok || i < 0 || i >= len(s) {
 		return nil
@@ -669,19 +705,27 @@ func maskedVal(v any, mask any) string {
 	return fmtVal(v)
 }
 
-// fmtVal renders a JSON-decoded value compactly. turf's sentinels are masked:
-// "__cty_unknown__" (a value known only after apply) and "__cty_sensitive__" (a
-// sensitive value whose real content stayed server-side and never reached us — the
-// masks above cover the case where it did).
+// The two placeholders fmtVal prints in Terraform's words. The server redacts a
+// sensitive value to sensitiveSentinel; unknownSentinel is turf's own, overlaid from a
+// plan document's after_unknown mask by withUnknowns.
+const (
+	sensitiveSentinel = "__cty_sensitive__"
+	unknownSentinel   = "__cty_unknown__"
+)
+
+// fmtVal renders a JSON-decoded value compactly. The placeholders are masked:
+// unknownSentinel (a value known only after apply) and sensitiveSentinel (a sensitive
+// value whose real content stayed server-side and never reached us — the masks above
+// cover the case where it did).
 func fmtVal(v any) string {
 	switch x := v.(type) {
 	case nil:
 		return "null"
 	case string:
 		switch x {
-		case "__cty_unknown__":
+		case unknownSentinel:
 			return "(known after apply)"
-		case "__cty_sensitive__":
+		case sensitiveSentinel:
 			return sensitiveLeaf
 		}
 		return strconv.Quote(x)
@@ -695,6 +739,53 @@ func fmtVal(v any) string {
 	}
 }
 
+// withUnknowns overlays a plan document's after_unknown mask onto after, putting
+// unknownSentinel at every node the mask marks unknown. The mask has the shape of the
+// sensitive masks — `true` covering a whole subtree, an object of the keys it says
+// anything about, a positional array — and OpenTofu leaves an unknown value out of (or
+// null in) `after`, so without the overlay a pending attribute would not render at all.
+// With it, attrDiff and fmtVal print "(known after apply)" with no unknown-aware code of
+// their own.
+func withUnknowns(v any, unknown any) any {
+	switch u := unknown.(type) {
+	case bool:
+		if u {
+			return unknownSentinel
+		}
+	case map[string]any:
+		if len(u) == 0 {
+			return v
+		}
+		m, _ := v.(map[string]any)
+		out := make(map[string]any, len(m)+len(u))
+		for k, x := range m {
+			out[k] = x
+		}
+		for k, uk := range u {
+			out[k] = withUnknowns(m[k], uk)
+		}
+		return out
+	case []any:
+		if len(u) == 0 {
+			return v
+		}
+		s, _ := v.([]any)
+		out := make([]any, max(len(s), len(u)))
+		for i := range out {
+			var x, ui any
+			if i < len(s) {
+				x = s[i]
+			}
+			if i < len(u) {
+				ui = u[i]
+			}
+			out[i] = withUnknowns(x, ui)
+		}
+		return out
+	}
+	return v
+}
+
 func truncateStr(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -703,114 +794,8 @@ func truncateStr(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// --- turf_effect_apply ------------------------------------------------------
-
-type effectApplyView struct {
-	// Kind is the effect the phase dispatched: create/update/destroy run provider
-	// RPCs; forget, import (commit a plan-time adoption) and move (commit a state
-	// relocation) are state writes with no provider call.
-	Kind         string         `json:"kind"`
-	State        string         `json:"state"`
-	ResourceAddr string         `json:"resource_addr"`
-	Ready        []string       `json:"ready"`
-	NewState     map[string]any `json:"new_state,omitempty"`
-	// DeposedState is the prior object a create-before-destroy replace moved into
-	// the deposed slot before creating its replacement — so state stays consistent
-	// if the create fails. Set on the create half of a CBD replace only.
-	DeposedState map[string]any `json:"deposed_state,omitempty"`
-	// SensitiveValues masks NewState, in OpenTofu's sensitive_values shape. The
-	// server sends no separate mask for DeposedState, so this one is reused for it:
-	// the two are the same resource type, so their schema-derived sensitivity is
-	// identical and only config-flow marks can differ. It matters solely under
-	// show_sensitive — unrevealed, DeposedState already arrives as sentinels that
-	// fmtVal masks on its own.
-	SensitiveValues any `json:"sensitive_values,omitempty"`
-	// Outputs are the root outputs this effect newly resolved — an output that
-	// referenced the just-applied resource. Same {value, sensitive} shape as the
-	// outputs tool, so the same mask carries across.
-	Outputs map[string]outputValueView `json:"outputs,omitempty"`
-	// Message is the effect's own account of what it did. Load-bearing for a move,
-	// whose from→to relocation reaches the wire only here.
-	Message string `json:"message,omitempty"`
-}
-
-func renderEffectApply(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, addr(argString(msg, "effect_id")), width)
-	}
-	var e effectApplyView
-	if !parseContent(msg, &e) {
-		return fallbackLine(msg, s, ss, width)
-	}
-
-	state := e.State
-	if state == "" {
-		state = "applied"
-	}
-	head := e.Kind
-	if head == "" {
-		head = "apply"
-	}
-	c := applyStateColor(e.State)
-	summary := addr(e.ResourceAddr) + dot() + bold(head, c) + dot() + bold(state, c)
-	if n := len(e.Outputs); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
-	}
-
-	var detail []string
-	// What the effect wrote first — new state, then any deposed object it moved,
-	// then the outputs it resolved — and last what becomes ready: the temporal
-	// order of apply. The message trails as the effect's own account of it.
-	if len(e.NewState) > 0 {
-		detail = append(detail, section("new state"))
-		detail = append(detail, kvLinesMasked(e.NewState, e.SensitiveValues, "  ", 40)...)
-	}
-	if len(e.DeposedState) > 0 {
-		detail = append(detail, section("deposed state"))
-		detail = append(detail, kvLinesMasked(e.DeposedState, e.SensitiveValues, "  ", 40)...)
-	}
-	if len(e.Outputs) > 0 {
-		detail = append(detail, section("outputs"))
-		flat, mask := outputsMask(e.Outputs)
-		detail = append(detail, kvLinesMasked(flat, mask, "  ", 20)...)
-	}
-	if n := len(e.Ready); n > 0 {
-		detail = append(detail, section(fmt.Sprintf("%d ready to effect", n)))
-		detail = append(detail, effectLines(e.Ready, "  ", 12)...)
-	}
-	if e.Message != "" {
-		detail = append(detail, muted(e.Message))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_replan / turf_plan_new -----------------------------------------------
-
-type resourcePlanEntry struct {
-	Address string `json:"address"`
-	// DeposedKey marks a row that is not about the object living at Address: the
-	// destroy of an object deposed under it by an interrupted create-before-destroy
-	// replace. Two rows can therefore share one Address, told apart only by this
-	// key — which is why the rendered header carries it.
-	DeposedKey          string         `json:"deposed_key,omitempty"`
-	Type                string         `json:"type"`
-	Provider            string         `json:"provider"`
-	Action              string         `json:"action"`
-	CreateBeforeDestroy bool           `json:"create_before_destroy,omitempty"`
-	Before              map[string]any `json:"before,omitempty"`
-	After               map[string]any `json:"after,omitempty"`
-	BeforeSensitive     any            `json:"before_sensitive,omitempty"`
-	AfterSensitive      any            `json:"after_sensitive,omitempty"`
-	RequiresReplace     []string       `json:"requires_replace,omitempty"`
-	// Importing is set when this change ADOPTS an existing object named by an
-	// `import {}` block, so the Before half is the real remote object rather than a
-	// null prior — which is why a "noop" action here means "already matches", not
-	// "nothing to do".
-	Importing *importingInfoView `json:"importing,omitempty"`
-}
-
-// importingInfoView is the server's `importing` object: the locator the import
-// block carried. Exactly one of ID / Identity is set — a provider-specific id
+// importingInfoView is a plan document change's `importing` object: the locator the
+// import carried. Exactly one of ID / Identity is set — a provider-specific id
 // string, or a provider-declared resource identity object (Terraform 1.12+).
 type importingInfoView struct {
 	ID       string         `json:"id,omitempty"`
@@ -842,227 +827,1016 @@ func planRowAddr(address, deposedKey string) string {
 	return address + " (deposed " + deposedKey + ")"
 }
 
-// movedRecordView is one state relocation a phase's `moved {}` blocks produced.
-type movedRecordView struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+// --- turf_up / destroy / refresh / import / invoke / apply / cancel ---------
+//
+// Every convergence tool returns the same result (turf-mcp-server's
+// convergence.Result): up and its siblings start a convergence and stop at round
+// 1's approval point; apply approves the vended plan (or answers turf actions) and
+// stops at the next one, or at the end; cancel ends one. So one renderer serves all
+// seven, and the line reads the same whichever call produced it.
+//
+// The result carries counts, not resource changes: the per-resource plan is a
+// document on disk (plan.path) the server deletes once the round applies, and the
+// timeline does not read it. show renders a plan document's rows.
+//
+// A convergence that ended any way but converged (failed, stalled, exhausted,
+// declined, cancelled, error, detached) arrives as an MCP error that still carries
+// the whole result, so the renderer parses before it defers to errorLine. A refusal —
+// a stale digest, a busy workspace — is plain text and falls through to errorLine.
+
+type convergenceView struct {
+	ConvergenceID  string `json:"convergence_id"`
+	WorkspaceAlias string `json:"workspace_alias"`
+	// Kind is up, destroy, refresh, import or invoke: what started the convergence.
+	// apply and cancel report the kind of the convergence they act on.
+	Kind string `json:"kind"`
+	// Outcome is awaiting_approval or awaiting_actions while paused; otherwise how it
+	// ended (converged, stalled, exhausted, failed, declined, cancelled, error,
+	// detached). A cancel of a convergence nobody follows reports the driver's word.
+	Outcome string `json:"outcome"`
+	// Round, Plan and ExpiresAt are set at an approval point.
+	Round     int             `json:"round,omitempty"`
+	Plan      *vendedPlanView `json:"plan,omitempty"`
+	ExpiresAt string          `json:"expires_at,omitempty"`
+	// ActionRequests are the turf actions waiting on the agent at awaiting_actions,
+	// which its next apply answers by key; Refused names the answers an apply sent
+	// that were not taken, each request still open.
+	ActionRequests []actionRequestView     `json:"action_requests,omitempty"`
+	Refused        map[string]string       `json:"refused,omitempty"`
+	Rounds         []roundView             `json:"rounds"`
+	Outputs        *convergenceOutputsView `json:"outputs,omitempty"`
+	Error          string                  `json:"error,omitempty"`
+	Note           string                  `json:"note,omitempty"`
 }
 
-type planSummaryView struct {
-	Path             string              `json:"path"` // the bound configuration dir
-	PhaseID          string              `json:"phase_id"`
-	Resources        []resourcePlanEntry `json:"resources"`
-	TopologicalOrder []string            `json:"topological_order"`
-	Deferred         []json.RawMessage   `json:"deferred,omitempty"`
-	Outputs          json.RawMessage     `json:"outputs,omitempty"`
-	// Reads classifies every declared data source the walk touched. A walk reads
-	// them all, so this is the whole configuration's worth.
-	Reads []dataSourceReadEntry `json:"data_source_reads,omitempty"`
-	// Moved are the state relocations this phase's `moved {}` blocks produced, as
-	// concrete from→to pairs. Present whenever the phase moved anything, including
-	// on a re-plan that finds nothing left to move: the relocation is still part of
-	// what applying commits.
-	Moved []movedRecordView `json:"moved,omitempty"`
-	// Opens classifies every declared ephemeral resource the walk opened, in the
-	// same vocabulary Reads uses. Reported per WALK, not per phase, because the
-	// object's life is one walk: two consecutive plans of an unchanged
-	// configuration list the same addresses as "opened", which is the lifecycle
-	// rather than churn — hence the summary line reports only what did NOT open
-	// (see ephemeralOpenIssueTally) while the detail block lists them all.
-	Opens []ephemeralOpenEntry `json:"ephemeral_opens,omitempty"`
-	// Providers reports each provider instance the walk configured in-band. This
-	// is where the provider story lives now: workspace_open no longer echoes
-	// resolved providers, because the walk — not the open — is what configures
-	// them, in dependency order, from the configuration's own provider {} blocks.
-	// A non-configured instance is usually the reason a plan deferred.
-	Providers []providerStatusView `json:"providers,omitempty"`
-	Warnings  []string             `json:"warnings,omitempty"`
+// vendedPlanView is a round's plan as the result reports it: where the document
+// is, its digest (the approval), and the counts OpenTofu's plan summary prints. A
+// replace is counted inside both Add and Destroy, as Terraform counts it.
+type vendedPlanView struct {
+	Path        string           `json:"path"`
+	Digest      string           `json:"digest"`
+	Add         int              `json:"add"`
+	Change      int              `json:"change"`
+	Destroy     int              `json:"destroy"`
+	Replace     int              `json:"replace,omitempty"`
+	Import      int              `json:"import,omitempty"`
+	Forget      int              `json:"forget,omitempty"`
+	Read        int              `json:"read,omitempty"`
+	Deferred    int              `json:"deferred,omitempty"`
+	Drift       int              `json:"drift,omitempty"`
+	Outputs     int              `json:"outputs,omitempty"`
+	Invocations []invocationView `json:"invocations,omitempty"`
+	Errored     bool             `json:"errored,omitempty"`
 }
 
-// providerStatusView is one provider instance's fate during the walk. Status is
-// "configured", "configured_with_unknowns" (the block reads values an upstream
-// apply has not produced yet) or "deferred". UnknownPaths names those values and
-// FeedingAddrs names the resources to apply to make them known — together they are
-// the actionable half of a deferral. TeardownConfig, when set ("prior_state"), says
-// the phase pinned a SEPARATE configuration for this instance's destroy-side work:
-// the deletes run through the world the objects actually live in, not through the
-// unknowns above.
-type providerStatusView struct {
-	Ref            string   `json:"ref"`
-	Status         string   `json:"status"`
-	UnknownPaths   []string `json:"unknown_paths,omitempty"`
-	FeedingAddrs   []string `json:"feeding_addresses,omitempty"`
-	LastError      string   `json:"last_error,omitempty"`
-	TeardownConfig string   `json:"teardown_config,omitempty"`
+// invocationView is one action invocation a plan schedules. Caller and Event are
+// empty for an action run directly (invoke); Event is spelled as the configuration
+// writes it (before_create).
+type invocationView struct {
+	Address   string `json:"address"`
+	Type      string `json:"type"`
+	Caller    string `json:"caller,omitempty"`
+	Event     string `json:"event,omitempty"`
+	OnFailure string `json:"on_failure,omitempty"`
 }
 
-// providerIssueTally counts the provider instances the walk could not fully
-// configure. Like the read and open tallies it stays silent on the ordinary case —
-// every instance configured — so the segment appears only when it explains
-// something.
-func providerIssueTally(providers []providerStatusView) string {
-	var n int
-	for _, pr := range providers {
-		if pr.Status != "" && pr.Status != "configured" {
-			n++
+// actionRequestView is one turf action waiting on the agent. Prompt says what to do
+// and what counts as failure; IfFailed says what a failed answer will do; Inputs are
+// the configuration's values for the step.
+type actionRequestView struct {
+	Key        string          `json:"key"`
+	Round      int             `json:"round"`
+	Action     string          `json:"action"`
+	Invocation string          `json:"invocation"`
+	Caller     string          `json:"caller,omitempty"`
+	Event      string          `json:"event"`
+	OnFailure  string          `json:"on_failure"`
+	IfFailed   string          `json:"if_failed"`
+	Prompt     string          `json:"prompt"`
+	Inputs     json.RawMessage `json:"inputs,omitempty"`
+}
+
+// roundView is one round of a convergence: its status (planning, awaiting_approval
+// and applying while it runs; then applied, failed, partial, cancelled or error),
+// how its plan was approved (asked, auto, unneeded), and what its apply did.
+type roundView struct {
+	Round     int    `json:"round"`
+	Status    string `json:"status"`
+	Approval  string `json:"approval,omitempty"`
+	Planned   int    `json:"planned"`
+	Deferred  int    `json:"deferred"`
+	Applied   int    `json:"applied"`
+	Drift     int    `json:"drift,omitempty"`
+	Failed    int    `json:"failed,omitempty"`
+	Skipped   int    `json:"skipped,omitempty"`
+	Cancelled int    `json:"cancelled,omitempty"`
+	Invoked   int    `json:"invoked,omitempty"`
+	Failures  []struct {
+		Address string `json:"address"`
+		Error   string `json:"error"`
+	} `json:"failures,omitempty"`
+	// Actions are the invocations that did not simply succeed (a plain success is
+	// only counted, in Invoked); ActionsOmitted counts the ones past the engine's
+	// bound.
+	Actions        []actionOutcomeView `json:"actions,omitempty"`
+	ActionsOmitted int                 `json:"actions_omitted,omitempty"`
+	Diagnostics    []string            `json:"diagnostics,omitempty"`
+	Warnings       []string            `json:"warnings,omitempty"`
+	CheckFailures  []string            `json:"check_failures,omitempty"`
+	CancelCause    string              `json:"cancel_cause,omitempty"`
+	Error          string              `json:"error,omitempty"`
+}
+
+// actionOutcomeView is one invocation a round settled: invoked, failed, or skipped
+// (its trigger's condition was false at apply).
+type actionOutcomeView struct {
+	Invocation    string   `json:"invocation"`
+	Action        string   `json:"action,omitempty"`
+	Type          string   `json:"type"`
+	Caller        string   `json:"caller,omitempty"`
+	Event         string   `json:"event,omitempty"`
+	Status        string   `json:"status"`
+	OnFailure     string   `json:"on_failure,omitempty"`
+	Detail        string   `json:"detail,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+	CallerTainted bool     `json:"caller_tainted,omitempty"`
+}
+
+// convergenceOutputsView names the root outputs the last round finalized, and the
+// ones it carried forward because what they read is still deferred. The values are
+// the output tool's to read.
+type convergenceOutputsView struct {
+	Finalized []string `json:"finalized,omitempty"`
+	Carried   []string `json:"carried,omitempty"`
+}
+
+func renderConvergence(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, appendDot(targetBody(errorTarget(msg)), muted(convergenceRunningWord(msg))), width)
+	}
+	var c convergenceView
+	if !parseContent(msg, &c) || c.Outcome == "" {
+		return fallbackLine(msg, s, ss, width)
+	}
+	return lineWithDetail(msg, s, ss, convergenceSummary(msg, c), convergenceDetail(c), width)
+}
+
+// convergenceRunningWord is what an in-flight convergence call is doing. The server
+// relays progress only as MCP progress notifications, which cagent does not
+// surface, so the word is inferred from the call itself.
+func convergenceRunningWord(msg *types.Message) string {
+	switch strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_") {
+	case "apply":
+		if strings.Contains(msg.ToolCall.Function.Arguments, `"action_results"`) {
+			return "answering actions…"
+		}
+		return "applying…"
+	case "cancel":
+		return "cancelling…"
+	default:
+		return "planning…"
+	}
+}
+
+// convergenceSummary composes the one-liner: which convergence, then where it
+// stands — a round's plan awaiting approval, turf actions awaiting answers, or how
+// it ended.
+func convergenceSummary(msg *types.Message, c convergenceView) string {
+	var summary string
+	// The alias is set only when several workspaces are open, so the default is noise
+	// here — the same rule the session title applies (see sessionLabel).
+	if c.WorkspaceAlias != "" && c.WorkspaceAlias != defaultWorkspaceName {
+		summary = addr(c.WorkspaceAlias)
+	}
+	if c.ConvergenceID != "" {
+		summary = appendDot(summary, addr(c.ConvergenceID))
+	}
+	// up and its siblings are titled by their kind already ("Deploy", "Destroy");
+	// apply and cancel act on a convergence some earlier call started, so they name it.
+	if bare := strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_"); bare == "apply" || bare == "cancel" {
+		if w := runKindWord(c.Kind); w != "" {
+			summary = appendDot(summary, muted(w))
 		}
 	}
-	if n == 0 {
-		return ""
+	switch c.Outcome {
+	case "awaiting_approval":
+		if c.Round > 0 {
+			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
+		}
+		if c.Plan != nil {
+			summary = appendDot(summary, planCountsTally(*c.Plan))
+		}
+		return appendDot(summary, bold("awaiting approval", styles.Warning)) + refusedSegment(c)
+	case "awaiting_actions":
+		if c.Round > 0 {
+			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
+		}
+		summary = appendDot(summary, bold(fmt.Sprintf("awaiting %d action(s)", len(c.ActionRequests)), styles.Warning))
+		return summary + refusedSegment(c)
 	}
-	return bold(fmt.Sprintf("%d provider(s) unresolved", n), styles.Warning)
+	word, col := outcomeWord(c.Kind, c.Outcome)
+	summary = appendDot(summary, bold(word, col))
+	t := roundTotals(c.Rounds)
+	switch c.Outcome {
+	case "converged":
+		if n := len(c.Rounds); n > 1 {
+			summary += dot() + muted(fmt.Sprintf("%d rounds", n))
+		}
+		if t.applied == 0 && t.invoked == 0 {
+			summary += dot() + muted("no changes")
+		}
+	case "stalled", "exhausted":
+		if n := lastRound(c.Rounds).Deferred; n > 0 {
+			summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", n))
+		}
+	}
+	if t.applied > 0 {
+		summary += dot() + muted(fmt.Sprintf("%d applied", t.applied))
+	}
+	if t.invoked > 0 {
+		summary += dot() + muted(fmt.Sprintf("%d invoked", t.invoked))
+	}
+	if t.failed > 0 {
+		summary += dot() + styles.ErrorStyle.Render(fmt.Sprintf("%d failed", t.failed))
+	}
+	return summary + refusedSegment(c)
 }
 
-// providerStatusLines renders the expanded provider section: each instance's ref
-// and status, then the two lists that say what to do about a non-configured one.
-func providerStatusLines(providers []providerStatusView, indent string, max int) []string {
-	var out []string
-	for i, pr := range providers {
-		if max > 0 && i == max {
-			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(providers)-max)))
-			break
+// refusedSegment counts the action results the last apply sent that were not taken.
+// Any outcome can carry them — an answer sent to a convergence that has already
+// ended is refused too — so every summary appends it.
+func refusedSegment(c convergenceView) string {
+	if n := len(c.Refused); n > 0 {
+		return dot() + styles.ErrorStyle.Render(fmt.Sprintf("%d refused", n))
+	}
+	return ""
+}
+
+// convergenceDetail is the expansion: the vended plan, its invocations, the turf
+// actions waiting, each round, and the outputs — the order a reader asks about them.
+func convergenceDetail(c convergenceView) []string {
+	var detail []string
+	if p := c.Plan; p != nil {
+		row := muted(p.Path)
+		if p.Digest != "" {
+			row = appendDot(row, muted(shortDigest(p.Digest)))
 		}
-		c := styles.Success
-		if pr.Status != "configured" {
-			c = styles.Warning
+		if c.ExpiresAt != "" {
+			row = appendDot(row, muted("expires "+c.ExpiresAt))
 		}
-		row := indent + addr(pr.Ref)
-		if pr.Status != "" {
-			row += dot() + bold(pr.Status, c)
+		detail = append(detail, section("plan"), "  "+row)
+		if n := len(p.Invocations); n > 0 {
+			detail = append(detail, section(fmt.Sprintf("%d to invoke", n)))
+			for _, inv := range p.Invocations {
+				detail = append(detail, "  "+invocationLine(inv.Address, inv.Event, inv.Caller, inv.OnFailure))
+			}
 		}
-		if pr.TeardownConfig != "" {
-			row += dot() + muted("teardown "+pr.TeardownConfig)
+	}
+	if n := len(c.ActionRequests); n > 0 {
+		detail = append(detail, section(fmt.Sprintf("%d action(s) waiting", n)))
+		for _, r := range c.ActionRequests {
+			detail = append(detail, actionRequestLines(r, c.Refused[r.Key])...)
 		}
-		out = append(out, row)
-		if len(pr.UnknownPaths) > 0 {
-			out = append(out, indent+"    "+muted("unknown ")+addr(strings.Join(pr.UnknownPaths, ", ")))
+	}
+	// A refused answer with no open request beside it (the convergence ended, or the
+	// key named nothing) has no request row to sit under, so it gets its own.
+	if orphans := orphanRefusals(c); len(orphans) > 0 {
+		detail = append(detail, section("refused"))
+		for _, key := range orphans {
+			detail = append(detail, "  "+addr(key)+muted(": ")+styles.ErrorStyle.Render(c.Refused[key]))
 		}
-		if len(pr.FeedingAddrs) > 0 {
-			out = append(out, indent+"    "+muted("feeds from ")+addr(strings.Join(pr.FeedingAddrs, ", ")))
+	}
+	if len(c.Rounds) > 0 {
+		detail = append(detail, section("rounds"))
+		for _, r := range c.Rounds {
+			detail = append(detail, roundLines(r)...)
 		}
-		if pr.LastError != "" {
-			out = append(out, indent+"    "+styles.ErrorStyle.Render(pr.LastError))
+	}
+	if o := c.Outputs; o != nil && (len(o.Finalized) > 0 || len(o.Carried) > 0) {
+		detail = append(detail, section("outputs"))
+		if len(o.Finalized) > 0 {
+			detail = append(detail, "  "+muted("finalized ")+addr(strings.Join(o.Finalized, ", ")))
 		}
+		if len(o.Carried) > 0 {
+			detail = append(detail, "  "+muted("carried ")+addr(strings.Join(o.Carried, ", "))+muted(" (still deferred)"))
+		}
+	}
+	if c.Note != "" {
+		detail = append(detail, muted(c.Note))
+	}
+	if c.Error != "" {
+		detail = append(detail, styles.ToolErrorMessageStyle.Render(c.Error))
+	}
+	return detail
+}
+
+// orphanRefusals lists, sorted, the refused keys no open action request carries.
+func orphanRefusals(c convergenceView) []string {
+	open := make(map[string]bool, len(c.ActionRequests))
+	for _, r := range c.ActionRequests {
+		open[r.Key] = true
+	}
+	var keys []string
+	for k := range c.Refused {
+		if !open[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// actionRequestLines renders one turf action waiting on an answer: which request
+// (its key is what the answer is filed under), what it asks, what a failed answer
+// does, and the values it was handed.
+func actionRequestLines(r actionRequestView, refused string) []string {
+	head := "  " + addr(r.Key)
+	if r.Action != "" && r.Action != r.Key {
+		head += dot() + keyword(r.Action)
+	}
+	if t := triggerPhrase(r.Event, r.Caller); t != "" {
+		head += dot() + muted(t)
+	}
+	out := []string{head}
+	if r.Prompt != "" {
+		out = append(out, "    "+r.Prompt)
+	}
+	if r.IfFailed != "" {
+		out = append(out, "    "+muted("if it fails: "+r.IfFailed))
+	}
+	var inputs map[string]any
+	if len(r.Inputs) > 0 && json.Unmarshal(r.Inputs, &inputs) == nil && len(inputs) > 0 {
+		out = append(out, kvLines(inputs, "    ", 12)...)
+	}
+	if refused != "" {
+		out = append(out, "    "+styles.ErrorStyle.Render("refused: "+refused))
 	}
 	return out
 }
 
-// renderReplan renders the zero-arg re-projection of the bound configuration;
-// the walk mode (destroy/refresh/vars) comes from the phase, so there is no
-// request arg to lead with — the summary itself is the story.
-func renderReplan(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "", width)
+// roundLines renders one round: its status and counts, then what went wrong or
+// warned in it.
+func roundLines(r roundView) []string {
+	row := "  " + muted(fmt.Sprintf("round %d", r.Round)) + dot() + bold(roundStatusWord(r.Status), roundStatusColor(r.Status))
+	counts := []string{}
+	if r.Applied > 0 {
+		counts = append(counts, fmt.Sprintf("%d applied", r.Applied))
+	} else if r.Planned > 0 {
+		counts = append(counts, fmt.Sprintf("%d planned", r.Planned))
 	}
-	var p planSummaryView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
+	if r.Deferred > 0 {
+		counts = append(counts, fmt.Sprintf("%d deferred", r.Deferred))
 	}
-	return planSummaryLine(msg, s, ss, width, "", p)
+	if r.Drift > 0 {
+		counts = append(counts, fmt.Sprintf("%d drifted", r.Drift))
+	}
+	if r.Invoked > 0 {
+		counts = append(counts, fmt.Sprintf("%d invoked", r.Invoked))
+	}
+	if r.Skipped > 0 {
+		counts = append(counts, fmt.Sprintf("%d skipped", r.Skipped))
+	}
+	if r.Cancelled > 0 {
+		counts = append(counts, fmt.Sprintf("%d cancelled", r.Cancelled))
+	}
+	if len(counts) > 0 {
+		row += dot() + muted(strings.Join(counts, " · "))
+	}
+	if r.Failed > 0 {
+		row += dot() + styles.ErrorStyle.Render(fmt.Sprintf("%d failed", r.Failed))
+	}
+	if w := approvalWord(r); w != "" {
+		row += dot() + muted(w)
+	}
+	out := []string{row}
+	for _, f := range r.Failures {
+		out = append(out, "    "+styles.ErrorStyle.Render("✗ ")+addr(f.Address)+muted(": ")+styles.ToolErrorMessageStyle.Render(f.Error))
+	}
+	for _, a := range r.Actions {
+		word, col := actionVerdict(a)
+		name := a.Action
+		if name == "" {
+			name = a.Invocation
+		}
+		row := "    " + keyword(name)
+		if t := triggerPhrase(a.Event, a.Caller); t != "" {
+			row += dot() + muted(t)
+		}
+		row += dot() + bold(word, col)
+		if a.Detail != "" {
+			row += muted(": ") + styles.ToolErrorMessageStyle.Render(a.Detail)
+		}
+		out = append(out, row)
+		for _, w := range a.Warnings {
+			out = append(out, "      "+styles.WarningStyle.Render("⚠ "+w))
+		}
+	}
+	if r.ActionsOmitted > 0 {
+		out = append(out, "    "+muted(fmt.Sprintf("…(+%d more actions)", r.ActionsOmitted)))
+	}
+	for _, f := range r.CheckFailures {
+		out = append(out, "    "+styles.WarningStyle.Render("check failed: "+f))
+	}
+	for _, w := range r.Warnings {
+		out = append(out, "    "+styles.WarningStyle.Render("⚠ "+w))
+	}
+	for _, d := range r.Diagnostics {
+		out = append(out, "    "+muted(d))
+	}
+	if r.CancelCause != "" {
+		out = append(out, "    "+muted("cancelled: "+r.CancelCause))
+	}
+	if r.Error != "" {
+		out = append(out, "    "+styles.ToolErrorMessageStyle.Render(r.Error))
+	}
+	return out
 }
 
-// planSummaryLine renders a parsed walk summary (shared by replan and
-// plan_new): the action tally headline plus the per-resource diff
-// expansion, the data sources the walk read, evaluated outputs, and warnings.
-func planSummaryLine(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, head string, p planSummaryView) string {
-	summary := planTally(p.Resources)
-	if head != "" {
-		summary = head + dot() + summary
+// planCountsTally renders a plan's counts as "+A ~C -D" (zero buckets omitted, a
+// replace inside both + and -, as Terraform's plan summary counts it) followed by the
+// segments OpenTofu's summary would add — import, forget — and the convergence's own:
+// deferred work, drift, output changes, invocations. "no changes" when nothing moves.
+func planCountsTally(p vendedPlanView) string {
+	var buckets []string
+	if p.Add > 0 {
+		buckets = append(buckets, bold(fmt.Sprintf("+%d", p.Add), styles.Success))
 	}
-	if n := len(p.Deferred); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", n))
+	if p.Change > 0 {
+		buckets = append(buckets, bold(fmt.Sprintf("~%d", p.Change), styles.Accent))
 	}
-	if issues := dataReadIssueTally(p.Reads); issues != "" {
-		summary += dot() + issues
+	if p.Destroy > 0 {
+		buckets = append(buckets, bold(fmt.Sprintf("-%d", p.Destroy), styles.Error))
 	}
-	if issues := ephemeralOpenIssueTally(p.Opens); issues != "" {
-		summary += dot() + issues
+	out := strings.Join(buckets, " ")
+	if p.Replace > 0 {
+		out = appendDot(out, colored(fmt.Sprintf("%d replaced", p.Replace), styles.Warning))
 	}
-	if issues := providerIssueTally(p.Providers); issues != "" {
-		summary += dot() + issues
+	if p.Import > 0 {
+		out = appendDot(out, colored(fmt.Sprintf("%d to import", p.Import), styles.Accent))
 	}
-	// An adopted row usually plans as a no-op (the remote object already matches),
-	// and planTally omits the no-op bucket — so without its own segment a pure
-	// adoption plan would headline as "no changes".
-	if n := adoptCount(p.Resources); n > 0 {
-		summary += dot() + bold(fmt.Sprintf("↧%d adopted", n), styles.Accent)
+	if p.Forget > 0 {
+		out = appendDot(out, colored(fmt.Sprintf("%d to forget", p.Forget), styles.Highlight))
 	}
-	// Relocations are not resource changes, so they get their own segment rather
-	// than a tally bucket.
-	if n := len(p.Moved); n > 0 {
-		summary += dot() + bold(fmt.Sprintf("⇄%d moved", n), styles.Accent)
+	if p.Read > 0 {
+		out = appendDot(out, muted(fmt.Sprintf("%d to read", p.Read)))
 	}
-	if n := outputsCount(p.Outputs); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
+	if n := len(p.Invocations); n > 0 {
+		out = appendDot(out, colored(fmt.Sprintf("%d to invoke", n), styles.Accent))
 	}
+	if out == "" {
+		out = muted("no changes")
+	}
+	if p.Deferred > 0 {
+		out += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", p.Deferred))
+	}
+	if p.Drift > 0 {
+		out += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d drifted", p.Drift))
+	}
+	if p.Outputs > 0 {
+		out += dot() + muted(fmt.Sprintf("%d output change(s)", p.Outputs))
+	}
+	if p.Errored {
+		out += dot() + styles.ErrorStyle.Render("errored")
+	}
+	return out
+}
 
-	// Expanded: each resource as a header + its full attribute diff, then the state
-	// relocations, the data source reads, the evaluated outputs, and any warnings.
-	// The resource diffs stay first — they are what the expansion is opened to read —
-	// so the reads trail them even though the walk performs reads earlier.
+// runKindWord names a convergence's kind the way the engine console's run rail
+// does: "deploy" for up, "refresh-only" for a refresh.
+func runKindWord(kind string) string {
+	switch kind {
+	case "up":
+		return "deploy"
+	case "refresh":
+		return "refresh-only"
+	default:
+		return kind
+	}
+}
+
+// outcomeWord names how a convergence ended, in the engine console's words: a deploy
+// converges, every other kind is done; stalled, exhausted, declined and cancelled are
+// neutral, because red is for failure and nothing else.
+func outcomeWord(kind, outcome string) (string, color.Color) {
+	switch outcome {
+	case "converged":
+		if kind == "up" || kind == "" {
+			return "converged", styles.Success
+		}
+		return "done", styles.Success
+	case "failed", "error":
+		return outcome, styles.Error
+	default:
+		return outcome, styles.TextMuted
+	}
+}
+
+func roundStatusWord(status string) string {
+	return strings.ReplaceAll(status, "_", " ")
+}
+
+func roundStatusColor(status string) color.Color {
+	switch status {
+	case "applied":
+		return styles.Success
+	case "failed", "error":
+		return styles.Error
+	case "planning", "awaiting_approval", "applying":
+		return styles.Warning
+	default:
+		return styles.TextMuted
+	}
+}
+
+// approvalWord says how a settled round's plan came to be applied, in the console's
+// words; a round still waiting says so in its status instead.
+func approvalWord(r roundView) string {
+	switch r.Approval {
+	case "auto":
+		return "auto-approved"
+	case "unneeded":
+		return "nothing to approve"
+	case "asked":
+		switch r.Status {
+		case "applied", "failed", "partial":
+			return "approved"
+		}
+	}
+	return ""
+}
+
+// actionVerdict names how a round settled an invocation, in the console's words.
+func actionVerdict(a actionOutcomeView) (string, color.Color) {
+	switch {
+	case a.Status == "skipped":
+		return "skipped — its condition was false", styles.TextMuted
+	case a.Status == "failed" && a.CallerTainted:
+		return "failed · tainted its caller", styles.Error
+	case a.Status == "failed" && a.OnFailure == "continue":
+		return "failed · continued", styles.Warning
+	case a.Status == "failed":
+		return "failed", styles.Error
+	case a.Status == "invoked":
+		return "invoked", styles.Success
+	default:
+		return a.Status, styles.TextMuted
+	}
+}
+
+// triggerPhrase says what fired an invocation: "<event> of <caller>" for a trigger,
+// "invoked directly" for an action run on its own (invoke).
+func triggerPhrase(event, caller string) string {
+	switch {
+	case event == "" || event == "invoke":
+		if caller != "" {
+			return "invoked, called from " + caller
+		}
+		return "invoked directly"
+	case caller == "":
+		return event
+	default:
+		return event + " of " + caller
+	}
+}
+
+// invocationLine renders one scheduled invocation. on_failure is shown only when it
+// is not the default halt, as the console shows it.
+func invocationLine(address, event, caller, onFailure string) string {
+	row := keyword(address) + dot() + muted(triggerPhrase(event, caller))
+	if onFailure != "" && onFailure != "halt" {
+		row += dot() + muted("on failure: "+onFailure)
+	}
+	return row
+}
+
+type roundTally struct{ applied, invoked, failed int }
+
+func roundTotals(rounds []roundView) roundTally {
+	var t roundTally
+	for _, r := range rounds {
+		t.applied += r.Applied
+		t.invoked += r.Invoked
+		t.failed += r.Failed
+	}
+	return t
+}
+
+func lastRound(rounds []roundView) roundView {
+	if len(rounds) == 0 {
+		return roundView{}
+	}
+	return rounds[len(rounds)-1]
+}
+
+// shortDigest trims a "sha256:<hex>" digest to a recognizable prefix.
+func shortDigest(d string) string {
+	algo, hex, ok := strings.Cut(d, ":")
+	if !ok || len(hex) <= 12 {
+		return d
+	}
+	return algo + ":" + hex[:12]
+}
+
+// --- turf_show ----------------------------------------------------------------
+//
+// show returns OpenTofu's own json-format document — a round's plan, exactly as
+// `tofu show -json` prints it, or the workspace's state — redacted by the server
+// (sensitive values read "__cty_sensitive__", the *_sensitive shadows kept). It is
+// the one surface that carries the per-resource plan, so this renderer is where the
+// attribute diffs live: each change as a header in Terraform's glyph idiom, then its
+// before → after diff, with the document's own after_unknown overlaid so a pending
+// attribute reads "(known after apply)".
+
+type showView struct {
+	// PlannedValues is present on every plan document, changes or not; a state
+	// document has Values instead.
+	PlannedValues     json.RawMessage       `json:"planned_values,omitempty"`
+	ResourceChanges   []resourceChangeView  `json:"resource_changes,omitempty"`
+	ResourceDrift     []resourceChangeView  `json:"resource_drift,omitempty"`
+	DeferredChanges   []deferredChangeView  `json:"deferred_changes,omitempty"`
+	OutputChanges     map[string]changeView `json:"output_changes,omitempty"`
+	ActionInvocations []planInvocationView  `json:"action_invocations,omitempty"`
+	Errored           bool                  `json:"errored,omitempty"`
+	Values            *stateValuesView      `json:"values,omitempty"`
+}
+
+type resourceChangeView struct {
+	Address         string `json:"address"`
+	PreviousAddress string `json:"previous_address,omitempty"`
+	// Deposed is the key of a deposed object this change is about, rather than the
+	// object living at Address.
+	Deposed      string     `json:"deposed,omitempty"`
+	ActionReason string     `json:"action_reason,omitempty"`
+	Change       changeView `json:"change"`
+}
+
+type changeView struct {
+	Actions         []string           `json:"actions"`
+	Before          any                `json:"before"`
+	After           any                `json:"after"`
+	AfterUnknown    any                `json:"after_unknown,omitempty"`
+	BeforeSensitive any                `json:"before_sensitive,omitempty"`
+	AfterSensitive  any                `json:"after_sensitive,omitempty"`
+	ReplacePaths    [][]any            `json:"replace_paths,omitempty"`
+	Importing       *importingInfoView `json:"importing,omitempty"`
+}
+
+type deferredChangeView struct {
+	Reason         string             `json:"reason"`
+	ResourceChange resourceChangeView `json:"resource_change"`
+}
+
+// planInvocationView is an action invocation as the plan document spells it. The
+// engine's document writes the trigger event and on_failure as Terraform's binary
+// prints them (BeforeCreate, ActionOnFailureHalt); configSpelling turns both back into
+// the configuration's words, as the server's own summary does.
+type planInvocationView struct {
+	Address   string `json:"address"`
+	Type      string `json:"type"`
+	Lifecycle *struct {
+		TriggeringResourceAddress string `json:"triggering_resource_address"`
+		ActionTriggerEvent        string `json:"action_trigger_event"`
+		OnFailure                 string `json:"on_failure"`
+	} `json:"lifecycle_action_trigger,omitempty"`
+}
+
+type stateValuesView struct {
+	Outputs    map[string]outputValueView `json:"outputs,omitempty"`
+	RootModule stateModuleView            `json:"root_module"`
+}
+
+type stateModuleView struct {
+	Resources    []stateDocResourceView `json:"resources,omitempty"`
+	ChildModules []stateModuleView      `json:"child_modules,omitempty"`
+}
+
+type stateDocResourceView struct {
+	Address         string         `json:"address"`
+	Values          map[string]any `json:"values,omitempty"`
+	SensitiveValues any            `json:"sensitive_values,omitempty"`
+	Tainted         bool           `json:"tainted,omitempty"`
+	DeposedKey      string         `json:"deposed_key,omitempty"`
+}
+
+func renderShow(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	head := showHead(msg)
+	if running(msg) {
+		return line(msg, s, head, width)
+	}
+	var v showView
+	if !parseContent(msg, &v) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	if argString(msg, "what") == "state" || (v.Values != nil && v.PlannedValues == nil) {
+		return renderStateDoc(msg, s, ss, width, head, v)
+	}
+	p := summarizePlanDoc(v)
+	summary := appendDot(head, planCountsTally(p))
+	return lineWithDetail(msg, s, ss, summary, planDocDetail(v), width)
+}
+
+// showHead names which document a show call asked for: the plan of a convergence's
+// round (the one awaiting approval, else the latest, when no round is named), or the
+// state.
+func showHead(msg *types.Message) string {
+	if argString(msg, "what") == "state" {
+		return keyword("state")
+	}
+	head := keyword("plan")
+	if id := argString(msg, "convergence_id"); id != "" {
+		head += dot() + addr(id)
+	}
+	if n := argInt(msg, "round"); n > 0 {
+		head += dot() + muted(fmt.Sprintf("round %d", n))
+	}
+	return head
+}
+
+// summarizePlanDoc counts a plan document the way the server's plan summary does, so
+// a show line and the up/apply line that vended the same plan read the same.
+func summarizePlanDoc(v showView) vendedPlanView {
+	var p vendedPlanView
+	for _, rc := range v.ResourceChanges {
+		if rc.Change.Importing != nil {
+			p.Import++
+		}
+		switch strings.Join(rc.Change.Actions, ",") {
+		case "create":
+			p.Add++
+		case "update":
+			p.Change++
+		case "delete":
+			p.Destroy++
+		case "delete,create", "create,delete":
+			p.Replace++
+			p.Add++
+			p.Destroy++
+		case "forget,create":
+			p.Forget++
+			p.Add++
+		case "forget":
+			p.Forget++
+		case "read":
+			p.Read++
+		}
+	}
+	for _, oc := range v.OutputChanges {
+		if strings.Join(oc.Actions, ",") != "no-op" {
+			p.Outputs++
+		}
+	}
+	p.Deferred = len(v.DeferredChanges)
+	p.Drift = len(v.ResourceDrift)
+	p.Errored = v.Errored
+	for _, ai := range v.ActionInvocations {
+		p.Invocations = append(p.Invocations, ai.view())
+	}
+	return p
+}
+
+func (ai planInvocationView) view() invocationView {
+	inv := invocationView{Address: ai.Address, Type: ai.Type}
+	if t := ai.Lifecycle; t != nil {
+		inv.Caller = t.TriggeringResourceAddress
+		inv.Event = configSpelling(t.ActionTriggerEvent)
+		inv.OnFailure = configSpelling(strings.TrimPrefix(t.OnFailure, "ActionOnFailure"))
+	}
+	return inv
+}
+
+// configSpelling spells an event or an on_failure value the way the configuration
+// language writes it ("before_create", "halt"), whatever spelling the document
+// carries ("BeforeCreate", "Halt").
+func configSpelling(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			r = unicode.ToLower(r)
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// planDocDetail renders a plan document's expansion: the resource changes (each a
+// header and its attribute diff), what changed outside Turf, what was deferred, the
+// output changes, and the actions to invoke.
+func planDocDetail(v showView) []string {
 	var detail []string
+	var rows []resourceChangeView
+	for _, rc := range v.ResourceChanges {
+		if worthARow(rc) {
+			rows = append(rows, rc)
+		}
+	}
 	const maxRows = 25
-	for i, r := range p.Resources {
+	for i, rc := range rows {
 		if i == maxRows {
-			detail = append(detail, muted(fmt.Sprintf("…(+%d more resources)", len(p.Resources)-maxRows)))
+			detail = append(detail, muted(fmt.Sprintf("…(+%d more resource changes)", len(rows)-maxRows)))
 			break
 		}
-		_, c, glyph := planAction(r.Action, false, r.CreateBeforeDestroy)
-		header := bold(glyph, c) + " " + addr(planRowAddr(r.Address, r.DeposedKey))
-		if note := r.Importing.adoptNote(); note != "" {
-			header += dot() + colored(note, styles.Accent)
+		detail = append(detail, resourceChangeHeader(rc, ""))
+		detail = append(detail, resourceChangeDiff(rc.Change, "  ")...)
+	}
+	if len(v.ResourceDrift) > 0 {
+		detail = append(detail, section("changed outside Turf"))
+		for _, rc := range v.ResourceDrift {
+			note := styles.WarningStyle.Render("drifted")
+			if rc.Change.After == nil {
+				note = styles.ErrorStyle.Render("gone")
+			}
+			detail = append(detail, "  "+addr(planRowAddr(rc.Address, rc.Deposed))+dot()+note)
+			detail = append(detail, resourceChangeDiff(rc.Change, "    ")...)
 		}
-		if changed := changedKeys(r.Before, r.After); changed != "" {
-			header += dot() + muted(changed)
+	}
+	if len(v.DeferredChanges) > 0 {
+		detail = append(detail, section("deferred"))
+		for _, d := range v.DeferredChanges {
+			row := "  " + resourceChangeHeader(d.ResourceChange, "")
+			if d.Reason != "" {
+				row += dot() + styles.WarningStyle.Render(d.Reason)
+			}
+			detail = append(detail, row)
 		}
-		detail = append(detail, header)
-		detail = append(detail, attrDiff(r.Before, r.After, r.BeforeSensitive, r.AfterSensitive, "  ")...)
 	}
-	if len(p.Moved) > 0 {
-		detail = append(detail, section("moved"))
-		detail = append(detail, movedLines(p.Moved, "  ", 20)...)
-	}
-	if len(p.Providers) > 0 {
-		detail = append(detail, section("providers"))
-		detail = append(detail, providerStatusLines(p.Providers, "  ", 20)...)
-	}
-	if len(p.Reads) > 0 {
-		detail = append(detail, section("data sources"))
-		detail = append(detail, dataReadLines(p.Reads, "  ", 20)...)
-	}
-	if len(p.Opens) > 0 {
-		detail = append(detail, section("ephemeral"))
-		detail = append(detail, dataReadLines(p.Opens, "  ", 20)...)
-	}
-	if outs := outputsLines(p.Outputs); len(outs) > 0 {
+	if lines := outputChangeLines(v.OutputChanges); len(lines) > 0 {
 		detail = append(detail, section("outputs"))
-		detail = append(detail, outs...)
+		detail = append(detail, lines...)
 	}
-	detail = append(detail, warningLines(p.Warnings)...)
+	if len(v.ActionInvocations) > 0 {
+		detail = append(detail, section(fmt.Sprintf("%d to invoke", len(v.ActionInvocations))))
+		for _, ai := range v.ActionInvocations {
+			inv := ai.view()
+			detail = append(detail, "  "+invocationLine(inv.Address, inv.Event, inv.Caller, inv.OnFailure))
+		}
+	}
+	return detail
+}
+
+// worthARow reports whether a resource change belongs in the expansion. Terraform
+// lists no no-ops; the exceptions are an adoption (an import that plans as a no-op
+// because the remote object already matches) and a move, both of which apply
+// something.
+func worthARow(rc resourceChangeView) bool {
+	if strings.Join(rc.Change.Actions, ",") != "no-op" {
+		return true
+	}
+	return rc.Change.Importing != nil || (rc.PreviousAddress != "" && rc.PreviousAddress != rc.Address)
+}
+
+// resourceChangeHeader renders a change's header: Terraform's glyph, the address,
+// then what explains it — an adoption, a move, the paths forcing a replace, and
+// OpenTofu's action reason.
+func resourceChangeHeader(rc resourceChangeView, indent string) string {
+	_, c, glyph := planAction(rc.Change.Actions)
+	header := indent
+	if glyph != "" {
+		header += bold(glyph, c) + " "
+	}
+	header += addr(planRowAddr(rc.Address, rc.Deposed))
+	if note := rc.Change.Importing.adoptNote(); note != "" {
+		header += dot() + colored(note, styles.Accent)
+	}
+	if rc.PreviousAddress != "" && rc.PreviousAddress != rc.Address {
+		header += dot() + muted("moved from "+rc.PreviousAddress)
+	}
+	if paths := replacePaths(rc.Change.ReplacePaths); paths != "" {
+		header += dot() + styles.WarningStyle.Render("forces replacement: "+paths)
+	}
+	if rc.ActionReason != "" {
+		header += dot() + muted(strings.ReplaceAll(rc.ActionReason, "_", " "))
+	}
+	return header
+}
+
+// resourceChangeDiff renders a change's before → after attribute diff, with the
+// unknown parts of after overlaid so they read "(known after apply)". An after that
+// is unknown as a whole has no attributes to diff, and must not read as a destroy.
+func resourceChangeDiff(ch changeView, indent string) []string {
+	before, _ := ch.Before.(map[string]any)
+	overlaid := withUnknowns(ch.After, ch.AfterUnknown)
+	if overlaid == unknownSentinel {
+		return []string{indent + muted("(known after apply)")}
+	}
+	after, _ := overlaid.(map[string]any)
+	return attrDiff(before, after, ch.BeforeSensitive, ch.AfterSensitive, indent)
+}
+
+// outputChangeLines renders the plan's output changes as one aligned diff: each
+// output is a key of the same before/after pair, so a create, a destroy and an update
+// all read as attrDiff rows, masked by each output's own sensitivity.
+func outputChangeLines(changes map[string]changeView) []string {
+	before, after := map[string]any{}, map[string]any{}
+	beforeMask, afterMask := map[string]any{}, map[string]any{}
+	for name, oc := range changes {
+		if strings.Join(oc.Actions, ",") == "no-op" {
+			continue
+		}
+		before[name] = oc.Before
+		after[name] = withUnknowns(oc.After, oc.AfterUnknown)
+		beforeMask[name] = oc.BeforeSensitive
+		afterMask[name] = oc.AfterSensitive
+	}
+	if len(after) == 0 {
+		return nil
+	}
+	return attrDiff(before, after, beforeMask, afterMask, "  ")
+}
+
+// replacePaths renders a change's replace_paths — each a list of steps, attribute
+// names and element keys — as "a.b, c[0]".
+func replacePaths(paths [][]any) string {
+	var out []string
+	for _, p := range paths {
+		var b strings.Builder
+		for _, step := range p {
+			switch x := step.(type) {
+			case string:
+				if b.Len() > 0 {
+					b.WriteByte('.')
+				}
+				b.WriteString(x)
+			case float64:
+				fmt.Fprintf(&b, "[%s]", strconv.FormatFloat(x, 'f', -1, 64))
+			}
+		}
+		if b.Len() > 0 {
+			out = append(out, b.String())
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// renderStateDoc renders a state document: a resource count and, expanded, each
+// resource with its values (masked by its sensitive_values) and the root outputs.
+func renderStateDoc(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, head string, v showView) string {
+	var resources []stateDocResourceView
+	var outputs map[string]outputValueView
+	if v.Values != nil {
+		resources = flattenStateModule(v.Values.RootModule)
+		outputs = v.Values.Outputs
+	}
+	summary := appendDot(head, muted(fmt.Sprintf("%d resource(s)", len(resources))))
+	if n := len(outputs); n > 0 {
+		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
+	}
+	var detail []string
+	const maxRows = 25
+	for i, r := range resources {
+		if i == maxRows {
+			detail = append(detail, muted(fmt.Sprintf("…(+%d more resources)", len(resources)-maxRows)))
+			break
+		}
+		row := addr(planRowAddr(r.Address, r.DeposedKey))
+		if r.Tainted {
+			row += dot() + styles.WarningStyle.Render("tainted")
+		}
+		detail = append(detail, row)
+		detail = append(detail, kvLinesMasked(r.Values, r.SensitiveValues, "  ", 12)...)
+	}
+	if len(outputs) > 0 {
+		detail = append(detail, section("outputs"))
+		flat, mask := outputsMask(outputs)
+		detail = append(detail, kvLinesMasked(flat, mask, "  ", 20)...)
+	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_outputs -----------------------------------------------------------
+// flattenStateModule lists a state document's resources, root module first, then
+// each child module's in document order.
+func flattenStateModule(m stateModuleView) []stateDocResourceView {
+	out := append([]stateDocResourceView{}, m.Resources...)
+	for _, c := range m.ChildModules {
+		out = append(out, flattenStateModule(c)...)
+	}
+	return out
+}
+
+// --- turf_output ------------------------------------------------------------
 //
-// outputs reads a workspace's root outputs (name → {value, sensitive}). The server
-// masks sensitive values with the "__cty_sensitive__" sentinel unless the caller opted
-// in to reveal them (show_sensitive), so the per-output `sensitive` flag is this tool's
-// form of a sensitivity mask — the renderer redacts from it either way, and never
-// prints a revealed output value.
+// output reads a workspace's root outputs (name → {value, sensitive, type}). The
+// server masks sensitive values with the "__cty_sensitive__" sentinel unless the
+// caller opted in to reveal them (show_sensitive), so the per-output `sensitive` flag
+// is this tool's form of a sensitivity mask — the renderer redacts from it either way,
+// and never prints a revealed output value.
 
 type outputsView struct {
 	WorkspaceAlias string                     `json:"workspace_alias"`
 	Outputs        map[string]outputValueView `json:"outputs"`
 }
 
-// outputValueView is one evaluated root output, the {value, sensitive} shape the
-// server returns from both the outputs tool and effect_apply's newly-resolved
-// outputs. The sensitive flag IS the mask here — it never rides along as a
-// parallel sensitive_values structure — so outputsMask carries it across rather
-// than flattening it away, which would leak a revealed secret into the timeline.
+// outputValueView is one root output, the {value, sensitive, type} shape the server
+// returns from output and state_list, and that a state document's outputs carry. The
+// sensitive flag IS the mask here — it never rides along as a parallel
+// sensitive_values structure — so outputsMask carries it across rather than
+// flattening it away, which would leak a revealed secret into the timeline.
 type outputValueView struct {
-	Value     any  `json:"value"`
-	Sensitive bool `json:"sensitive"`
+	Value     any             `json:"value"`
+	Sensitive bool            `json:"sensitive"`
+	Type      json.RawMessage `json:"type,omitempty"`
 }
 
 // outputsMask flattens name→output into the name→value map the value renderers
@@ -1091,21 +1865,26 @@ func sensitiveOutputs(outputs map[string]outputValueView) int {
 	return n
 }
 
-func renderOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderOutput(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	name := argString(msg, "name")
 	if running(msg) {
-		return line(msg, s, "", width)
+		return line(msg, s, targetBody(name), width)
 	}
 	var r outputsView
 	if !parseContent(msg, &r) {
 		return fallbackLine(msg, s, ss, width)
 	}
 
-	summary := muted("none declared")
-	if len(r.Outputs) > 0 {
-		summary = muted(fmt.Sprintf("%d declared", len(r.Outputs)))
+	summary := targetBody(name)
+	switch {
+	case name != "":
+	case len(r.Outputs) == 0:
+		summary = muted("none")
+	default:
+		summary = muted(fmt.Sprintf("%d output(s)", len(r.Outputs)))
 	}
 	if sens := sensitiveOutputs(r.Outputs); sens > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d sensitive", sens))
+		summary = appendDot(summary, muted(fmt.Sprintf("%d sensitive", sens)))
 	}
 
 	flat, mask := outputsMask(r.Outputs)
@@ -1115,34 +1894,75 @@ func renderOutputs(msg *types.Message, s spinner.Spinner, ss service.SessionStat
 
 // --- turf_workspace_open / turf_workspace_close -----------------------------
 
-// A workspace is now opened *against a configuration*, and that binding is the
-// call's most consequential result: it fixes the backend, the providers, and what
-// every later plan projects. The server no longer echoes resolved providers here
-// (it configures them in-band during the walk — see planSummaryView.Providers), so
-// what this line reports is where state landed and what the binding is.
+// A workspace is opened *against a configuration*, and that binding is the call's
+// most consequential result: it fixes the backend and what every later plan
+// projects. The open also reports the convergence already holding the workspace, if
+// any — which is what makes a re-attach after a restart legible: the paused round is
+// still there, waiting on an apply.
 type workspaceOpenView struct {
 	WorkspaceAlias string `json:"workspace_alias"`
-	BackendType    string `json:"backend_type"`
-	WorkspaceName  string `json:"workspace_name"`
 	ConfigAlias    string `json:"config_alias"`
 	ConfigPath     string `json:"config_path"`
-	// BackendConfig is the resolved backend body — the declared block with the
-	// call's backend_config merged over it.
-	BackendConfig map[string]any `json:"backend_config,omitempty"`
+	WorkspaceName  string `json:"workspace_name"`
+	BackendType    string `json:"backend_type,omitempty"`
 	// StatePath is where this workspace's state actually lives, resolved for the
-	// workspace name (a local backend's `path` addresses `default` only). Empty
-	// for backends that key their state some other way.
-	StatePath string   `json:"state_path,omitempty"`
-	Resources []string `json:"resources"`
+	// workspace name. Empty for backends that key their state some other way.
+	StatePath string `json:"state_path,omitempty"`
+	// Lineage and Serial identify the statefile; absent until one exists.
+	Lineage       string               `json:"lineage,omitempty"`
+	Serial        uint64               `json:"serial,omitempty"`
+	ResourceCount int                  `json:"resource_count"`
+	Convergence   *convergenceFactView `json:"convergence,omitempty"`
 	// Warnings carries informational notes — a backend type diverging from the
 	// declared one, or state recording a provider the configuration no longer
-	// declares (which a later destroy surfaces as a restore-or-declare error).
+	// declares.
 	Warnings []string `json:"warnings,omitempty"`
+}
+
+// convergenceFactView is the convergence holding a workspace, as workspace_open and
+// workspace_show report it. Stage is awaiting_approval, awaiting_actions, planning
+// or applying while it runs, else how it ended; Followed says whether this server is
+// following it (a convergence lives in the engine and outlasts the server).
+type convergenceFactView struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind,omitempty"`
+	Stage         string `json:"stage"`
+	Round         int    `json:"round,omitempty"`
+	OpenQuestions int    `json:"open_questions,omitempty"`
+	Followed      bool   `json:"followed"`
+}
+
+// convergenceFactLine renders the holding convergence as a one-line segment: its id,
+// its kind, and where it stands.
+func convergenceFactLine(f *convergenceFactView) string {
+	if f == nil || f.ID == "" {
+		return ""
+	}
+	out := muted("holds ") + addr(f.ID)
+	if w := runKindWord(f.Kind); w != "" {
+		out += dot() + muted(w)
+	}
+	switch f.Stage {
+	case "awaiting_approval":
+		out += dot() + bold("awaiting approval", styles.Warning)
+	case "awaiting_actions":
+		out += dot() + bold(fmt.Sprintf("awaiting %d action(s)", f.OpenQuestions), styles.Warning)
+	case "planning", "applying":
+		out += dot() + bold(f.Stage, styles.Warning)
+	case "":
+	default:
+		word, c := outcomeWord(f.Kind, f.Stage)
+		out += dot() + bold(word, c)
+	}
+	if f.Round > 0 {
+		out += dot() + muted(fmt.Sprintf("round %d", f.Round))
+	}
+	return out
 }
 
 func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
-		return line(msg, s, "", width)
+		return line(msg, s, targetBody(errorTarget(msg)), width)
 	}
 	var w workspaceOpenView
 	if !parseContent(msg, &w) {
@@ -1154,38 +1974,38 @@ func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		summary += dot() + keyword(w.BackendType)
 	}
 	// The configuration this workspace is bound to — the binding fixes the
-	// backend and the providers, so it belongs on the compact line.
+	// backend and what every plan projects, so it belongs on the compact line.
 	if w.ConfigPath != "" {
 		summary = appendDot(summary, muted(w.ConfigPath))
+	}
+	summary = appendDot(summary, muted(fmt.Sprintf("%d resource(s)", w.ResourceCount)))
+	if fact := convergenceFactLine(w.Convergence); fact != "" {
+		summary += dot() + fact
 	}
 
 	var detail []string
 	if w.StatePath != "" {
-		detail = append(detail, section("state"), "  "+muted(w.StatePath))
-	}
-	if len(w.BackendConfig) > 0 {
-		detail = append(detail, section("backend config"))
-		detail = append(detail, kvLines(w.BackendConfig, "  ", 20)...)
-	}
-	if n := len(w.Resources); n > 0 {
-		detail = append(detail, section(fmt.Sprintf("%d resource(s) in state", n)))
-		detail = append(detail, listLines(w.Resources, "  ", 20)...)
+		row := "  " + muted(w.StatePath)
+		if w.Lineage != "" {
+			row += dot() + muted(fmt.Sprintf("serial %d · lineage %s", w.Serial, w.Lineage))
+		}
+		detail = append(detail, section("state"), row)
 	}
 	detail = append(detail, warningLines(w.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
+// workspaceCloseView is a close's result. Detached names the convergence the server
+// stopped following: closing never cancels one, so it goes on in the engine and a
+// later workspace_open re-attaches to it.
 type workspaceCloseView struct {
-	WorkspaceAlias     string `json:"workspace_alias"`
-	Completed          bool   `json:"completed"`
-	ResourcesCommitted int    `json:"resources_committed"`
-	ProvidersClosed    int    `json:"providers_closed"`
-	PhasesSuperseded   int    `json:"phases_superseded"`
+	WorkspaceAlias string `json:"workspace_alias"`
+	Detached       string `json:"detached,omitempty"`
 }
 
 func renderWorkspaceClose(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
-		return line(msg, s, "", width)
+		return line(msg, s, targetBody(argString(msg, "workspace_alias")), width)
 	}
 	var w workspaceCloseView
 	if !parseContent(msg, &w) {
@@ -1194,21 +2014,13 @@ func renderWorkspaceClose(msg *types.Message, s spinner.Spinner, ss service.Sess
 
 	name := w.WorkspaceAlias
 	if name == "" {
-		name = "default"
+		name = defaultWorkspaceName
 	}
 	summary := addr(name) + dot() + bold("closed", styles.Success)
-	if w.ResourcesCommitted > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d committed", w.ResourcesCommitted))
+	if w.Detached != "" {
+		summary += dot() + muted("left ") + addr(w.Detached) + muted(" running in the engine")
 	}
-
-	detail := []string{
-		muted(fmt.Sprintf("resources committed: %d", w.ResourcesCommitted)),
-		muted(fmt.Sprintf("providers closed:    %d", w.ProvidersClosed)),
-	}
-	if w.PhasesSuperseded > 0 {
-		detail = append(detail, muted(fmt.Sprintf("phases superseded:   %d", w.PhasesSuperseded)))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
+	return line(msg, s, summary, width)
 }
 
 // --- turf_workspace_list / turf_workspace_show ------------------------------
@@ -1245,15 +2057,19 @@ func renderWorkspaceList(msg *types.Message, s spinner.Spinner, ss service.Sessi
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
+// workspaceShowView lists the workspaces open in this server, each with its
+// binding and the convergence holding it, if any.
 type workspaceShowView struct {
 	Workspaces []struct {
-		WorkspaceAlias     string `json:"workspace_alias"`
-		BackendType        string `json:"backend_type"`
-		WorkspaceName      string `json:"workspace_name"`
-		ResourceCount      int    `json:"resource_count"`
-		UncommittedChanges int    `json:"uncommitted_changes"`
-		ActivePhaseID      string `json:"active_phase_id,omitempty"`
-		ActivePhaseStatus  string `json:"active_phase_status,omitempty"`
+		WorkspaceAlias string               `json:"workspace_alias"`
+		ConfigAlias    string               `json:"config_alias"`
+		ConfigPath     string               `json:"config_path"`
+		WorkspaceName  string               `json:"workspace_name"`
+		BackendType    string               `json:"backend_type,omitempty"`
+		StatePath      string               `json:"state_path,omitempty"`
+		OpenedAt       string               `json:"opened_at"`
+		Convergence    *convergenceFactView `json:"convergence,omitempty"`
+		Warning        string               `json:"warning,omitempty"`
 	} `json:"workspaces"`
 }
 
@@ -1272,10 +2088,12 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		summary = muted("none open")
 	case 1:
 		w := r.Workspaces[0]
-		summary = addr(workspaceName(w.WorkspaceAlias, w.WorkspaceName)) +
-			dot() + muted(fmt.Sprintf("%d resource(s)", w.ResourceCount))
-		if w.UncommittedChanges > 0 {
-			summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d uncommitted", w.UncommittedChanges))
+		summary = addr(workspaceName(w.WorkspaceAlias, w.WorkspaceName))
+		if w.ConfigPath != "" {
+			summary += dot() + muted(w.ConfigPath)
+		}
+		if fact := convergenceFactLine(w.Convergence); fact != "" {
+			summary += dot() + fact
 		}
 	default:
 		summary = muted(fmt.Sprintf("%d open", len(r.Workspaces)))
@@ -1287,18 +2105,19 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		if w.BackendType != "" {
 			row += dot() + muted(w.BackendType)
 		}
-		row += dot() + muted(fmt.Sprintf("%d resource(s)", w.ResourceCount))
-		if w.UncommittedChanges > 0 {
-			row += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d uncommitted", w.UncommittedChanges))
+		if w.ConfigPath != "" {
+			row += dot() + muted(w.ConfigPath)
 		}
-		if w.ActivePhaseID != "" {
-			ph := "phase " + w.ActivePhaseID
-			if w.ActivePhaseStatus != "" {
-				ph += " (" + w.ActivePhaseStatus + ")"
-			}
-			row += dot() + muted(ph)
+		if w.OpenedAt != "" {
+			row += dot() + muted("opened "+w.OpenedAt)
 		}
 		detail = append(detail, row)
+		if fact := convergenceFactLine(w.Convergence); fact != "" {
+			detail = append(detail, "  "+fact)
+		}
+		if w.Warning != "" {
+			detail = append(detail, "  "+styles.WarningStyle.Render("⚠ "+w.Warning))
+		}
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
@@ -1321,81 +2140,40 @@ func workspaceName(alias, name string) string {
 	return name
 }
 
-// --- turf_plan_new / turf_plan_approve --------------------------------------
-
-// renderPlanNew shows the opened Draft plus the initial full-configuration
-// walk plan_new now performs (the result carries the same walk summary as
-// replan: resources, deferred, outputs). On a fresh empty configuration the
-// tally is "no changes"; on a reopen it shows NoOps/drift/orphans immediately.
-func renderPlanNew(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "", width)
-	}
-	var p planSummaryView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	opened := "opened"
-	if p.Path != "" {
-		// The bound configuration dir, as the caller passed it (relative under
-		// the CLI). Shows which configuration this phase is a projection of.
-		opened = "opened " + p.Path
-	}
-	head := addr(p.PhaseID) + dot() + muted(opened)
-	return planSummaryLine(msg, s, ss, width, head, p)
-}
-
-type planApproveView struct {
-	PhaseID     string   `json:"phase_id"`
-	EffectCount int      `json:"effect_count"`
-	Ready       []string `json:"ready"`
-}
-
-func renderPlanApprove(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "", width)
-	}
-	var p planApproveView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	summary := bold(p.PhaseID, styles.Success)
-	if p.EffectCount > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d effect(s)", p.EffectCount))
-	} else {
-		summary += dot() + muted("no changes")
-	}
-	var detail []string
-	if n := len(p.Ready); n > 0 {
-		detail = append(detail, section(fmt.Sprintf("%d ready to effect", n)))
-		detail = append(detail, effectLines(p.Ready, "  ", 20)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // --- turf_state_list --------------------------------------------------------
 
 type stateListView struct {
 	WorkspaceAlias string `json:"workspace_alias"`
-	Resources      []struct {
-		Address string `json:"address"`
-		Type    string `json:"type"`
-		Mode    string `json:"mode"`
-		// Tainted marks an object a previous apply left half-created; the next
-		// plan replaces it. Invisible in a plain address listing otherwise.
-		Tainted bool `json:"tainted,omitempty"`
-		// Deposed are objects stranded under this address by an interrupted
-		// create-before-destroy replace. They are still real infrastructure and
-		// still cost money, so a state listing has to admit they exist.
-		Deposed []struct {
-			Key string `json:"key"`
-		} `json:"deposed,omitempty"`
-	} `json:"resources"`
+	// Lineage and Serial identify the statefile the listing read.
+	Lineage   string              `json:"lineage,omitempty"`
+	Serial    uint64              `json:"serial,omitempty"`
+	Resources []stateResourceView `json:"resources"`
+	// Outputs are the root outputs, present only when there are any.
+	Outputs  map[string]outputValueView `json:"outputs,omitempty"`
+	Warnings []string                   `json:"warnings,omitempty"`
+}
+
+type stateResourceView struct {
+	Address string `json:"address"`
+	Mode    string `json:"mode"`
+	Type    string `json:"type"`
+	// Tainted marks an object the next plan replaces: one a failed apply left
+	// half-created, or one taint marked. Invisible in a plain address listing
+	// otherwise.
+	Tainted bool `json:"tainted,omitempty"`
+	// Deposed are the keys of objects stranded under this address by an interrupted
+	// create-before-destroy replace. They are still real infrastructure and still cost
+	// money, so a state listing has to admit they exist.
+	Deposed []string `json:"deposed,omitempty"`
+	// Values and SensitiveValues are set only when the call asked for include_values.
+	Values          map[string]any `json:"values,omitempty"`
+	SensitiveValues any            `json:"sensitive_values,omitempty"`
+	Identity        map[string]any `json:"identity,omitempty"`
 }
 
 func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
-		return line(msg, s, "", width)
+		return line(msg, s, targetBody(argString(msg, "workspace_alias")), width)
 	}
 	var st stateListView
 	if !parseContent(msg, &st) {
@@ -1415,6 +2193,12 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 	if deposed > 0 {
 		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deposed", deposed))
 	}
+	if n := len(st.Outputs); n > 0 {
+		summary += dot() + muted(fmt.Sprintf("%d output(s)", n))
+	}
+	if st.Serial > 0 {
+		summary += dot() + muted(fmt.Sprintf("serial %d", st.Serial))
+	}
 
 	var detail []string
 	const maxRows = 40
@@ -1424,207 +2208,105 @@ func renderStateList(msg *types.Message, s spinner.Spinner, ss service.SessionSt
 			break
 		}
 		row := addr(r.Address)
-		meta := strings.TrimSpace(strings.Join([]string{r.Type, r.Mode}, " · "))
-		if meta != "" {
-			row += dot() + muted(meta)
+		if r.Mode == "data" {
+			row += dot() + muted("data")
 		}
 		if r.Tainted {
 			row += dot() + styles.WarningStyle.Render("tainted")
 		}
-		if n := len(r.Deposed); n > 0 {
-			row += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deposed", n))
+		for _, key := range r.Deposed {
+			row += dot() + styles.WarningStyle.Render("deposed "+key)
+		}
+		if len(r.Identity) > 0 {
+			row += dot() + muted("identity")
 		}
 		detail = append(detail, row)
+		detail = append(detail, kvLinesMasked(r.Values, r.SensitiveValues, "  ", 12)...)
 	}
+	if len(st.Outputs) > 0 {
+		detail = append(detail, section("outputs"))
+		flat, mask := outputsMask(st.Outputs)
+		detail = append(detail, kvLinesMasked(flat, mask, "  ", 20)...)
+	}
+	detail = append(detail, warningLines(st.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_datasource_read ---------------------------------------------------
+// --- turf_taint / turf_untaint ----------------------------------------------
 //
-// datasource_read is the one-off lookup: it evaluates a data source and returns its
-// read state (attrs), writing nothing to state and nothing to the configuration. A
-// data source other changes should reference belongs in the configuration instead:
-// a `data` block in a .tf file, read by the next walk (see data_source_reads[]).
+// taint marks resource instances for replacement by the next plan; untaint lifts the
+// mark. Either is a state edit that applies nothing by itself: the replace shows up in
+// the next up's plan, which is approved like any other.
 
-type datasourceReadView struct {
-	ResourceAddr string         `json:"resource_addr"`
-	State        map[string]any `json:"state"`
-	// SensitiveValues masks State, in OpenTofu's sensitive_values shape.
-	SensitiveValues any `json:"sensitive_values,omitempty"`
+type taintView struct {
+	WorkspaceAlias string   `json:"workspace_alias"`
+	Addrs          []string `json:"addrs"`
+	Status         string   `json:"status"`
+	Serial         uint64   `json:"serial"`
 }
 
-func renderDatasourceRead(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderTaint(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	target := argString(msg, "addrs")
 	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "resource_addr")), width)
+		return line(msg, s, targetBody(target), width)
 	}
-	var r datasourceReadView
-	if !parseContent(msg, &r) {
+	var t taintView
+	if !parseContent(msg, &t) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	target := r.ResourceAddr
-	if target == "" {
-		target = argString(msg, "resource_addr")
+	if len(t.Addrs) > 0 {
+		target = strings.Join(t.Addrs, ", ")
 	}
-	summary := addr(target)
-	if n := len(r.State); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
-	}
-	return lineWithDetail(msg, s, ss, summary, kvLinesMasked(r.State, r.SensitiveValues, "  ", 30), width)
-}
-
-// --- data-source reads / ephemeral opens (walk summary) -----------------------
-//
-// A walk (plan_new / replan) classifies every declared data source it read and
-// every declared ephemeral resource it opened. Neither carries a value: a read's
-// value stays server-side (datasource_read is the verb that hands one over), and
-// an ephemeral value is never on the wire at all.
-
-// dataSourceReadEntry is one expanded instance's read verdict. Action is "read",
-// "deferred" or "error"; Reason narrows a deferral ("config_unknown" — the query
-// still carries unknowns; "dependency_pending" — a depends_on target has a change
-// this phase has not applied), and DependsOn names the addresses to apply to clear
-// it. The server keeps Value off the wire, so there is no attribute to render.
-type dataSourceReadEntry struct {
-	Address   string   `json:"address"`
-	Action    string   `json:"action"`
-	Reason    string   `json:"reason,omitempty"`
-	DependsOn []string `json:"depends_on,omitempty"`
-	Error     string   `json:"error,omitempty"`
-}
-
-// ephemeralOpenEntry is one expanded ephemeral instance's open verdict. The server
-// emits it field-for-field identically to a data-source read — address, action,
-// reason, depends_on, error — because it is the same question asked of a different
-// block, so it is the same type under a name that reads correctly at its own call
-// sites. Action is "opened", "deferred" or "error"; the VALUE is never on the wire,
-// and no tool will hand it over: an ephemeral value exists precisely so that it is
-// never written anywhere it can be read back, and the timeline is scrollback.
-type ephemeralOpenEntry = dataSourceReadEntry
-
-// dataReadIssueTally and ephemeralOpenIssueTally summarize a walk's reads and
-// opens for the plan-summary line: each counts only the verdicts worth
-// interrupting the action tally for.
-//
-// A walk reads *every* declared data source, so a "read" count would almost
-// always just say "all of them" — the signal is what did not resolve. The same
-// holds, more sharply, for ephemeral opens: every walk re-opens every declared
-// ephemeral resource, so two consecutive plans of an unchanged configuration list
-// the same addresses as "opened". That is the lifecycle, not churn, and tallying it
-// on the summary line would read as a change that did not happen.
-//
-// The "data"/"ephemeral" noun keeps each apart from the resource `N deferred` count
-// beside it, which counts a different thing entirely. Empty when everything
-// resolved, which is the ordinary case and should cost the line nothing.
-func dataReadIssueTally(reads []dataSourceReadEntry) string {
-	return issueTally(reads, "read", "data")
-}
-
-func ephemeralOpenIssueTally(opens []ephemeralOpenEntry) string {
-	return issueTally(opens, "opened", "ephemeral")
-}
-
-func issueTally(entries []dataSourceReadEntry, success, noun string) string {
-	return strings.Join(actionTally(actionCounts(entries, success), []string{"deferred", "error"}, "%d "+noun+" %s"), dot())
-}
-
-// actionCounts buckets entries by their planAction label, dropping the caller's
-// success label (that is what makes an issue tally an issue tally).
-func actionCounts(entries []dataSourceReadEntry, skip string) map[string]int {
-	counts := map[string]int{}
-	for _, e := range entries {
-		if label, _, _ := planAction(e.Action, false, false); label != skip {
-			counts[label]++
+	summary := targetBody(target)
+	if t.Status != "" {
+		c := styles.Accent
+		switch t.Status {
+		case "tainted":
+			c = styles.Warning
+		case "untainted":
+			c = styles.Success
 		}
+		summary = appendDot(summary, bold(t.Status, c))
 	}
-	return counts
-}
-
-// actionTally renders the buckets named by order, in that order, skipping empties —
-// then hands whatever order did not claim to leftoverActionTally rather than
-// dropping it. Consumes counts.
-func actionTally(counts map[string]int, order []string, format string) []string {
-	var parts []string
-	for _, a := range order {
-		if n := counts[a]; n > 0 {
-			_, c, _ := planAction(a, false, false)
-			parts = append(parts, bold(fmt.Sprintf(format, n, a), c))
-			delete(counts, a)
-		}
+	if t.Serial > 0 {
+		summary = appendDot(summary, muted(fmt.Sprintf("serial %d", t.Serial)))
 	}
-	return append(parts, leftoverActionTally(counts, format)...)
-}
-
-// leftoverActionTally renders the buckets a caller's fixed action order did not
-// claim, in sorted order so the line does not shuffle between renders of the same
-// result. Normally empty: the server emits only read/opened/deferred/error, and
-// issueTally enumerates the issue buckets explicitly — this is what keeps a fifth
-// action word visible instead of silently absent.
-func leftoverActionTally(counts map[string]int, format string) []string {
-	rest := make([]string, 0, len(counts))
-	for a := range counts {
-		rest = append(rest, a)
-	}
-	sort.Strings(rest)
-	out := make([]string, 0, len(rest))
-	for _, a := range rest {
-		_, c, _ := planAction(a, false, false)
-		out = append(out, bold(fmt.Sprintf(format, counts[a], a), c))
-	}
-	return out
-}
-
-// dataReadLines renders each instance's verdict as "<glyph> <address> · <action>",
-// following formatEffectID's shape, with the deferral reason / provider error text
-// indented beneath the entry it belongs to.
-func dataReadLines(reads []dataSourceReadEntry, indent string, max int) []string {
-	var out []string
-	for i, r := range reads {
-		if max > 0 && i == max {
-			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(reads)-max)))
-			break
-		}
-		label, c, glyph := planAction(r.Action, false, false)
-		body := indent + bold(glyph, c) + " " + addr(r.Address) + dot() + bold(label, c)
-		if r.Reason != "" {
-			body += dot() + muted(r.Reason)
-		}
-		out = append(out, body)
-		if len(r.DependsOn) > 0 {
-			out = append(out, indent+"    "+muted("waiting on ")+addr(strings.Join(r.DependsOn, ", ")))
-		}
-		if r.Error != "" {
-			out = append(out, indent+"    "+styles.ErrorStyle.Render(r.Error))
-		}
-	}
-	return out
+	return line(msg, s, summary, width)
 }
 
 // --- turf_provider_describe -------------------------------------------------
 //
-// provider_describe returns a TypeDescription (turf/provider/schema_converter.go):
-// the resource/data-source schema as {type, description, properties{name:{usage,
-// type, sensitive, deprecated, description,…}}, required}. The default renderer
-// dumps the whole schema; we summarize the type and, on expand, list its
-// attributes with type + usage flags.
+// provider_describe returns a TypeDescription (turf-engine tofu/provider/
+// schema_converter.go): one resource, data source or action type's schema as {type,
+// description, properties{name:{usage, type, sensitive, deprecated, description,…}},
+// required, identity_schema}. Asked for the builtin turf provider with no type, it
+// returns that provider's whole ProviderSchema instead ({resources, data_sources,
+// actions}), which lists Turf's own actions. The default renderer dumps either; we
+// summarize the type and, on expand, list its attributes with type + usage flags.
 
 type providerDescribeView struct {
-	Type        string         `json:"type"`
-	Description string         `json:"description"`
-	Properties  map[string]any `json:"properties"`
-	Required    []string       `json:"required"`
+	Type           string         `json:"type"`
+	Description    string         `json:"description"`
+	Properties     map[string]any `json:"properties"`
+	Required       []string       `json:"required"`
+	IdentitySchema map[string]any `json:"identity_schema,omitempty"`
+	// The ProviderSchema form: type name → description, per kind.
+	Resources   map[string]json.RawMessage `json:"resources,omitempty"`
+	DataSources map[string]json.RawMessage `json:"data_sources,omitempty"`
+	Actions     map[string]json.RawMessage `json:"actions,omitempty"`
 }
 
 func renderProviderDescribe(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	target := argString(msg, "resource_type")
-	if target == "" {
-		target = argString(msg, "datasource_type")
-	}
+	target := errorTarget(msg)
 	if running(msg) {
 		return line(msg, s, targetBody(target), width)
 	}
 	var d providerDescribeView
 	if !parseContent(msg, &d) {
 		return fallbackLine(msg, s, ss, width)
+	}
+	if d.Type == "" && (len(d.Resources) > 0 || len(d.DataSources) > 0 || len(d.Actions) > 0) {
+		return renderProviderSchema(msg, s, ss, width, target, d)
 	}
 
 	typ := d.Type
@@ -1635,7 +2317,10 @@ func renderProviderDescribe(msg *types.Message, s spinner.Spinner, ss service.Se
 	if n := len(d.Properties); n > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
 	}
-	if prov := argString(msg, "provider"); prov != "" {
+	if len(d.IdentitySchema) > 0 {
+		summary += dot() + muted("identity")
+	}
+	if prov := argString(msg, "provider"); prov != "" && prov != typ {
 		summary += dot() + providerName(prov)
 	}
 
@@ -1661,6 +2346,37 @@ func renderProviderDescribe(msg *types.Message, s spinner.Spinner, ss service.Se
 				break
 			}
 			detail = append(detail, "  "+attrSchemaLine(n, d.Properties[n], req[n]))
+		}
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// renderProviderSchema renders the whole-provider form: how many types of each kind,
+// and their names on expand.
+func renderProviderSchema(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width int, target string, d providerDescribeView) string {
+	summary := targetBody(target)
+	kinds := []struct {
+		label string
+		types map[string]json.RawMessage
+	}{
+		{"resource type(s)", d.Resources},
+		{"data source(s)", d.DataSources},
+		{"action(s)", d.Actions},
+	}
+	var detail []string
+	for _, k := range kinds {
+		if len(k.types) == 0 {
+			continue
+		}
+		summary = appendDot(summary, muted(fmt.Sprintf("%d %s", len(k.types), k.label)))
+		names := make([]string, 0, len(k.types))
+		for n := range k.types {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		detail = append(detail, section(strings.TrimSuffix(k.label, "(s)")+"s"))
+		for _, n := range names {
+			detail = append(detail, "  "+addr(n))
 		}
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
@@ -1809,65 +2525,12 @@ func renderWorkspaceDelete(msg *types.Message, s spinner.Spinner, ss service.Ses
 	return line(msg, s, summary, width)
 }
 
-// --- turf_plan_cancel -------------------------------------------------------
-
-type planCancelView struct {
-	PhaseID string `json:"phase_id"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
-
-func renderPlanCancel(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "", width)
-	}
-	var p planCancelView
-	if !parseContent(msg, &p) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	summary := addr(p.PhaseID)
-	if p.Status != "" {
-		summary += dot() + muted(p.Status)
-	}
-	var detail []string
-	if p.Message != "" {
-		detail = append(detail, muted(p.Message))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_plan_export -------------------------------------------------------
+// --- turf_init --------------------------------------------------------------
 //
-// The result is the raw `tofu show -json` plan document (fed to an external policy
-// engine as input.tfplan). We don't dump it; we summarize with the resource-change
-// count, falling back to a byte tally when the shape is unexpected.
-
-type planExportView struct {
-	ResourceChanges []struct {
-		Address string `json:"address"`
-	} `json:"resource_changes"`
-}
-
-func renderPlanExport(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, "", width)
-	}
-	var p planExportView
-	if !parseContent(msg, &p) {
-		// A successful export is always valid JSON, so an unparseable body is an
-		// error result — let fallbackLine surface the framework error text.
-		return fallbackLine(msg, s, ss, width)
-	}
-	summary := muted("exported plan JSON") + dot() + muted(fmt.Sprintf("%d resource changes", len(p.ResourceChanges)))
-	return lineWithDetail(msg, s, ss, summary, nil, width)
-}
-
-// --- turf_config_init ---------------------------------------------------------
-//
-// config_init introspects a config directory: required providers, variables,
-// outputs and the backend (the server's full result carries a README we don't
-// surface). We show the target +
-// a "N providers · N variables · N outputs" tally, and on expand list each.
+// init is `tofu init`: it registers a configuration directory, installs its modules
+// and providers, writes the dependency lock file, and reports what the directory
+// declares. We show the configuration + a "N providers · N variables · N outputs"
+// tally, and on expand list each, the providers with the version init installed.
 
 type initProviderView struct {
 	Source  string `json:"source"`
@@ -1878,6 +2541,16 @@ type initProviderView struct {
 	// empty because the module stated no constraint. Worth showing: it is the
 	// difference between a pin the configuration made and one nobody wrote down.
 	Inferred bool `json:"inferred,omitempty"`
+}
+
+// initInstalledView is one provider init installed (or found built in, or failed
+// to install), keyed back to the requirement by its local name.
+type initInstalledView struct {
+	LocalName string `json:"local_name"`
+	Source    string `json:"source"`
+	Version   string `json:"version,omitempty"`
+	BuiltIn   bool   `json:"builtin,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type initVariableView struct {
@@ -1896,89 +2569,65 @@ type initOutputView struct {
 	Sensitive bool   `json:"sensitive,omitempty"`
 }
 
-type configInitView struct {
+type initView struct {
 	// ConfigAlias is the handle this configuration was registered under — the
 	// configuration's own name, and what the session title labels the work with.
-	// Empty for the unnamed "default" configuration.
+	// Empty for the unnamed default configuration.
 	ConfigAlias string `json:"config_alias"`
-	Path        string `json:"path"` // the configuration dir, as the caller passed it (often relative)
-	Backend     *struct {
-		Type string `json:"type"`
-		// Defaulted marks the SYNTHESIZED local default — the entry describing
-		// something the directory does not actually contain. The server states it
-		// positively and omits the false, so ABSENCE means "declared": reading a
-		// missing flag as "not defaulted" is the correct polarity here.
-		Defaulted bool `json:"defaulted,omitempty"`
-	} `json:"backend"`
-	Workspace struct {
-		Name string `json:"name"`
-	} `json:"workspace"`
-	RequiredProviders map[string]initProviderView `json:"required_providers"`
-	Variables         []initVariableView          `json:"variables"`
-	Outputs           []initOutputView            `json:"outputs"`
+	Path        string `json:"path"`
 	// Scratch marks a turf-allocated temporary directory (no path was given), so
 	// nothing here outlives the session.
 	Scratch bool `json:"scratch,omitempty"`
-	// Drift is a cheap configuration↔state set comparison per bound workspace,
-	// present only on a re-init while one is open. It is not attribute-level drift
-	// (that needs a plan walk) — it is what the next plan will walk as orphan
-	// destroys and as creates.
-	Drift []configDriftView `json:"drift,omitempty"`
+	Backend *struct {
+		Type string `json:"type"`
+		// Defaulted marks the SYNTHESIZED local default — the entry describing
+		// something the directory does not actually contain. The server states it
+		// positively and omits the false, so ABSENCE means "declared".
+		Defaulted bool `json:"defaulted,omitempty"`
+	} `json:"backend"`
+	// Workspace is the OpenTofu workspace selected in the directory, "default"
+	// unless someone ran `tofu workspace select`.
+	Workspace         string                      `json:"workspace"`
+	RequiredProviders map[string]initProviderView `json:"required_providers"`
+	Providers         []initInstalledView         `json:"providers,omitempty"`
+	LockFile          *struct {
+		Path string `json:"path"`
+		// Status is created, updated, unchanged or not_updated.
+		Status string `json:"status"`
+	} `json:"lock_file,omitempty"`
+	ProviderConfigs []struct {
+		Type  string `json:"type"`
+		Alias string `json:"alias,omitempty"`
+	} `json:"provider_configs,omitempty"`
+	Variables []initVariableView `json:"variables,omitempty"`
+	Outputs   []initOutputView   `json:"outputs,omitempty"`
+	// Imports are the configuration's import {} blocks, which the next up adopts.
+	Imports []struct {
+		To       string `json:"to"`
+		ID       string `json:"id,omitempty"`
+		Identity string `json:"identity,omitempty"`
+	} `json:"imports,omitempty"`
+	ModulesInstalled bool `json:"modules_installed,omitempty"`
 }
 
-type configDriftView struct {
-	WorkspaceAlias     string   `json:"workspace_alias"`
-	InStateNotDeclared []string `json:"in_state_not_declared,omitempty"`
-	DeclaredNotInState []string `json:"declared_not_in_state,omitempty"`
-}
-
-// driftCounts totals both directions across every bound workspace.
-func driftCounts(drift []configDriftView) (orphans, pending int) {
-	for _, d := range drift {
-		orphans += len(d.InStateNotDeclared)
-		pending += len(d.DeclaredNotInState)
-	}
-	return orphans, pending
-}
-
-// driftLines renders the drift section in the plan's own glyph idiom — a state
-// resource the configuration no longer declares is a `-` the next plan walks, one
-// declared but absent from state is a `+`.
-func driftLines(drift []configDriftView, indent string) []string {
-	var out []string
-	for _, d := range drift {
-		if len(d.InStateNotDeclared) == 0 && len(d.DeclaredNotInState) == 0 {
-			continue
-		}
-		if d.WorkspaceAlias != "" {
-			out = append(out, indent+addr(d.WorkspaceAlias))
-		}
-		for _, a := range d.DeclaredNotInState {
-			out = append(out, indent+"  "+bold("+", styles.Success)+" "+addr(a))
-		}
-		for _, a := range d.InStateNotDeclared {
-			out = append(out, indent+"  "+bold("-", styles.Error)+" "+addr(a))
-		}
-	}
-	return out
-}
-
-func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+func renderInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
 	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "path")), width)
+		return line(msg, s, targetBody(errorTarget(msg)), width)
 	}
-	var c configInitView
+	var c initView
 	if !parseContent(msg, &c) {
 		return fallbackLine(msg, s, ss, width)
 	}
-	target := c.Workspace.Name
+	target := c.ConfigAlias
+	if target == "" {
+		target = c.Path
+	}
 	if target == "" {
 		target = argString(msg, "path")
 	}
 	summary := targetBody(target)
 	// Surface the configuration directory — the workflow's durable identity —
-	// as the caller passed it (relative under the CLI, where the cwd is the
-	// config dir). Skip when it's already the target (an empty workspace name).
+	// when the alias led the line.
 	if c.Path != "" && c.Path != target {
 		summary = appendDot(summary, muted(c.Path))
 	}
@@ -1995,24 +2644,57 @@ func renderConfigInit(msg *types.Message, s spinner.Spinner, ss service.SessionS
 	if parts := initCountParts(len(c.RequiredProviders), len(c.Variables), len(c.Outputs)); parts != "" {
 		summary = appendDot(summary, muted(parts))
 	}
-	// Drift is what the NEXT plan will do about this directory, so it earns a
-	// segment of its own rather than sitting only in the expansion.
-	if orphans, pending := driftCounts(c.Drift); orphans > 0 || pending > 0 {
-		var parts []string
-		if pending > 0 {
-			parts = append(parts, bold(fmt.Sprintf("+%d", pending), styles.Success))
-		}
-		if orphans > 0 {
-			parts = append(parts, bold(fmt.Sprintf("-%d", orphans), styles.Error))
-		}
-		summary = appendDot(summary, strings.Join(parts, " ")+muted(" drift"))
+	if n := len(c.Imports); n > 0 {
+		summary = appendDot(summary, colored(fmt.Sprintf("%d to import", n), styles.Accent))
 	}
-	detail := initDetail(c.RequiredProviders, c.Variables, c.Outputs)
-	if lines := driftLines(c.Drift, "  "); len(lines) > 0 {
-		detail = append(detail, section("drift"))
-		detail = append(detail, lines...)
+	if n := initProviderErrors(c.Providers); n > 0 {
+		summary = appendDot(summary, styles.ErrorStyle.Render(fmt.Sprintf("%d provider(s) failed to install", n)))
+	}
+
+	detail := initDetail(c.RequiredProviders, c.Providers, c.Variables, c.Outputs)
+	if len(c.ProviderConfigs) > 0 {
+		names := make([]string, 0, len(c.ProviderConfigs))
+		for _, pc := range c.ProviderConfigs {
+			n := pc.Type
+			if pc.Alias != "" {
+				n += "." + pc.Alias
+			}
+			names = append(names, n)
+		}
+		detail = append(detail, section("provider configurations"), "  "+addr(strings.Join(names, ", ")))
+	}
+	if len(c.Imports) > 0 {
+		detail = append(detail, section("imports"))
+		for _, im := range c.Imports {
+			note := "id=" + im.ID
+			if im.ID == "" {
+				note = "identity"
+			}
+			detail = append(detail, "  "+addr(im.To)+dot()+colored(note, styles.Accent))
+		}
+	}
+	var notes []string
+	if c.ModulesInstalled {
+		notes = append(notes, "modules installed")
+	}
+	if lf := c.LockFile; lf != nil && lf.Status != "" {
+		notes = append(notes, "lock file "+strings.ReplaceAll(lf.Status, "_", " "))
+	}
+	if len(notes) > 0 {
+		detail = append(detail, muted(strings.Join(notes, " · ")))
 	}
 	return lineWithDetail(msg, s, ss, summary, detail, width)
+}
+
+// initProviderErrors counts the providers init could not install.
+func initProviderErrors(installed []initInstalledView) int {
+	n := 0
+	for _, p := range installed {
+		if p.Error != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // initCountParts renders the "N provider(s) · N variable(s) · N output(s)" tally,
@@ -2031,8 +2713,14 @@ func initCountParts(nProviders, nVars, nOutputs int) string {
 	return strings.Join(parts, " · ")
 }
 
-// initDetail renders config_init's expanded provider/variable/output sections.
-func initDetail(providers map[string]initProviderView, vars []initVariableView, outs []initOutputView) []string {
+// initDetail renders init's expanded provider/variable/output sections. Each
+// required provider carries the version init installed for it — or that it is built
+// in, or why it failed.
+func initDetail(providers map[string]initProviderView, installed []initInstalledView, vars []initVariableView, outs []initOutputView) []string {
+	byName := make(map[string]initInstalledView, len(installed))
+	for _, p := range installed {
+		byName[p.LocalName] = p
+	}
 	var detail []string
 	if len(providers) > 0 {
 		detail = append(detail, section("required providers"))
@@ -2052,6 +2740,16 @@ func initDetail(providers map[string]initProviderView, vars []initVariableView, 
 			}
 			if p.Inferred {
 				row += " " + muted("inferred")
+			}
+			if in, ok := byName[n]; ok {
+				switch {
+				case in.Error != "":
+					row += " " + styles.ErrorStyle.Render(in.Error)
+				case in.BuiltIn:
+					row += " " + muted("built in")
+				case in.Version != "":
+					row += muted(" → ") + colored("v"+in.Version, styles.Success)
+				}
 			}
 			detail = append(detail, row)
 		}
@@ -2088,320 +2786,6 @@ func initDetail(providers map[string]initProviderView, vars []initVariableView, 
 	return detail
 }
 
-// --- turf_config_show ------------------------------------------------------------
-
-type configShowEntryView struct {
-	Address string `json:"address"`
-	// Kind is the entry's block type (resource/data/module/variable/output/
-	// provider/backend/action).
-	Kind string `json:"kind"`
-	// Type is carried only by a backend entry, whose address is the bare word
-	// "backend" — the one entry whose block type is not in its address. Every
-	// other kind spells its type out there (random_pet.x), so the field is empty.
-	Type string `json:"type,omitempty"`
-	File string `json:"file"`
-	// Note is returned only for an address query: how to read this declaration's
-	// body and how to change it.
-	Note string `json:"note,omitempty"`
-}
-
-// label names the entry's block type, plus the backend type when there is one:
-// "backend" on its own repeats the address and says nothing, where "backend
-// local" is the fact that entry exists to report. Same shape config_init's
-// summary uses for the same pair.
-func (e configShowEntryView) label() string {
-	if e.Type == "" {
-		return e.Kind
-	}
-	return e.Kind + " " + e.Type
-}
-
-type configShowView struct {
-	Path    string                `json:"path"`
-	Entries []configShowEntryView `json:"entries"`
-}
-
-func renderConfigShow(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "address")), width)
-	}
-	var c configShowView
-	if !parseContent(msg, &c) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	summary := muted(fmt.Sprintf("%d declared address(es)", len(c.Entries)))
-	if len(c.Entries) == 1 {
-		summary = addr(c.Entries[0].Address) + dot() + muted(c.Entries[0].label())
-	}
-	var detail []string
-	const maxRows = 30
-	for i, e := range c.Entries {
-		if i == maxRows {
-			detail = append(detail, muted(fmt.Sprintf("…(+%d more)", len(c.Entries)-maxRows)))
-			break
-		}
-		detail = append(detail, addr(e.Address)+dot()+muted(e.File)+dot()+muted(e.label()))
-		if e.Note != "" {
-			detail = append(detail, muted("  "+e.Note))
-		}
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_action_invoke -----------------------------------------------------
-//
-// action_invoke fires (or, with dry_run, just resolves) a provider action. The
-// result reports the terminal status plus a progress log; on dry_run it returns
-// the resolved config instead of running the action.
-
-type actionInvokeView struct {
-	ActionType string         `json:"action_type"`
-	Provider   string         `json:"provider"`
-	Status     string         `json:"status"`
-	Progress   []string       `json:"progress,omitempty"`
-	Config     map[string]any `json:"config,omitempty"`
-}
-
-func renderActionInvoke(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "action_type")), width)
-	}
-	var a actionInvokeView
-	if !parseContent(msg, &a) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	typ := a.ActionType
-	if typ == "" {
-		typ = argString(msg, "action_type")
-	}
-	status := a.Status
-	if status == "" {
-		status = "completed"
-	}
-	summary := addr(typ) + dot() + bold(status, applyStateColor(a.Status))
-	if a.Provider != "" {
-		summary += dot() + providerName(a.Provider)
-	}
-	var detail []string
-	if len(a.Progress) > 0 {
-		detail = append(detail, section("progress"))
-		detail = append(detail, listLines(a.Progress, "  ", 20)...)
-	}
-	if len(a.Config) > 0 {
-		detail = append(detail, section("resolved config"))
-		detail = append(detail, kvLines(a.Config, "  ", 30)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_action_trigger / turf_action_untrigger ----------------------------
-//
-// action_trigger attaches a PHASE ACTION to the open Draft: an address-targeted
-// action trigger (plus any inline action definitions) that exists for this phase
-// only, composed into the walk in memory and never written to the configuration
-// directory. action_untrigger detaches one by name. Both re-project the plan, but
-// the line keeps to the attachment itself — the plan is what replan/plan_new and
-// the approval gate show — with the rendered HCL (the block a human would commit
-// to make the trigger durable) on expand.
-
-type actionTriggerView struct {
-	Name    string   `json:"name"`
-	Target  string   `json:"target"`
-	Events  []string `json:"events"`
-	Actions []string `json:"actions"`
-	HCL     string   `json:"hcl"`
-}
-
-func renderActionTrigger(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "name")), width)
-	}
-	var a actionTriggerView
-	if !parseContent(msg, &a) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	name := a.Name
-	if name == "" {
-		name = argString(msg, "name")
-	}
-	summary := appendDot(targetBody(name), bold("attached", styles.Success))
-	if a.Target != "" {
-		summary = appendDot(summary, muted("on ")+addr(a.Target))
-	}
-	if len(a.Events) > 0 {
-		summary = appendDot(summary, muted(strings.Join(a.Events, ", ")))
-	}
-	var detail []string
-	if len(a.Actions) > 0 {
-		detail = append(detail, section("actions"))
-		detail = append(detail, listLines(a.Actions, "  ", 20)...)
-	}
-	if hcl := strings.TrimSpace(a.HCL); hcl != "" {
-		detail = append(detail, section("hcl"))
-		detail = append(detail, listLines(strings.Split(hcl, "\n"), "  ", 40)...)
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-type actionUntriggerView struct {
-	Name string `json:"name"`
-}
-
-func renderActionUntrigger(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "name")), width)
-	}
-	var a actionUntriggerView
-	if !parseContent(msg, &a) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	name := a.Name
-	if name == "" {
-		name = argString(msg, "name")
-	}
-	return line(msg, s, appendDot(targetBody(name), bold("detached", styles.Success)), width)
-}
-
-// --- turf_effect_cancel -----------------------------------------------------
-//
-// effect_cancel withdraws a scheduled effect; downstream effects that depended on
-// it cascade (are re-derived), and a fresh ready set is returned. Both are effect
-// IDs, formatted by effectLines.
-
-type effectCancelView struct {
-	EffectID string   `json:"effect_id"`
-	State    string   `json:"state"`
-	Cascaded []string `json:"cascaded,omitempty"`
-	Ready    []string `json:"ready"`
-	Message  string   `json:"message"`
-}
-
-func renderEffectCancel(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "effect_id")), width)
-	}
-	var e effectCancelView
-	if !parseContent(msg, &e) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := e.EffectID
-	if target == "" {
-		target = argString(msg, "effect_id")
-	}
-	state := e.State
-	if state == "" {
-		state = "cancelled"
-	}
-	summary := addr(target) + dot() + bold(state, applyStateColor(e.State))
-	if n := len(e.Cascaded); n > 0 {
-		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d cascaded", n))
-	}
-	var detail []string
-	if len(e.Cascaded) > 0 {
-		detail = append(detail, section("cascaded"))
-		detail = append(detail, effectLines(e.Cascaded, "  ", 12)...)
-	}
-	if n := len(e.Ready); n > 0 {
-		detail = append(detail, section(fmt.Sprintf("%d ready to effect", n)))
-		detail = append(detail, effectLines(e.Ready, "  ", 12)...)
-	}
-	if e.Message != "" {
-		detail = append(detail, muted(e.Message))
-	}
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-// --- turf_resource_import / turf_resource_refresh ---------------------------
-
-type resourceImportView struct {
-	ResourceAddr  string         `json:"resource_addr"`
-	ImportID      string         `json:"import_id"`
-	ImportedState map[string]any `json:"imported_state"`
-	// Identity is the provider-declared resource identity recorded for the object,
-	// present when the type declares one — and the only locator when the import was
-	// made by identity rather than by id.
-	Identity map[string]any `json:"identity,omitempty"`
-	// Warning is set when the import was recorded but could not be flushed to the
-	// state backend. The import stands in this session either way, so this is not an
-	// error — but it is the difference between a durable import and a session-local
-	// one, and must not read as a clean success.
-	Warning string `json:"warning,omitempty"`
-}
-
-func renderResourceImport(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "resource_addr")), width)
-	}
-	var r resourceImportView
-	if !parseContent(msg, &r) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := r.ResourceAddr
-	if target == "" {
-		target = argString(msg, "resource_addr")
-	}
-	summary := addr(target) + dot() + bold("imported", styles.Success)
-	// The locator: an id, or — when the object was located by a provider-declared
-	// resource identity — the identity itself, which is an object, so name it.
-	id := r.ImportID
-	if id == "" {
-		id = argString(msg, "import_id")
-	}
-	switch {
-	case id != "":
-		summary += dot() + muted("id "+id)
-	case len(r.Identity) > 0:
-		summary += dot() + muted("identity")
-	}
-	if n := len(r.ImportedState); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
-	}
-	if r.Warning != "" {
-		summary += dot() + styles.WarningStyle.Render("⚠ not flushed")
-	}
-
-	var detail []string
-	if r.Warning != "" {
-		detail = append(detail, styles.WarningStyle.Render("⚠ "+r.Warning))
-	}
-	if len(r.Identity) > 0 {
-		detail = append(detail, section("identity"))
-		detail = append(detail, kvLines(r.Identity, "  ", 10)...)
-	}
-	detail = append(detail, kvLines(r.ImportedState, "  ", 30)...)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
-type resourceRefreshView struct {
-	ResourceAddr   string         `json:"resource_addr"`
-	Exists         bool           `json:"exists"`
-	RefreshedState map[string]any `json:"refreshed_state,omitempty"`
-}
-
-func renderResourceRefresh(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
-	if running(msg) {
-		return line(msg, s, targetBody(argString(msg, "resource_addr")), width)
-	}
-	var r resourceRefreshView
-	if !parseContent(msg, &r) {
-		return fallbackLine(msg, s, ss, width)
-	}
-	target := r.ResourceAddr
-	if target == "" {
-		target = argString(msg, "resource_addr")
-	}
-	status := bold("refreshed", styles.Success)
-	if !r.Exists {
-		status = styles.WarningStyle.Render("no longer exists")
-	}
-	summary := addr(target) + dot() + status
-	if n := len(r.RefreshedState); n > 0 {
-		summary += dot() + muted(fmt.Sprintf("%d attr(s)", n))
-	}
-	detail := kvLines(r.RefreshedState, "  ", 30)
-	return lineWithDetail(msg, s, ss, summary, detail, width)
-}
-
 // appendDot joins a trailing segment onto a summary with the " · " separator,
 // or returns the segment alone when the summary is still empty (so a line never
 // opens with a stray separator).
@@ -2435,151 +2819,42 @@ func lineCount(s string) int {
 
 // --- action symbol / theme color mapping ------------------------------------
 
-// planAction maps turf's wire action — a word like "create"/"replace"/"delete"
-// (see wireActionFromRune in turf/tools/plan_record.go) — to a human label, a
-// theme color, and a one-char glyph for compact tallies and per-resource lines.
-// Raw symbols (+, ~, ±, …) are accepted as a fallback for any path that emits them.
+// planAction maps a plan document change's actions — OpenTofu's json-format list,
+// ["create"], ["delete","create"], … — to a human label, a theme color, and the glyph
+// `tofu plan` prints for it (DiffActionSymbol in OpenTofu's jsonformat renderers):
 //
-// A "replace" carries a second bit, create_before_destroy, in the result. The
-// server sends it as a bare bool with omitempty, so ABSENT is the meaningful
-// default: absent/false is DTC (∓, destroy the old instance first — OpenTofu's
-// default ordering) and true is CBD (±, create the new one first). cbd is false
-// for non-replace actions, and is ignored when the action is already a ±/∓
-// symbol, which is self-describing.
-func planAction(action string, deferred bool, cbd bool) (label string, c color.Color, glyph string) {
-	if deferred || action == "deferred" {
-		return "deferred", styles.Warning, "?"
-	}
-	switch action {
-	case "create", "+":
+//   - create            -/+  delete then create (the default replace)
+//     ~  update            +/-  create then delete (create_before_destroy)
+//   - delete            ./+  forget then create (a replace under destroy = false)
+//     <= read              .    forget
+//
+// A no-op has no glyph, as in `tofu plan`. The colors are the CLI theme's own, so
+// /theme keeps owning the look.
+func planAction(actions []string) (label string, c color.Color, glyph string) {
+	switch strings.Join(actions, ",") {
+	case "create":
 		return "create", styles.Success, "+"
-	case "update", "~":
+	case "update":
 		return "update", styles.Accent, "~"
-	case "delete", "destroy", "-":
+	case "delete":
 		return "destroy", styles.Error, "-"
-	case "replace":
-		if cbd {
-			return "replace", styles.Warning, "±" // create-before-destroy
-		}
-		return "replace", styles.Warning, "∓" // destroy-before-create (default)
-	case "±":
-		return "replace", styles.Warning, "±"
-	case "∓":
-		return "replace", styles.Warning, "∓"
-	case "forget", ".":
+	case "delete,create":
+		return "replace", styles.Warning, "-/+"
+	case "create,delete":
+		return "replace", styles.Warning, "+/-"
+	case "forget,create":
+		return "replace", styles.Warning, "./+"
+	case "read":
+		return "read", styles.Accent, "<="
+	case "forget":
 		return "forget", styles.Highlight, "."
-	case "read", "←":
-		return "read", styles.Accent, "←"
-	case "opened", "○":
-		return "opened", styles.Success, "○"
-	case "move", "→":
-		return "move", styles.Accent, "→"
-	case "noop", "no-op", "=":
-		return "no-op", styles.Highlight, "="
-	case "error":
-		return "error", styles.Error, "✗"
+	case "no-op":
+		return "no-op", styles.Highlight, ""
 	default:
-		return "change", styles.Accent, "·"
+		return "change", styles.Accent, "?"
 	}
 }
 
-// planTally counts resources by action and renders a colored "+a ~b ±c ∓d -e"
-// summary, omitting zero buckets — CBD (±) and DTC (∓) replacements counted apart.
-func planTally(rs []resourcePlanEntry) string {
-	counts := map[string]int{}
-	for _, r := range rs {
-		_, _, g := planAction(r.Action, false, r.CreateBeforeDestroy)
-		counts[g]++
-	}
-	buckets := []struct {
-		glyph string
-		c     color.Color
-	}{
-		{"+", styles.Success}, {"~", styles.Accent},
-		{"±", styles.Warning}, {"∓", styles.Warning}, {"-", styles.Error},
-	}
-	parts := []string{}
-	for _, b := range buckets {
-		if counts[b.glyph] > 0 {
-			parts = append(parts, bold(fmt.Sprintf("%s%d", b.glyph, counts[b.glyph]), b.c))
-		}
-	}
-	if len(parts) == 0 {
-		return muted("no changes")
-	}
-	return strings.Join(parts, " ")
-}
-
-// adoptCount counts the rows that adopt an existing object named by an
-// `import {}` block. They usually plan as no-ops, which planTally does not show.
-func adoptCount(rs []resourcePlanEntry) int {
-	n := 0
-	for _, r := range rs {
-		if r.Importing != nil {
-			n++
-		}
-	}
-	return n
-}
-
-// movedLines renders the phase's state relocations as "from → to" detail rows,
-// = -aligned on the source address the same way kvLines aligns keys.
-func movedLines(moved []movedRecordView, indent string, max int) []string {
-	froms := make([]string, 0, len(moved))
-	for _, m := range moved {
-		froms = append(froms, m.From)
-	}
-	w := maxKeyWidth(froms)
-	out := make([]string, 0, len(moved))
-	for _, m := range moved {
-		out = append(out, indent+addr(padRight(m.From, w))+muted(" → ")+addr(m.To))
-	}
-	return capLines(out, indent, max)
-}
-
-// applyStateColor colors the apply status by outcome. turf's effect states are
-// free-form; we key off the common success/error words and fall back to accent.
-func applyStateColor(state string) color.Color {
-	switch s := strings.ToLower(state); {
-	case strings.Contains(s, "error"), strings.Contains(s, "fail"):
-		return styles.Error
-	case strings.Contains(s, "done"), strings.Contains(s, "complete"), strings.Contains(s, "applied"), strings.Contains(s, "ok"):
-		return styles.Success
-	default:
-		return styles.Accent
-	}
-}
-
-// --- misc value helpers -----------------------------------------------------
-
-// effectLines renders a set of effect IDs as formatted detail lines. An effect ID
-// has the shape "<symbol>/<resource_addr>/<operation>" (e.g. "±/random_string.x/
-// create"); we color the action symbol, highlight the address, and mute the op.
-func effectLines(ids []string, indent string, max int) []string {
-	var out []string
-	for i, id := range ids {
-		if max > 0 && i == max {
-			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(ids)-max)))
-			break
-		}
-		out = append(out, indent+formatEffectID(id))
-	}
-	return out
-}
-
-func formatEffectID(id string) string {
-	parts := strings.Split(id, "/")
-	if len(parts) < 3 {
-		return muted(id)
-	}
-	sym := parts[0]
-	op := parts[len(parts)-1]
-	address := strings.Join(parts[1:len(parts)-1], "/")
-	_, c, _ := planAction(sym, false, false)
-	return bold(sym, c) + " " + addr(address) + dot() + muted(op)
-}
-
-// listLines renders string slice elements as indented detail lines, capped.
 // warningLines renders a result's non-fatal diagnostics as ⚠-prefixed detail rows.
 // Every turf tool that reports warnings reports them the same way, so the shape is
 // shared rather than repeated per renderer.
@@ -2589,71 +2864,6 @@ func warningLines(warnings []string) []string {
 		lines = append(lines, styles.WarningStyle.Render("⚠ "+w))
 	}
 	return lines
-}
-
-func listLines(items []string, indent string, max int) []string {
-	var out []string
-	for i, it := range items {
-		if max > 0 && i == max {
-			out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", len(items)-max)))
-			break
-		}
-		out = append(out, indent+muted(it))
-	}
-	return out
-}
-
-// outputsCount counts top-level keys for an object, or elements for an array.
-func outputsCount(raw json.RawMessage) int {
-	if len(raw) == 0 {
-		return 0
-	}
-	var obj map[string]json.RawMessage
-	if json.Unmarshal(raw, &obj) == nil {
-		return len(obj)
-	}
-	var arr []json.RawMessage
-	if json.Unmarshal(raw, &arr) == nil {
-		return len(arr)
-	}
-	return 0
-}
-
-// outputsLines renders evaluated outputs (object of name→value) as kv detail lines.
-func outputsLines(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	var obj map[string]any
-	if json.Unmarshal(raw, &obj) == nil && len(obj) > 0 {
-		return kvLines(obj, "  ", 30)
-	}
-	return nil
-}
-
-// changedKeys lists attributes whose value differs between before and after, for a
-// compact one-line summary. Returns "" when there's nothing meaningful to show.
-func changedKeys(before, after map[string]any) string {
-	if before == nil && after == nil {
-		return ""
-	}
-	keys := unionKeys(before, after)
-	var changed []string
-	for _, k := range keys {
-		if !jsonEqual(before[k], after[k]) {
-			changed = append(changed, k)
-		}
-	}
-	if len(changed) == 0 {
-		return ""
-	}
-	sort.Strings(changed)
-	const maxKeys = 6
-	if len(changed) > maxKeys {
-		extra := len(changed) - maxKeys
-		changed = append(changed[:maxKeys], fmt.Sprintf("…(+%d more)", extra))
-	}
-	return strings.Join(changed, ", ")
 }
 
 func jsonEqual(a, b any) bool {

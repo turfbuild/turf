@@ -16,8 +16,9 @@ import (
 // (e.g. Claude Code exercising a real model end-to-end): the message is the
 // caller's prompt, --json emits one runtime event per line for machine parsing,
 // and the process exit code reflects whether the run succeeded. It always runs
-// non-interactively, so plan-approval elicitation is auto-confirmed (see
-// autoconfirm.go); the mutation gate still asks on stdin unless --yes is set.
+// non-interactively, so the agent's plan-approval questions are auto-confirmed
+// (see autoconfirm.go); turf's own tools are pre-approved, and any other tool
+// call that would ask on stdin is approved only under --yes.
 func newExecCmd() *cobra.Command {
 	var (
 		autoApprove   bool
