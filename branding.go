@@ -34,7 +34,7 @@ func setBranding(b brandingConfig) {
 // renderers, the /tools grouping, and preApprovedTurfTools all key on.
 
 // brandThemeRef is the co-brand's default theme ref, or "" when unbranded. It is
-// only a default — applyTurfTheme still lets a saved /theme choice and --theme
+// only a default — applyTurfTheme still lets a saved theme choice and --theme
 // win over it.
 func brandThemeRef() string {
 	return branding.Theme

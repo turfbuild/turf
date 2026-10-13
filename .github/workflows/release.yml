@@ -1,12 +1,14 @@
 name: Release
 
 # Public assembly + attestation half of the Turf release pipeline (Phase 4 / M3).
-# The private turf-mcp-server repo (M1/M2) builds the obfuscated server binaries +
-# ghcr image, cosign-attests them, and attaches the server binaries + SBOM #2 +
-# OpenVEX + cosign bundles to a DRAFT prerelease on this repo. This workflow then:
+# The private turf-mcp-server repo (M1/M2) builds the obfuscated server binaries
+# (turf-mcp-server, and the local engine it connects to: turf-engine and its
+# turf-builtin-provider sidecar) + ghcr image, cosign-attests them, and attaches
+# those binaries + SBOM #2 + OpenVEX + cosign bundles to a DRAFT prerelease on
+# this repo. This workflow then:
 #   * builds the open turf CLI (CGO off, no voice) for all four arches,
-#   * pulls those server binaries and VERIFIES their cosign attestations before
-#     bundling (the assembler verifies its inputs),
+#   * pulls those server-side binaries and VERIFIES their cosign attestations
+#     before bundling (the assembler verifies its inputs),
 #   * assembles the installable-unit tarballs,
 #   * generates SBOM #1 (the CLI) + an assembly BOM-of-BOMs, and
 #   * attests the CLI binaries + tarballs with GitHub-native `gh attestation`
@@ -42,6 +44,8 @@ jobs:
       TAG: ${{ github.event.inputs.tag }}
       # os_arch tokens; split on "_" for GOOS/GOARCH.
       PLATFORMS: darwin_arm64 darwin_amd64 linux_amd64 linux_arm64
+      # The server-side binaries M1 attaches, bundled beside turf in every tarball.
+      SERVER_BINARIES: turf-mcp-server turf-engine turf-builtin-provider
       # cosign identity of the server binaries built by the turf-mcp-server repo.
       SERVER_ID: ^https://github.com/turfbuild/turf-mcp-server/
       OIDC_ISSUER: https://token.actions.githubusercontent.com
@@ -77,40 +81,51 @@ jobs:
       - uses: sigstore/cosign-installer@v4.1.2
       - uses: anchore/sbom-action/download-syft@v0
 
-      - name: Download + verify the server binaries (M1 draft assets)
-        # The assembler verifies its inputs: each server binary must carry a valid
+      - name: Download + verify the server-side binaries (M1 draft assets)
+        # The assembler verifies its inputs: each server-side binary — the server,
+        # the engine, and the engine's built-in provider — must carry a valid
         # cosign provenance attestation from the turf-mcp-server repo before we
-        # bundle it. Any failure fails the release.
+        # bundle it. Any failure fails the release. The server connects to the
+        # engine (`turf-mcp-server engine run`, the formula's service) and finds
+        # turf-engine beside itself, so a tarball without the engine cannot run.
         run: |
           set -euxo pipefail
           gh release download "$TAG" --repo turfbuild/turf --dir dist \
             --pattern 'turf-mcp-server-*' \
-            --pattern 'turf-mcp-server.*'
+            --pattern 'turf-mcp-server.*' \
+            --pattern 'turf-engine-*' \
+            --pattern 'turf-builtin-provider-*'
           for p in $PLATFORMS; do
-            bin="dist/turf-mcp-server-${p}"
-            test -f "$bin"
-            cosign verify-blob-attestation \
-              --type slsaprovenance1 \
-              --bundle "dist/turf-mcp-server-${p}.provenance.sigstore.json" \
-              --certificate-identity-regexp "$SERVER_ID" \
-              --certificate-oidc-issuer "$OIDC_ISSUER" \
-              "$bin"
+            for b in $SERVER_BINARIES; do
+              bin="dist/${b}-${p}"
+              test -f "$bin"
+              cosign verify-blob-attestation \
+                --type slsaprovenance1 \
+                --bundle "dist/${b}-${p}.provenance.sigstore.json" \
+                --certificate-identity-regexp "$SERVER_ID" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" \
+                "$bin"
+            done
           done
 
       - name: Assemble tarballs
-        # Each installable unit = turf + turf-mcp-server + LICENSE/NOTICE/README.
-        # The doc is staged as README.md to match the Homebrew formula's
-        # `doc.install "README.md"`.
+        # Each installable unit = turf + the three server-side binaries +
+        # LICENSE/NOTICE/README. The doc is staged as README.md to match the
+        # Homebrew formula's `doc.install "README.md"`. restate-server, which the
+        # engine runs on, is BUSL-1.1 and never bundled: the formula depends on
+        # Restate's own tap.
         run: |
           set -euxo pipefail
           for p in $PLATFORMS; do
             stage="$(mktemp -d)"
             install -m 0755 "dist/turf-${p}" "$stage/turf"
-            install -m 0755 "dist/turf-mcp-server-${p}" "$stage/turf-mcp-server"
+            for b in $SERVER_BINARIES; do
+              install -m 0755 "dist/${b}-${p}" "$stage/${b}"
+            done
             cp release/LICENSE release/NOTICE "$stage/"
             cp release/README-alpha.md "$stage/README.md"
             tar -C "$stage" -czf "dist/turf_${TAG}_${p}.tar.gz" \
-              turf turf-mcp-server LICENSE NOTICE README.md
+              turf $SERVER_BINARIES LICENSE NOTICE README.md
             rm -rf "$stage"
           done
           ls -l dist/*.tar.gz
@@ -157,8 +172,8 @@ jobs:
           sbom-path: dist/turf-assembly.cdx.json
 
       - name: Unified checksums + upload to the draft release
-        # One checksums.txt covering the user-facing artifacts: tarballs, both
-        # binaries' standalone copies, and every SBOM. Clobbers M1's partial
+        # One checksums.txt covering the user-facing artifacts: tarballs, every
+        # binary's standalone copy, and every SBOM. Clobbers M1's partial
         # checksums.txt (this one is a superset). Cosign bundles are self-verifying
         # signatures and are intentionally not checksummed.
         run: |
@@ -166,7 +181,8 @@ jobs:
           ( cd dist
             files=()
             for p in $PLATFORMS; do
-              files+=( "turf_${TAG}_${p}.tar.gz" "turf-mcp-server-${p}" )
+              files+=( "turf_${TAG}_${p}.tar.gz" )
+              for b in $SERVER_BINARIES; do files+=( "${b}-${p}" ); done
             done
             files+=( turf.cdx.json turf.spdx.json \
                      turf-mcp-server.cdx.json turf-mcp-server.spdx.json \

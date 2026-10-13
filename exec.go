@@ -16,9 +16,10 @@ import (
 // (e.g. Claude Code exercising a real model end-to-end): the message is the
 // caller's prompt, --json emits one runtime event per line for machine parsing,
 // and the process exit code reflects whether the run succeeded. It always runs
-// non-interactively, so the agent's plan-approval questions are auto-confirmed
-// (see autoconfirm.go); turf's own tools are pre-approved, and any other tool
-// call that would ask on stdin is approved only under --yes.
+// non-interactively, so nobody can answer the agent's plan-approval questions:
+// without --yes they are declined, and under --yes they are auto-confirmed (see
+// userPromptToolset in autoconfirm.go). turf's own tools are pre-approved, and
+// any other tool call that would ask on stdin is approved only under --yes.
 func newExecCmd() *cobra.Command {
 	var (
 		autoApprove   bool
@@ -36,7 +37,8 @@ func newExecCmd() *cobra.Command {
 			"positional words are joined into a single message, so quoting is optional; use \"--\" to pass a message that " +
 			"begins with a dash (e.g. turf exec -- --dry-run the plan).\n\n" +
 			"Use --json to emit each runtime event (agent text, tool calls, tool results, errors) as one JSON object per " +
-			"line for scripting, and --yes to auto-approve changes so the run proceeds unattended. The process exits " +
+			"line for scripting. Nobody can answer the agent's approval questions here, so without --yes they are declined and " +
+			"nothing that needs your yes is applied; --yes approves them so the run proceeds unattended. The process exits " +
 			"non-zero if the run fails. Use -C/--chdir to target another directory.",
 		// Arbitrary args: the positionals form one message (joined below), so an
 		// unquoted multi-word prompt and `exec -- <prompt>` both work.
@@ -72,10 +74,9 @@ func newExecCmd() *cobra.Command {
 				logFile:        flagLogFile,
 				logLevel:       flagLogLevel,
 				logFormat:      flagLogFormat,
-				// Headless run: no TUI to render a user_prompt dialog, so wire the
-				// auto-confirming stand-in (see agent.go / autoconfirm.go). The
-				// stand-in is already selected by interactive:false; passing
-				// autoApprove keeps the two flags describing the same intent.
+				// Headless run: no TUI to render a user_prompt dialog, so wire a
+				// stand-in that answers it — no without --yes, yes with it (see
+				// userPromptToolset in autoconfirm.go).
 				interactive: false,
 				autoApprove: autoApprove,
 			})
