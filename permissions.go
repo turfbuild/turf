@@ -94,10 +94,8 @@ var preApprovedTurfTools = []string{
 	"turf_taint",
 	"turf_untaint",
 	// Skills / docs.
-	"turf_skill_core",
+	"turf_skill_deployment",
 	"turf_skill_authoring",
-	"turf_skill_codified",
-	"turf_skill_demo",
 	"turf_skill_guide",
 	"turf_read_skill_file",
 }

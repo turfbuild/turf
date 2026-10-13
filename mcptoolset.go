@@ -109,12 +109,10 @@ var turfToolInfo = map[string]struct {
 	"taint":      {"state", "Taint Resource"},
 	"untaint":    {"state", "Untaint Resource"},
 	// skills — workflow guides
-	"skill_core":      {"skills", "Core Skill"},
-	"skill_authoring": {"skills", "Authoring Skill"},
-	"skill_codified":  {"skills", "Codified Skill"},
-	"skill_demo":      {"skills", "Demo Skill"},
-	"skill_guide":     {"skills", "Guide Skill"},
-	"read_skill_file": {"skills", "Read Skill File"},
+	"skill_deployment": {"skills", "Deployment Skill"},
+	"skill_authoring":  {"skills", "Authoring Skill"},
+	"skill_guide":      {"skills", "Guide Skill"},
+	"read_skill_file":  {"skills", "Read Skill File"},
 }
 
 // turfCategory returns the /tools dialog category for a bare turf tool name.
