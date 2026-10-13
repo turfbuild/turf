@@ -22,9 +22,10 @@ import (
 // Titles are composed deterministically in the `terraform plan` idiom from what
 // turf actually did: the session label, then the most recent plan/apply/destroy
 // outcome with accurate `+A ~C -D` counts — e.g. "actions · plan +2 ~0 -2",
-// "actions · applied +2 ~0 -2", "actions · destroyed -4". The counts come from
-// the same renderer view structs the TUI plan view parses, so they always match
-// the real plan. A chat-only session (no turf tool) has no deterministic signal
+// "actions · applied +2 ~0 -2", "actions · destroyed -4". The counts are the ones
+// the server's own plan summary reports on an up/destroy/apply result, parsed by the
+// same renderer view (convergenceView) the timeline line reads, so a title and the
+// line beside it always agree. A chat-only session (no turf tool) has no deterministic signal
 // and stays untitled by design.
 //
 // It is a runtime.EventObserver (registered via runtime.WithEventObserver in
@@ -56,12 +57,11 @@ type sessionTitleCurator struct {
 // server tool set — a server-side rename then fails CI instead of silently
 // stopping the curator from titling. Keep in step with the switch in ingest.
 var titleCuratorTools = []string{
-	"turf_config_init",
+	"turf_init",
 	"turf_workspace_open",
-	"turf_plan_new",
-	"turf_replan",
-	"turf_plan_approve",
-	"turf_effect_apply",
+	"turf_up",
+	"turf_destroy",
+	"turf_apply",
 }
 
 func newSessionTitleCurator(store session.Store) *sessionTitleCurator {
@@ -136,7 +136,7 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 			return
 		}
 		// Don't downgrade an existing milestone title back to "· init" (e.g.
-		// config_init on a resumed session that already has one).
+		// init on a resumed session that already has one).
 		if stage == stageNone {
 			return
 		}
@@ -150,7 +150,7 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 // is gone from the server), but a session titled by an older turf may still carry
 // it, and recognizing it keeps that title curator-owned on resume rather than
 // mistaking it for a human one and freezing it.
-var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes)|destroyed -\d+|promoted)$`)
+var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes|\d+ change\(s\))|destroyed -\d+|promoted)$`)
 
 // isAutoTitle reports whether s looks like a curator-generated milestone title
 // (so the curator may replace it). The bare-label case is handled separately.
@@ -163,18 +163,18 @@ func isAutoTitle(s string) bool {
 // unit-tested directly.
 func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 	switch tool {
-	case "turf_config_init":
-		var v configInitView
+	case "turf_init":
+		var v initView
 		if json.Unmarshal([]byte(output), &v) == nil {
 			// No workspace is open yet, so there is no alias to prefer.
-			c.digest.label = sessionLabel("", v.ConfigAlias, v.Workspace.Name, v.Path)
+			c.digest.label = sessionLabel("", v.ConfigAlias, v.Workspace, v.Path)
 		}
 		return true
 
 	case "turf_workspace_open":
 		var v workspaceOpenView
-		// Only fills a hole: config_init runs first in every canonical workflow and
-		// labels the session there. This fires on the reopen/resume path — where the
+		// Only fills a hole: init runs first in every canonical workflow and labels
+		// the session there. This fires on the reopen/resume path — where the
 		// workspace alias, the handle the user is actually working with, is the most
 		// specific thing available. The result carries the configuration binding too,
 		// so every rung of the ladder is reachable here.
@@ -183,30 +183,71 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 		}
 		return true
 
-	case "turf_plan_new", "turf_replan":
-		var v planSummaryView
+	case "turf_up", "turf_destroy", "turf_apply":
+		var v convergenceView
 		if json.Unmarshal([]byte(output), &v) != nil {
 			return false
 		}
-		c.digest.tallyPlan(v.Resources)
-		c.digest.stage = stagePlan
-		c.digest.applied = 0
-		c.digest.effectCount = 0
-		return true
+		return c.digest.ingestConvergence(v)
+	}
+	return false
+}
 
-	case "turf_plan_approve":
-		var v planApproveView
-		if json.Unmarshal([]byte(output), &v) == nil {
-			c.digest.effectCount = v.EffectCount
+// ingestConvergence folds one up/destroy/apply result into the digest. Only a deploy
+// or a destroy titles the session — a refresh, an import or an invoke is upkeep on
+// infrastructure the title already names. Each round of a convergence stops at its
+// own approval point, so the title shows the round awaiting approval; once the
+// convergence converges it shows everything its rounds applied, summed. A new
+// convergence starts the sum over; any other ending (failed, stalled, cancelled)
+// leaves the title on the last plan, which is what was still pending.
+func (d *titleDigest) ingestConvergence(v convergenceView) bool {
+	if v.Kind != "up" && v.Kind != "destroy" {
+		return false
+	}
+	if v.ConvergenceID != d.convergenceID || d.rounds == nil {
+		d.convergenceID = v.ConvergenceID
+		d.rounds = map[int]planCounts{}
+	}
+	switch v.Outcome {
+	case "awaiting_approval":
+		if v.Plan == nil {
+			return false
 		}
-		return true // records the target count; title unchanged until effects land
-
-	case "turf_effect_apply":
-		c.digest.applied++
-		// The plan title holds until the last effect of the approved plan lands,
-		// which flips the stage to applied/destroyed.
-		if c.digest.effectCount > 0 && c.digest.applied >= c.digest.effectCount {
-			c.digest.stage = stageApplied
+		round := planCounts{added: v.Plan.Add, changed: v.Plan.Change, destroyed: v.Plan.Destroy}
+		d.rounds[v.Round] = round
+		d.setCounts(round)
+		d.appliedOnly = 0
+		d.stage = stagePlan
+		return true
+	case "converged":
+		d.stage = stageApplied
+		d.appliedOnly = 0
+		applied, unseen := 0, false
+		for _, r := range v.Rounds {
+			applied += r.Applied
+			if _, ok := d.rounds[r.Round]; !ok && r.Applied > 0 {
+				unseen = true
+			}
+		}
+		if !unseen {
+			var total planCounts
+			for _, r := range d.rounds {
+				total.added += r.added
+				total.changed += r.changed
+				total.destroyed += r.destroyed
+			}
+			d.setCounts(total)
+			return true
+		}
+		// A round applied that this curator never saw planned — an auto-approved run
+		// (turf up --yes converges in one call), or a convergence followed again after
+		// a restart — so its add/change/destroy split is unknown. A destroy applies
+		// only deletes; a deploy can say how many changes it applied, not which.
+		if v.Kind == "destroy" {
+			d.setCounts(planCounts{destroyed: applied})
+		} else {
+			d.setCounts(planCounts{})
+			d.appliedOnly = applied
 		}
 		return true
 	}
@@ -236,11 +277,26 @@ type titleDigest struct {
 	// label names what this session is about — see sessionLabel for which of the
 	// four candidate names wins. Not called "alias": two of those candidates are
 	// literally named alias on the wire, and they are not the same thing.
-	label                     string
-	stage                     titleStage
+	label string
+	stage titleStage
+	// The title's counts: the round awaiting approval at stagePlan, the
+	// convergence's applied total at stageApplied.
 	added, changed, destroyed int
-	effectCount               int
-	applied                   int
+	// appliedOnly, at stageApplied, is how many changes a deploy applied when no
+	// round's plan was seen to split them into add/change/destroy (see
+	// ingestConvergence); zero when the counts above are the title.
+	appliedOnly int
+	// convergenceID and rounds track the convergence being titled: each round's plan
+	// counts, keyed by round, so a round re-vended after a restart is not counted
+	// twice when the convergence converges.
+	convergenceID string
+	rounds        map[int]planCounts
+}
+
+// planCounts are a plan's add/change/destroy counts as Terraform's plan summary
+// counts them: a replace is one add and one destroy.
+type planCounts struct {
+	added, changed, destroyed int
 }
 
 type titleStage int
@@ -266,7 +322,7 @@ const defaultWorkspaceName = "default"
 //     than one workspace is open, which is exactly when a session most needs
 //     telling apart. It is also the safest token to interpolate: the server
 //     constrains it to ^[a-zA-Z0-9][a-zA-Z0-9_-]*$.
-//  2. The CONFIG ALIAS — the configuration's own handle, minted by config_init.
+//  2. The CONFIG ALIAS — the configuration's own handle, minted by init.
 //     Empty for the unnamed default configuration.
 //  3. The WORKSPACE NAME, but only when it is not "default". A real state slot a
 //     `tofu workspace select` user created ("production") names something; the
@@ -306,24 +362,8 @@ func cleanBase(path string) string {
 	return base
 }
 
-// tallyPlan counts a plan's resource actions into add/change/destroy buckets.
-// Action words match turf's wire vocabulary (see planAction in renderers.go).
-func (d *titleDigest) tallyPlan(resources []resourcePlanEntry) {
-	d.added, d.changed, d.destroyed = 0, 0, 0
-	for _, r := range resources {
-		switch r.Action {
-		case "create", "+":
-			d.added++
-		case "update", "~":
-			d.changed++
-		case "delete", "destroy", "-":
-			d.destroyed++
-		case "replace", "±", "∓":
-			// terraform counts a replacement as one add + one destroy.
-			d.added++
-			d.destroyed++
-		}
-	}
+func (d *titleDigest) setCounts(c planCounts) {
+	d.added, d.changed, d.destroyed = c.added, c.changed, c.destroyed
 }
 
 // isDestroy reports whether the plan is a pure teardown (only deletes). A mixed
@@ -334,7 +374,8 @@ func (d *titleDigest) isDestroy() bool {
 
 // title renders the finished session title in the terraform-plan glyph idiom,
 // e.g. "actions", "actions · plan +2 ~0 -2", "actions · applied +2 ~0 -2",
-// "actions · destroyed -4". Returns "" before the session label is known.
+// "actions · destroyed -4" — or "actions · applied 6 change(s)" for a deploy whose
+// plans were never seen. Returns "" before the session label is known.
 func (d *titleDigest) title() string {
 	if d.label == "" {
 		return ""
@@ -348,6 +389,9 @@ func (d *titleDigest) title() string {
 	case stageApplied:
 		if d.isDestroy() {
 			return d.label + " · destroyed " + destroyCount(d.destroyed)
+		}
+		if d.appliedOnly > 0 {
+			return fmt.Sprintf("%s · applied %d change(s)", d.label, d.appliedOnly)
 		}
 		return d.label + " · applied " + d.counts()
 	default:

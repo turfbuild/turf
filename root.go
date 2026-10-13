@@ -87,7 +87,7 @@ func newRootCmd() *cobra.Command {
 	// as the flag's default, preserving "CLI --model > TURF_MODEL env" precedence.
 	cmd.PersistentFlags().StringVar(&flagModel, "model", os.Getenv("TURF_MODEL"), "LLM model: a named model from turf.yaml, an inline provider/model (e.g. anthropic/claude-sonnet-5), or 'auto' to pick the first provider with credentials. Local models need a named turf.yaml entry, not an inline ref, so they can set provider_opts.context_size. Default: turf.yaml model:, else auto (env: TURF_MODEL)")
 	cmd.PersistentFlags().StringVar(&flagModelBaseURL, "base-url", os.Getenv("TURF_MODEL_BASE_URL"), "Override the model API endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways); DMR/Ollama resolve their own (env: TURF_MODEL_BASE_URL)")
-	cmd.PersistentFlags().StringVar(&flagTmpDir, "tmp-dir", os.Getenv("TURF_TMP_DIR"), "Per-run scratch dir for the server (provider target + phase dirs); for the persistent plugin cache use --plugin-cache-dir (env: TURF_TMP_DIR)")
+	cmd.PersistentFlags().StringVar(&flagTmpDir, "tmp-dir", os.Getenv("TURF_TMP_DIR"), "Per-run scratch dir for the server (vended plan documents, scratch configurations, provider target); for the persistent plugin cache use --plugin-cache-dir (env: TURF_TMP_DIR)")
 	cmd.PersistentFlags().StringVar(&flagPluginCacheDir, "plugin-cache-dir", os.Getenv("TURF_PLUGIN_CACHE_DIR"), "Shared provider plugin cache, persisted across runs (env: TURF_PLUGIN_CACHE_DIR; default: <user cache>/turf/plugins; 'off' disables)")
 	cmd.PersistentFlags().StringVar(&flagMemoryPath, "memory-path", "", "Path to SQLite memory database (default: .turf/memory.db in working dir)")
 	cmd.PersistentFlags().BoolVar(&flagNoMemory, "no-memory", false, "Disable persistent agent memory")

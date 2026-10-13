@@ -33,12 +33,13 @@ func isDestructive(t tools.Tool) bool {
 
 // destructiveNoConfirm names the tools that are server-annotated destructive yet
 // deliberately neither permission-gated nor persona-confirmed, because they
-// authorize no new change — they only persist/finalize the result of
-// already-approved effects. Kept as an explicit, reviewable exception so the
-// "every destructive tool is accounted for" guard still holds for every other
-// destructive tool.
+// authorize no new change to infrastructure. Kept as an explicit, reviewable
+// exception so the "every destructive tool is accounted for" guard still holds for
+// every other destructive tool.
 var destructiveNoConfirm = map[string]struct{}{
-	"turf_workspace_close": {}, // flush state + release lock; bookend of workspace_open
+	"turf_cancel":  {}, // ends a convergence: in-flight work finishes, the rest is abandoned
+	"turf_taint":   {}, // marks for replacement; the replace is in the next plan, which is approved
+	"turf_untaint": {}, // lifts that mark; likewise applies nothing by itself
 }
 
 // TestPermissionListsConsistent checks the curated lists are internally coherent,
@@ -139,7 +140,7 @@ func TestPreApprovedToolsChecker(t *testing.T) {
 	checker := permissions.NewChecker(&latest.PermissionsConfig{Allow: preApprovedTools()})
 
 	allowed := []string{
-		"turf_plan_approve", "turf_effect_apply",
+		"turf_up", "turf_apply", "turf_workspace_delete",
 		"add_memory", "update_memory", "delete_memory",
 		"write_file", "edit_file", "create_directory", "remove_directory",
 		"create_todo", "update_todos",

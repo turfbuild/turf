@@ -13,17 +13,17 @@ import (
 // with "turf_" and reports Name() == "turf". This wrapper layers on the
 // remaining display niceties cagent's MCP toolset can't do on its own:
 //
-//   - Tools() files each tool under a functional sub-category ("turf · plan",
-//     "turf · apply", …; see turfToolGroups) instead of the flat "turf" heading —
+//   - Tools() files each tool under a functional sub-category ("turf · run",
+//     "turf · apply", …; see turfToolInfo) instead of the flat "turf" heading —
 //     the dialog's Tools section groups by Category, and cagent's own guidance is
 //     that a Category is a functional bucket, not the toolset name. This breaks the
-//     ~32-tool wall into scannable groups (replacing the generic "mcp" bucket the
+//     26-tool wall into scannable groups (replacing the generic "mcp" bucket the
 //     MCP toolset hardcodes onto every tool).
 //   - Tools() also strips the redundant "turf_" prefix for display by setting each
-//     tool's Annotations.Title to the bare name ("plan_approve" rather than
-//     "turf_plan_approve"); the category header already says "turf". This is
+//     tool's Annotations.Title to a friendly name ("Apply Plan" rather than
+//     "turf_apply"); the category header already says "turf". This is
 //     display-only — providers send only Name/Description/Parameters, and
-//     permissions/dispatch key on Name, so the model still calls "turf_plan_approve".
+//     permissions/dispatch key on Name, so the model still calls "turf_apply".
 //   - Kind() masks the inner "MCP" classification (see below).
 //
 // Name() is restated as "turf" for clarity even though the named inner toolset
@@ -57,10 +57,10 @@ func (d *turfMCPToolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 // decorateTurfTool rewrites one tool's Category and display Title for the /tools
 // dialog: it files the tool under its functional sub-category and gives it a
-// friendly, verb-first display name ("Approve Plan" rather than "turf_plan_approve").
+// friendly, verb-first display name ("Apply Plan" rather than "turf_apply").
 // Display-only — Name is left untouched, so the model still calls the tool by its
 // prefixed name, and permissions/dispatch (which key on Name) are unaffected. Names
-// arrive already prefixed ("turf_plan_approve"); TrimPrefix yields the bare name and
+// arrive already prefixed ("turf_apply"); TrimPrefix yields the bare name and
 // is a no-op if a name is ever unprefixed.
 func decorateTurfTool(t *tools.Tool) {
 	bare := strings.TrimPrefix(t.Name, appName+"_")
@@ -81,37 +81,33 @@ var turfToolInfo = map[string]struct {
 	// provider — discovery
 	"provider_search":   {"provider", "Search Providers"},
 	"provider_describe": {"provider", "Describe Provider"},
+	// config — `tofu init` registers the configuration directory, installs its
+	// modules and providers, and reports what it declares (the agent edits the .tf
+	// files themselves with its own file tools)
+	"init": {"config", "Init Configuration"},
 	// workspace — lifecycle
 	"workspace_open":   {"workspace", "Open Workspace"},
 	"workspace_show":   {"workspace", "Show Workspace"},
 	"workspace_list":   {"workspace", "List Workspaces"},
 	"workspace_close":  {"workspace", "Close Workspace"},
 	"workspace_delete": {"workspace", "Delete Workspace"},
-	// config — the durable configuration directory (discovery; the agent edits
-	// the .tf files themselves with its own file tools)
-	"config_init": {"config", "Init Config"},
-	"config_show": {"config", "Show Config"},
-	// plan — building & approving the Draft
-	"plan_new":     {"plan", "Start Draft"},
-	"plan_cancel":  {"plan", "Cancel Draft"},
-	"plan_approve": {"plan", "Approve Plan"},
-	"plan_export":  {"plan", "Export Plan JSON"},
-	"replan":       {"plan", "Replan Config"},
-	// action_trigger / action_untrigger attach and detach a phase-scoped trigger
-	// on the open Draft (in memory only), so they group with the Draft's planning
-	// verbs rather than with action_invoke's immediate execution below.
-	"action_trigger":   {"plan", "Attach Phase Action"},
-	"action_untrigger": {"plan", "Detach Phase Action"},
-	// apply — executing approved effects & imperative actions
-	"effect_apply":  {"apply", "Apply Effect"},
-	"effect_cancel": {"apply", "Cancel Effect"},
-	"action_invoke": {"apply", "Invoke Action"},
-	// state — reads + reconciliation
-	"state_list":       {"state", "List State"},
-	"outputs":          {"state", "Read Outputs"},
-	"datasource_read":  {"state", "Read Data Source"},
-	"resource_import":  {"state", "Import Resource"},
-	"resource_refresh": {"state", "Refresh Resource"},
+	// run — the calls that start a convergence and stop at its first approval
+	// point. up is titled by the engine console's word for its run kind, "deploy".
+	"up":      {"run", "Deploy"},
+	"destroy": {"run", "Destroy"},
+	"refresh": {"run", "Refresh State"},
+	"import":  {"run", "Import Resources"},
+	"invoke":  {"run", "Invoke Action"},
+	// apply — approving a vended plan (or answering turf actions), and ending a
+	// convergence
+	"apply":  {"apply", "Apply Plan"},
+	"cancel": {"apply", "Cancel Run"},
+	// state — reads, and the state edits that apply nothing by themselves
+	"show":       {"state", "Show"},
+	"output":     {"state", "Read Outputs"},
+	"state_list": {"state", "List State"},
+	"taint":      {"state", "Taint Resource"},
+	"untaint":    {"state", "Untaint Resource"},
 	// skills — workflow guides
 	"skill_core":      {"skills", "Core Skill"},
 	"skill_authoring": {"skills", "Authoring Skill"},

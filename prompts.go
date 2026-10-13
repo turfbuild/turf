@@ -16,8 +16,14 @@ import (
 // config_path is passed explicitly (resolved after any --worktree chdir) so the
 // server never has to fall back to its inherited cwd; instructions, when
 // non-empty, are woven into the prompt's User Instructions section server-side.
-func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPath, instructions string) (string, error) {
+// autoApprove (--yes/--auto-approve) sends the prompt's auto_approve argument: the
+// user pre-approved every plan of this run, so the server's runbook has up/destroy
+// run to the end without pausing at each round's approval point.
+func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPath, instructions string, autoApprove bool) (string, error) {
 	args := map[string]string{"config_path": configPath}
+	if autoApprove {
+		args["auto_approve"] = "true"
+	}
 	if instructions = strings.TrimSpace(instructions); instructions != "" {
 		args["instructions"] = instructions
 	}

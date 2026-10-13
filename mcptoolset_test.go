@@ -21,7 +21,7 @@ func allTurfPermissionTools() []string {
 // turfToolInfo must be a known tool (no typos / stale entries). When the server
 // gains a tool, it must be added to both places — this fails loudly if not.
 func TestTurfToolInfoMatchesPermissionLists(t *testing.T) {
-	known := toolSet(allTurfPermissionTools()) // prefixed names, e.g. "turf_plan_approve"
+	known := toolSet(allTurfPermissionTools()) // prefixed names, e.g. "turf_apply"
 
 	// Every known tool has group + title metadata.
 	for _, prefixed := range allTurfPermissionTools() {
@@ -86,16 +86,16 @@ func TestTurfCategoryFallback(t *testing.T) {
 // the display Title becomes the friendly label, the Category is the functional
 // sub-group, and the model-facing Name is left untouched.
 func TestDecorateTurfTool(t *testing.T) {
-	tool := tools.Tool{Name: "turf_plan_approve"}
+	tool := tools.Tool{Name: "turf_apply"}
 	decorateTurfTool(&tool)
 
-	if tool.Name != "turf_plan_approve" {
+	if tool.Name != "turf_apply" {
 		t.Errorf("Name mutated to %q; it must stay the prefixed, model-facing name", tool.Name)
 	}
-	if want := "Approve Plan"; tool.Annotations.Title != want {
+	if want := "Apply Plan"; tool.Annotations.Title != want {
 		t.Errorf("Title = %q, want %q (friendly display label)", tool.Annotations.Title, want)
 	}
-	if want := appName + " · plan"; tool.Category != want {
+	if want := appName + " · apply"; tool.Category != want {
 		t.Errorf("Category = %q, want %q", tool.Category, want)
 	}
 }

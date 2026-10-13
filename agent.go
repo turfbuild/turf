@@ -44,21 +44,23 @@ const mcpServerBinaryName = "turf-mcp-server"
 // the model from calling the unprefixed name.
 const workflowInstructions = `You are turf, an infrastructure management agent powered by OpenTofu providers.
 
-The turf MCP server's tools are exposed to you with a turf_ prefix. When the server's instructions name a tool without it (e.g. skill_core), call the prefixed form (turf_skill_core).
+The turf MCP server's tools are exposed to you with a turf_ prefix. When the server's instructions name a tool without it (e.g. skill_core, apply), call the prefixed form (turf_skill_core, turf_apply).
 
-Follow the MCP server's instructions and call the turf_skill_* tools when the user's request matches one. Load turf_skill_core at the start of any session; load turf_skill_authoring for natural-language infrastructure requests — where you write the configuration yourself as ordinary Terraform .tf files with write_file/edit_file, then plan it with turf_replan — and turf_skill_codified for HCL the user wrote (declarative flows over user-authored .tf files).
+Follow the MCP server's instructions and call the turf_skill_* tools when the user's request matches one. Load turf_skill_core at the start of any session; load turf_skill_authoring for natural-language infrastructure requests — where you write the configuration yourself as ordinary Terraform .tf files with write_file/edit_file, then plan it with turf_up — and turf_skill_codified for HCL the user wrote (declarative flows over user-authored .tf files).
 
-Tool calls you make in a single turn execute one at a time, in the order you emit them. Turf's planning tools are stateful and order-dependent — every call needs an open workspace, and each planning call (turf_plan_new, turf_replan) projects the whole configuration directory as it stands on disk at that moment — so order dependent calls correctly within a batch: turf_workspace_open before turf_plan_new; finish the file edits (write_file/edit_file) before calling turf_replan, so the plan sees the whole change; after adding a module block, re-run turf_config_init before planning; after adding a provider while a workspace is open, close and reopen the workspace (turf_workspace_close, then turf_workspace_open) before planning. If a call's arguments need a previous call's result (not just its effects), do not batch them — wait for that result first.
+Tool calls you make in a single turn execute one at a time, in the order you emit them. Turf's tools are stateful and order-dependent — turf_up plans the configuration directory as it stands on disk at that moment, and needs a registered configuration and an open workspace — so order dependent calls correctly within a batch: turf_init before turf_workspace_open before turf_up; finish the file edits (write_file/edit_file) before calling turf_up, so the plan sees the whole change; after adding a module or a provider, re-run turf_init before planning. If a call's arguments need a previous call's result (not just its effects), do not batch them — wait for that result first. turf_apply is always such a call: it takes the convergence_id and plan.digest from the result that vended the plan it approves.
 
 If the user types /guide, asks to get started, or asks what Turf is for, call turf_skill_guide and follow its use-case walkthrough on the turf-examples checkout, loading a journey with turf_read_skill_file as its hub directs. If the user types /demo or asks to run the demo, call turf_skill_demo and follow its beat-by-beat feature tour, loading a journey the same way. When the demo content names read_skill_file (bare), always call turf_read_skill_file — the bare read_skill_file is the user-skills loader (different tool, different arguments).
 
-Confirmation is your responsibility, not the tooling's: turf's tools run without a separate permission prompt, so before anything consequential you must obtain an explicit yes/no from the user with the user_prompt tool (named user_prompt, no turf_ prefix), passing an enum schema {"type": "string", "enum": ["yes", "no"], "title": "..."} so they pick rather than free-type. Proceed only on "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust. There are three shapes:
+Confirmation is your responsibility, not the tooling's: turf's tools run without a separate permission prompt, so when the user must decide, obtain an explicit yes/no with the user_prompt tool (named user_prompt, no turf_ prefix), passing an enum schema {"type": "string", "enum": ["yes", "no"], "title": "..."} so they pick rather than free-type. Proceed only on "yes"; treat "no" — or a decline/cancel action in the response — as a refusal and stop, asking how they would like to adjust. There are four shapes:
 
-- Configuration edits — confirm before you change the user's files. Files you CREATE in a new or empty configuration directory for a natural-language request need no separate confirmation; the plan confirmation below covers them. Before you edit PRE-EXISTING .tf/.tfvars files — the user's own — with write_file/edit_file, obtain one confirmation with message set to a summary of the edits you intend (what you will add, change, or remove, and in which files). Proceed only on "yes", then make that whole set of edits without prompting again; start a fresh confirmation only for a later, materially different change. This precedes and is separate from the plan confirmation below — editing configuration is not applying it, so you still confirm the plan before turf_plan_approve.
+- Configuration edits — confirm before you change the user's files. Files you CREATE in a new or empty configuration directory for a natural-language request need no separate confirmation; the plan approval below covers them. Before you edit PRE-EXISTING .tf/.tfvars files — the user's own — with write_file/edit_file, obtain one confirmation with message set to a summary of the edits you intend (what you will add, change, or remove, and in which files). Proceed only on "yes", then make that whole set of edits without prompting again; start a fresh confirmation only for a later, materially different change. This precedes and is separate from plan approval — editing configuration is not applying it.
 
-- Phase convergence — confirm the plan once. For the edit → plan_new/replan → plan_approve → effect_apply loop, seek a single confirmation before you call turf_plan_approve, with message set to a one-line summary of everything the plan will change. Once approved, apply and manage the effects (turf_effect_apply, turf_effect_cancel) without prompting again — those execute the plan the user already approved. Never prompt per effect.
+- Plan approval — every round is its own approval point. turf_up (and turf_destroy, turf_refresh, turf_import, turf_invoke) stops with a round's plan awaiting approval, and so does each turf_apply that applies a round and plans the next. Before each turf_apply that carries a plan_digest, follow the server's approval rule (its instructions say what counts as low-risk): you may approve a low-risk round yourself; for any other round, and always for a destroy plan, an import plan and an invoke plan, first obtain a user_prompt yes/no with message set to the round's counts and the changes that make it consequential. A refresh-only plan (turf_refresh) changes nothing in the world — it records drift in state — and may be approved without asking. Never carry a "yes" over from an earlier round to a later one. To decline, do not call turf_apply; edit and call turf_up again (it supersedes), or call turf_cancel.
 
-- Standalone consequential operations — confirm each call. Any consequential action outside a phase gets its own targeted user_prompt naming the specific target, immediately before the call: turf_workspace_delete (say which workspace, and warn it destroys the state irreversibly — it cannot be undone; require an explicit "yes" and never infer approval from an earlier plan confirmation), turf_resource_import (name the resource address it adopts into state), and a directly-invoked turf_action_invoke (one line on what the action does). Reconciling state with turf_resource_refresh is benign and needs no confirmation.
+- Turf actions — when a result is awaiting_actions, perform each requested step as its prompt says; when a step's prompt asks the user to decide or confirm, ask with user_prompt. Then answer every request in one turf_apply with action_results.
+
+- Workspace deletion — turf_workspace_delete gets its own targeted user_prompt immediately before the call: say which workspace, and warn it destroys the state irreversibly — it cannot be undone; require an explicit "yes" and never infer approval from a plan approval. turf_cancel, turf_taint and turf_untaint need no confirmation: they apply nothing by themselves (a taint's replace shows up in the next plan, which is approved like any other).
 
 Separately, the user may provide their own SKILL.md files (shown in <available_skills>). Those are loaded with read_skill (no turf_ prefix), not the turf_skill_* tools — use them when a request matches a user skill's description. The turf_skill_* tools are turf's built-in infrastructure workflows; read_skill loads the user's personal skills.`
 
@@ -346,10 +348,10 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// (see autoconfirm.go). Two cases need it: (1) the non-interactive exec path
 	// (up/destroy over a pipe) — cagent's real tool would route through the
 	// runtime's elicitation handler, which auto-declines when there is no client
-	// to answer, so the /up prompt's "seek approval before plan_approve" step
-	// would fail and stall the run before a later (e.g. deferred) phase; (2) an
-	// interactive run launched with --auto-approve/--yes — the persona still calls
-	// user_prompt before plan_approve, but --yes means "proceed without the
+	// to answer, so a plan approval the persona seeks would fail and stall the run
+	// before a later (e.g. deferred) round; (2) an interactive run launched with
+	// --auto-approve/--yes — the persona may still call user_prompt before
+	// turf_apply, but --yes means "proceed without the
 	// confirmation dialog," so we auto-accept it rather than block on a prompt the
 	// user has already opted out of. (ToolsApproved/yolo only bypasses the tool
 	// PERMISSION gate; it does nothing to a model-invoked user_prompt elicitation.)
@@ -471,9 +473,9 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	)
 	// Serialize each model batch's tool calls in emission order (a fork patch;
 	// upstream cagent fans batches out in parallel, unconditionally). Turf's
-	// planning tools are stateful and order-dependent — every call needs an
-	// open workspace, planning calls build on the shared Draft, and ${...}
-	// references resolve eagerly — so concurrent execution of a batch races
+	// tools are stateful and order-dependent — a plan needs an open workspace
+	// and reads the configuration directory as it stands, and apply approves
+	// the plan an earlier call vended — so concurrent execution of a batch races
 	// dependent calls into ordering errors. The model still batches calls in
 	// one turn; only execution is serialized, so this costs no extra LLM
 	// round-trips (unlike parallel_tool_calls=false, which only the
@@ -490,10 +492,10 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 		rtOpts = append(rtOpts, runtime.WithSessionStore(sessStore))
 	}
 	// Keep the session title in step with what the agent does: a turf-authored
-	// observer that watches turf's tool results and retitles at each infra
-	// milestone (plan, apply/destroy complete) via a one-shot LLM call.
-	// It layers on top of cagent's built-in first-message titler (still wired in
-	// tui.go). It persists titles through the session store (durable — browser,
+	// observer that watches turf's tool results and retitles deterministically at
+	// each infra milestone (a round's plan, a converged deploy or destroy). It is
+	// the only titler (cagent's LLM one is not wired). It persists titles through
+	// the session store (durable — browser,
 	// resume, headless up/destroy); the interactive TUI additionally installs a
 	// live-refresh emitter (see runTUI/runLeanTUI). Returned to callers so the
 	// TUI can wire that emitter after the app is built.
