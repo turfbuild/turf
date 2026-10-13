@@ -1,12 +1,19 @@
 Turf — Third-Party Notices
 ==========================
 
-This archive distributes two binaries:
+This archive distributes four binaries:
 
-  * turf-mcp-server — the Turf infrastructure MCP server. Made available for
-    evaluation under the PolyForm Free Trial License 1.0.0 (see LICENSE).
-  * turf            — the reference Turf CLI. Open source under the Mozilla
-    Public License 2.0 (MPL-2.0).
+  * turf-mcp-server       — the Turf infrastructure MCP server. Made available
+    for evaluation under the PolyForm Free Trial License 1.0.0 (see LICENSE).
+  * turf-engine           — the Turf engine, and
+  * turf-builtin-provider — its built-in provider; both under the same license
+    as turf-mcp-server.
+  * turf                  — the reference Turf CLI. Open source under the
+    Mozilla Public License 2.0 (MPL-2.0).
+
+The engine runs on restate-server (Restate, Business Source License 1.1),
+which this archive does not contain: it is installed from Restate's own
+distribution, and the engine runs it as a separate process.
 
 The released turf CLI is built without CGO on every platform, so its
 voice/audio capture is inactive in these binaries; text chat and all MCP
@@ -15,7 +22,7 @@ tooling are unaffected.
 Source for the MPL-2.0 turf CLI is available on request: contact
 eronwright@gmail.com.
 
-Both binaries incorporate third-party open-source software. The principal
+The binaries incorporate third-party open-source software. The principal
 redistributed components and their licenses are listed below. The complete set
 of dependencies corresponds to those declared in each component's Go module
 (go.mod). Where a component is licensed under MPL-2.0, its source is available

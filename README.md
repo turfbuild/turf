@@ -92,21 +92,30 @@ Type `/demo` inside `turf chat` to launch the feature tour. It covers workspaces
 
 ### Flags
 
-| Flag                  | Env                | Default                       | Description                                      |
-|-----------------------|--------------------|-------------------------------|--------------------------------------------------|
-| `--model`             | `TURF_MODEL`       | `auto`                        | LLM as a named model, `provider/model`, or `auto` (see [Model providers](#model-providers)) |
-| `--base-url`          | `TURF_MODEL_BASE_URL` | _(provider default)_       | Model endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways) |
-| `--mcp-server`        | `TURF_MCP_SERVER`  | _(PATH lookup)_               | Path to the `turf-mcp-server` binary             |
-| `--tmp-dir`           | `TURF_TMP_DIR`     | system temp                   | Cache directory for downloaded provider binaries |
-| `--memory-path`       |                    | `./.turf/memory.db`           | SQLite memory database                           |
-| `--no-memory`         |                    | `false`                       | Disable persistent agent memory                  |
-| `--session-db`        | `TURF_SESSION_DB`  | `./.turf/sessions.db`         | SQLite session-history database (`chat`/`exec` resume via `--session`/`--continue`) |
-| `--no-session`        |                    | `false`                       | Disable session persistence and resume           |
-| `--chdir`, `-C`       |                    |                               | Switch to this directory before running          |
-| `--log-file`          | `TF_LOG_PATH`      | _(stderr)_                    | Write server logs to this file                   |
-| `--log-level`         | `TF_LOG_CORE`, `TF_LOG` | `info`                   | `trace`/`debug`/`info`/`warn`/`error`/`off`      |
-| `--log-format`        | `TF_LOG` `-JSON` suffix | `text`                   | `text` or `json`                                 |
-| `--theme`             | `TURF_THEME`       | `meadow`                      | TUI theme name; overrides the saved choice for this run |
+| Flag                 | Env                     | Default                     | Description                                                                                                  |
+|----------------------|-------------------------|-----------------------------|--------------------------------------------------------------------------------------------------------------|
+| `--model`            | `TURF_MODEL`            | `auto`                      | LLM as a named model, `provider/model`, or `auto` (see [Model providers](#model-providers))                  |
+| `--base-url`         | `TURF_MODEL_BASE_URL`   | _(provider default)_        | Model endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways)                                     |
+| `--mcp-server`       | `TURF_MCP_SERVER`       | _(PATH lookup)_             | Path to the `turf-mcp-server` binary                                                                         |
+| `--tmp-dir`          | `TURF_TMP_DIR`          | system temp                 | Per-run scratch dir for the server (vended plan documents, scratch configurations)                           |
+| `--plugin-cache-dir` | `TURF_PLUGIN_CACHE_DIR` | `<user cache>/turf/plugins` | Shared provider plugin cache, kept across runs; `off` disables it                                            |
+| `--memory-path`      |                         | `./.turf/memory.db`         | SQLite memory database                                                                                       |
+| `--no-memory`        |                         | `false`                     | Disable persistent agent memory                                                                              |
+| `--session-db`       | `TURF_SESSION_DB`       | `./.turf/sessions.db`       | SQLite session-history database (`chat`/`exec` resume via `--session`/`--continue`)                          |
+| `--no-session`       |                         | `false`                     | Disable session persistence and resume                                                                       |
+| `--chdir`, `-C`      |                         |                             | Switch to this directory before running                                                                      |
+| `--allow-path`       | `TURF_ALLOW_PATH`       |                             | Extra directory the file tools may read and write (auto-approved); repeatable, or a path list in the env var |
+| `--worktree[=name]`  |                         |                             | Run in a fresh git worktree of the working directory, on a throwaway branch (`--worktree=name` names it)     |
+| `--worktree-base`    |                         | _(HEAD)_                    | Branch the `--worktree` from this ref instead                                                                |
+| `--log-file`         | `TF_LOG_PATH`           | _(stderr)_                  | Write server logs to this file                                                                               |
+| `--log-level`        | `TF_LOG_CORE`, `TF_LOG` | `info`                      | `trace`/`debug`/`info`/`warn`/`error`/`off`                                                                  |
+| `--log-format`       | `TF_LOG` `-JSON` suffix | `text`                      | `text` or `json`                                                                                             |
+| `--debug`            | `TURF_DEBUG`            | `false`                     | Log turf's own debug lines to `<TURF_HOME>/turf.debug.log` (warnings and errors always go there)             |
+| `--theme`            | `TURF_THEME`            | `stadium`                   | TUI theme name; overrides the saved choice for this run                                                      |
+| `--lean`             | `TURF_LEAN`             | `false`                     | Run `chat` in the lean TUI (`up`/`destroy` on a terminal always use it)                                      |
+| `--no-telemetry`     | `TURF_NO_TELEMETRY`     | `false`                     | Disable the agent runtime's anonymous usage telemetry                                                        |
+
+Per command, `up`/`destroy`/`exec` also take `--yes` (alias `--auto-approve`), and `turf`/`chat`/`exec` take `--session <id|-N>` and `--continue`/`-c`.
 
 The three `--log-*` flags are pass-throughs to the `turf-mcp-server` subprocess. When unset, the `TF_LOG_*` env vars (matching OpenTofu's convention) reach the server through environment inheritance. Provider plugins also inherit these vars, so `TF_LOG_PROVIDER=DEBUG` enables plugin-side debug logging into the same sink as the server.
 
@@ -201,15 +210,21 @@ on structure (which tools ran, whether an error occurred), not wording:
 # Which turf tools did the run invoke?
 turf exec --json "create a random_pet" | jq -r 'select(.type=="tool_call") | .tool_call.function.name'
 
-# Fail if any error event was emitted
-turf exec --json "reconcile the stack" | jq -e 'select(.type=="error")' && echo "run had errors" >&2
+# A failed run exits non-zero; its error goes to stderr, not into the event stream
+turf exec --json "reconcile the stack" > events.jsonl || echo "run failed" >&2
 ```
 
 **`--yes` / `--auto-approve` — unattended runs.** `exec` is non-interactive, so
-the agent's plan-approval questions are auto-confirmed, and turf's own tools
-never ask for permission. Pass `--yes` to auto-approve any other tool call that
-would ask on stdin, so a run proceeds with no human at the keyboard. Use `--hide-tool-calls`
-to print only the agent's prose.
+nobody can answer the agent's approval questions. Without `--yes` they are
+declined: anything that needs your yes — a destroy, a replace, an import, an
+invoke — is not applied and stays waiting at its approval point, where a later
+interactive `turf` can pick it up. (The agent still approves a low-risk plan —
+only creates and in-place updates — itself, as it does at a terminal.) `--yes`
+answers those questions yes, and approves any other tool call that would ask on
+stdin, so the run proceeds with no human at the keyboard. turf's own tools never
+ask for permission. The same rule holds for `turf up` and `turf destroy` run
+without a terminal (a pipe, CI). Use `--hide-tool-calls` to print only the
+agent's prose.
 
 > `exec` still launches `turf-mcp-server`, so it must be on `PATH` (see
 > [Install](#install)). For repeatable runs with no cloud credentials or cost,
@@ -449,14 +464,15 @@ and the create / destroy / change status colors, but those keep their meaning
 | `surf`     | turf underwater                | seagrass, deep teal ocean, bioluminescent cyan, coral, sea-urchin purple |
 
 The default is **stadium**. cagent's built-ins (and the legacy `calm-roots`)
-remain selectable via `/theme`. Themes are loaded and saved from turf's own
+remain selectable in the theme picker: `/settings` → Appearance → Theme in
+`turf chat` (there is no `/theme` command). Themes are loaded and saved from turf's own
 config home — `~/.turf` (override with `TURF_HOME`) — so turf never reads or
 writes `~/.cagent`.
 
 To use a custom theme, drop a YAML file at `~/.turf/themes/<name>.yaml` and pick
-it inside the TUI with the `/theme` command. A partial file is merged onto the
+it in the theme picker (`/settings` → Appearance → Theme). A partial file is merged onto the
 built-in default, so you only specify the colors you want to change. Edits
-hot-reload while the `/theme` picker is open, and your selection persists across
+hot-reload while the picker is open, and your selection persists across
 restarts.
 
 To preview a theme without changing your saved choice, launch with `--theme`
@@ -513,7 +529,7 @@ pre-approval allow-list all depend on it), and no gate is relaxed — the
 pre-approved tool list, the mutation confirmations, and the filesystem sandbox
 are all in code.
 
-Two things worth knowing. `theme:` sets the *default* — a saved `/theme` choice
+Two things worth knowing. `theme:` sets the *default* — a theme saved in the picker
 and `--theme` both still win, so a user keeps control of their own look. And
 `additional_instructions` is prompt content from a config file: it can steer the
 agent's behavior, so treat a `turf.yaml` from an untrusted source with the same
@@ -556,7 +572,7 @@ description: Adopt hand-built Azure resources into managed state. Use when the u
 Adopt-then-reconcile; never create before importing.
 
 1. Import each existing resource (ID formats: see references/import-ids.md).
-2. Plan — a `=` no-op means clean adoption; `~`/`±` means drift to reconcile.
+2. Plan — an `adopt id=…` row with no change means clean adoption; `~` or `-/+` means drift to reconcile.
 ```
 
 ```

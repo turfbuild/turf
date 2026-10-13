@@ -26,7 +26,6 @@ import (
 	skillstool "github.com/docker/docker-agent/pkg/tools/builtin/skills"
 	"github.com/docker/docker-agent/pkg/tools/builtin/think"
 	"github.com/docker/docker-agent/pkg/tools/builtin/todo"
-	"github.com/docker/docker-agent/pkg/tools/builtin/userprompt"
 	"github.com/docker/docker-agent/pkg/tools/mcp"
 )
 
@@ -109,12 +108,14 @@ type agentOpts struct {
 	allowPaths []string
 	// interactive reports whether a human is at the terminal (TTY). It gates
 	// tools that elicit input from the user — chiefly user_prompt, which can
-	// only function when the TUI is up to render the dialog.
+	// only function when the TUI is up to render the dialog; without one (and
+	// without --yes) every user_prompt is declined.
 	interactive bool
 	// autoApprove reports whether the run was launched with --auto-approve/--yes.
-	// When true, the persona's user_prompt confirmations are auto-accepted even in
-	// an interactive TTY — the whole point of the flag is to proceed without the
-	// plan-confirmation dialog (see the user_prompt wiring below).
+	// When true, the persona's user_prompt confirmations are auto-accepted,
+	// attended or not — the whole point of the flag is to proceed without the
+	// plan-confirmation dialog (see userPromptToolset). It is the only way an
+	// unattended run approves anything that needs the user's yes.
 	autoApprove bool
 }
 
@@ -342,24 +343,12 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// (free-text, enum, or object schema) — useful for agent-driven remediation
 	// decisions where the model needs a choice the MCP workflow can't anticipate.
 	// An attended interactive run gets cagent's real tool: the runtime auto-wires
-	// the elicitation handler and the TUI renders a dialog.
-	//
-	// Everything else gets a synthetic user_prompt that auto-confirms directly
-	// (see autoconfirm.go). Two cases need it: (1) the non-interactive exec path
-	// (up/destroy over a pipe) — cagent's real tool would route through the
-	// runtime's elicitation handler, which auto-declines when there is no client
-	// to answer, so a plan approval the persona seeks would fail and stall the run
-	// before a later (e.g. deferred) round; (2) an interactive run launched with
-	// --auto-approve/--yes — the persona may still call user_prompt before
-	// turf_apply, but --yes means "proceed without the
-	// confirmation dialog," so we auto-accept it rather than block on a prompt the
-	// user has already opted out of. (ToolsApproved/yolo only bypasses the tool
-	// PERMISSION gate; it does nothing to a model-invoked user_prompt elicitation.)
-	if opts.interactive && !opts.autoApprove {
-		toolsets = append(toolsets, tools.WithName(userprompt.New(), "user_prompt"))
-	} else {
-		toolsets = append(toolsets, tools.WithName(autoConfirmUserPrompt{}, "user_prompt"))
-	}
+	// the elicitation handler and the TUI renders a dialog. A run with --yes gets
+	// a synthetic one that answers yes, and an unattended run without --yes one
+	// that answers no — approval without a person takes --yes (see
+	// userPromptToolset in autoconfirm.go). (ToolsApproved/yolo only bypasses the
+	// tool PERMISSION gate; it does nothing to a model-invoked user_prompt.)
+	toolsets = append(toolsets, tools.WithName(userPromptToolset(opts.interactive, opts.autoApprove), "user_prompt"))
 
 	// User-authored SKILL.md files, discovered from turf-owned locations only
 	// (<TURF_HOME>/skills and <cwd>/.turf/skills) — see loadTurfSkills. This

@@ -5,26 +5,44 @@ import (
 	"encoding/json"
 
 	"github.com/docker/docker-agent/pkg/tools"
+	"github.com/docker/docker-agent/pkg/tools/builtin/userprompt"
 )
 
-// autoConfirmUserPrompt is a synthetic stand-in for cagent's built-in
-// user_prompt tool, registered only on the non-interactive (--auto-approve /
-// headless) path.
+// userPromptToolset picks the user_prompt the agent gets, by who can answer it:
 //
-// The persona has the agent seek explicit approval with user_prompt before it
-// approves a consequential plan (turf_apply), and before other steps the user must
-// decide.
-// cagent's real user_prompt routes through the runtime's elicitation handler,
-// which hard-declines whenever the runtime is non-interactive (there is no
-// client to answer) — so the approval request fails and an unattended run
-// stalls before it applies a later, e.g. deferred, round. This tool answers
-// every prompt with "accept" *directly*, without any elicitation round-trip,
-// giving --auto-approve runs the "proceed without asking" behavior they intend.
+//   - --yes/--auto-approve: the user pre-approved this run, so every prompt is
+//     answered yes, attended or not (an interactive run with --yes shows no
+//     dialog either — that is the flag's point).
+//   - an attended terminal: cagent's real tool, which the TUI renders as a dialog.
+//   - anything else (up/destroy over a pipe, exec, CI) without --yes: every prompt
+//     is declined. Nobody can say yes, and silence is not consent — so a destroy,
+//     a replace, an import or an invoke stops at its approval point instead of
+//     going ahead. Approval without a person takes --yes.
+//
+// cagent's real tool is no answer for the unattended case: it routes through the
+// runtime's elicitation handler, which declines with no client to answer but tells
+// the agent nothing about why, or how the run could be approved.
+func userPromptToolset(interactive, autoApprove bool) tools.ToolSet {
+	switch {
+	case autoApprove:
+		return unattendedUserPrompt{approve: true}
+	case interactive:
+		return userprompt.New()
+	default:
+		return unattendedUserPrompt{}
+	}
+}
+
+// unattendedUserPrompt is a synthetic stand-in for cagent's built-in user_prompt
+// tool, for a run with nobody to show a dialog to, or whose user already said yes:
+// it answers every prompt directly — yes when approve is set (--yes), no otherwise.
 //
 // It deliberately does NOT implement tools.Elicitable (no SetElicitationHandler
-// method), so the runtime's ConfigureHandlers cannot replace this behavior with
-// the auto-declining handler the way it would for the real tool.
-type autoConfirmUserPrompt struct{}
+// method), so the runtime's ConfigureHandlers cannot replace its answer with the
+// elicitation handler's.
+type unattendedUserPrompt struct {
+	approve bool
+}
 
 // userPromptArgs mirrors the argument schema of cagent's user_prompt tool so
 // the model sees an identical signature and calls it the same way.
@@ -35,44 +53,69 @@ type userPromptArgs struct {
 }
 
 // userPromptResponse mirrors cagent's user_prompt response shape (action plus
-// optional accepted content).
+// optional content).
 type userPromptResponse struct {
 	Action  string         `json:"action"`
 	Content map[string]any `json:"content,omitempty"`
 }
 
-func (autoConfirmUserPrompt) Instructions() string {
+// unattendedDeclineReason is what a declined prompt tells the agent, so it can
+// tell the user how the run could be approved.
+const unattendedDeclineReason = "Nobody is at a terminal to answer, and this run was not started with --yes, so nothing that needs the user's yes can be approved. Stop there: say what is waiting for approval, and that re-running with --yes approves it, or that the user can pick it up in an interactive turf."
+
+func (p unattendedUserPrompt) Instructions() string {
+	if p.approve {
+		return `## User Prompt Tool
+
+Ask the user a question when you need confirmation or a decision (e.g. approving a plan
+before turf_apply). This run was started with --yes, so every prompt is auto-confirmed —
+the response is always "accept" — so use it to record the approval checkpoint and then proceed.`
+	}
 	return `## User Prompt Tool
 
 Ask the user a question when you need confirmation or a decision (e.g. approving a plan
-before turf_apply). This session is non-interactive: every prompt is auto-confirmed — the
-response is always "accept" — so use it to record the approval checkpoint and then proceed.`
+before turf_apply). This run is unattended and was not started with --yes: nobody can
+answer, so every prompt is declined. Treat that as a "no": apply nothing that needs the
+user's yes, and end by saying what is waiting for approval and that re-running with --yes
+approves it.`
 }
 
-func (autoConfirmUserPrompt) Tools(context.Context) ([]tools.Tool, error) {
+func (p unattendedUserPrompt) Tools(context.Context) ([]tools.Tool, error) {
+	description := "Ask the user a question and wait for their response. This run is unattended and was not started with --yes, so every prompt is declined."
+	title := "User Prompt (declined: unattended)"
+	if p.approve {
+		description = "Ask the user a question and wait for their response. This run was started with --yes, so the response is auto-confirmed (accept) and the agent may proceed."
+		title = "User Prompt (auto-confirmed)"
+	}
 	return []tools.Tool{
 		{
 			Name:         "user_prompt",
 			Category:     "user_prompt",
-			Description:  "Ask the user a question and wait for their response. In this non-interactive run the response is auto-confirmed (accept), so the agent may proceed.",
+			Description:  description,
 			Parameters:   tools.MustSchemaFor[userPromptArgs](),
 			OutputSchema: tools.MustSchemaFor[userPromptResponse](),
-			Handler:      tools.NewHandler(autoConfirmPrompt),
+			Handler:      tools.NewHandler(p.answer),
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
-				Title:        "User Prompt (auto-confirmed)",
+				Title:        title,
 			},
 		},
 	}, nil
 }
 
-// autoConfirmPrompt answers any prompt with an affirmative accept. The content
-// carries an explicit auto_confirmed marker so the synthetic confirmation is
+// answer replies to any prompt without asking anyone. The content carries an
+// explicit auto_confirmed or unattended marker, so the synthetic answer is
 // unmistakable in the streamed transcript and logs.
-func autoConfirmPrompt(_ context.Context, _ userPromptArgs) (*tools.ToolCallResult, error) {
+func (p unattendedUserPrompt) answer(_ context.Context, _ userPromptArgs) (*tools.ToolCallResult, error) {
 	resp := userPromptResponse{
-		Action:  "accept",
-		Content: map[string]any{"response": "yes", "auto_confirmed": true},
+		Action:  "decline",
+		Content: map[string]any{"unattended": true, "reason": unattendedDeclineReason},
+	}
+	if p.approve {
+		resp = userPromptResponse{
+			Action:  "accept",
+			Content: map[string]any{"response": "yes", "auto_confirmed": true},
+		}
 	}
 	out, err := json.Marshal(resp)
 	if err != nil {

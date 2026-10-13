@@ -21,7 +21,7 @@ const defaultThemeRef = "stadium"
 // turfThemes embeds turf's own terrain themes. They are authored as partial
 // theme YAML (merged onto cagent's stock DefaultTheme) under an assets/themes
 // directory; registerTurfThemes exposes them to cagent's theme engine so they
-// resolve via LoadTheme, appear in the /theme picker, and can be persisted —
+// resolve via LoadTheme, appear in the theme picker (/settings), and can be persisted —
 // exactly like cagent's bundled built-ins.
 //
 //go:embed assets/themes/*.yaml
@@ -72,10 +72,10 @@ func applyTurfTheme() {
 	registerTurfThemes()
 
 	home := turfHome()
-	// Redirect theme loading (styles.ThemesDir() == GetDataDir()/themes), the /theme
-	// picker, hot-reload, and persistence at turf's home instead of cagent's.
+	// Redirect theme loading (styles.ThemesDir() == GetDataDir()/themes), the theme
+	// picker (/settings), hot-reload, and persistence at turf's home instead of cagent's.
 	paths.SetDataDir(home)   // user themes load from <home>/themes
-	paths.SetConfigDir(home) // /theme persistence writes <home>/config.yaml, not ~/.config/cagent
+	paths.SetConfigDir(home) // theme-picker persistence writes <home>/config.yaml, not ~/.config/cagent
 
 	// Best-effort: ensure <home>/themes exists so a user can drop a YAML in.
 	if err := os.MkdirAll(styles.ThemesDir(), 0o755); err != nil {
@@ -83,15 +83,15 @@ func applyTurfTheme() {
 	}
 
 	// Precedence (low to high): (a) turf's brand default, (b) a co-brand's
-	// `branding.theme` from turf.yaml, (c) a real saved /theme choice, (d) an
+	// `branding.theme` from turf.yaml, (c) a real saved theme choice, (d) an
 	// explicit --theme launch override for this run.
 	// GetPersistedThemeRef() returns DefaultThemeRef ("default") when unset, so treat
 	// that as "no real choice" and fall through to turf's default instead.
 	//
-	// A co-brand sets only the *default* look: the user's own /theme pick still
+	// A co-brand sets only the *default* look: the user's own theme pick still
 	// wins over it. The ref is resolved the same way as any other — LoadTheme
 	// rejects paths, so a distributor ships its theme YAML into <TURF_HOME>/themes
-	// and names it here, which also makes it selectable in the /theme picker.
+	// and names it here, which also makes it selectable in the theme picker (/settings).
 	ref := defaultThemeRef
 	if brand := brandThemeRef(); brand != "" {
 		ref = brand
