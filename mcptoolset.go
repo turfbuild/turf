@@ -86,11 +86,11 @@ var turfToolInfo = map[string]struct {
 	// files themselves with its own file tools)
 	"init": {"config", "Init Configuration"},
 	// workspace — lifecycle
-	"workspace_open":   {"workspace", "Open Workspace"},
-	"workspace_show":   {"workspace", "Show Workspace"},
-	"workspace_list":   {"workspace", "List Workspaces"},
-	"workspace_close":  {"workspace", "Close Workspace"},
-	"workspace_delete": {"workspace", "Delete Workspace"},
+	"open":   {"workspace", "Open Workspace"},
+	"status": {"workspace", "Workspace Status"},
+	"list":   {"workspace", "List Workspaces"},
+	"close":  {"workspace", "Close Workspace"},
+	"delete": {"workspace", "Delete Workspace"},
 	// run — the calls that start a convergence and stop at its first approval
 	// point. up is titled by the engine console's word for its run kind, "deploy".
 	"up":      {"run", "Deploy"},

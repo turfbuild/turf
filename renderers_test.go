@@ -518,7 +518,7 @@ func TestKvLinesMasked_CollapsesSensitiveSubtrees(t *testing.T) {
 
 // TestTurfToolTargetArgsMatchServerSchemas is the drift guard turfToolTargetArgs
 // went without — and it is exactly the map that rotted when the server renamed
-// workspace_open/workspace_delete's `name` argument to `workspace_name`. A stale
+// turf_open/turf_delete's `name` argument to `workspace_name`. A stale
 // entry here is silent: errorTarget simply finds nothing, and a failed tool call
 // loses the lead context that tells the reader WHAT failed.
 //
@@ -1181,15 +1181,15 @@ func TestWorkspaceOpen_Binding(t *testing.T) {
 	const content = `{"workspace_alias":"default","config_alias":"default","config_path":"/work/v1-run/core",
 		"workspace_name":"default","backend_type":"local","state_path":"/work/v1-run/core/terraform.tfstate",
 		"lineage":"fa47e9cf","serial":5,"resource_count":6}`
-	compact := plainNorm(renderFor("turf_workspace_open", content, hiddenState{}))
+	compact := plainNorm(renderFor("turf_open", content, hiddenState{}))
 	for _, want := range []string{"Open Workspace", "default · local · /work/v1-run/core · 6 resource(s)"} {
 		if !strings.Contains(compact, want) {
-			t.Fatalf("workspace_open compact missing %q: %q", want, compact)
+			t.Fatalf("turf_open compact missing %q: %q", want, compact)
 		}
 	}
-	shown := plainNorm(renderFor("turf_workspace_open", content, service.StaticSessionState{}))
+	shown := plainNorm(renderFor("turf_open", content, service.StaticSessionState{}))
 	if !strings.Contains(shown, "/work/v1-run/core/terraform.tfstate · serial 5 · lineage fa47e9cf") {
-		t.Fatalf("workspace_open expansion missing the statefile:\n%s", shown)
+		t.Fatalf("turf_open expansion missing the statefile:\n%s", shown)
 	}
 }
 
@@ -1199,10 +1199,10 @@ func TestWorkspaceOpen_ReportsTheHoldingConvergence(t *testing.T) {
 	const content = `{"workspace_alias":"prod","config_alias":"web","config_path":"infra/web","workspace_name":"default",
 		"backend_type":"s3","resource_count":4,
 		"convergence":{"id":"p-5f3d7adf","kind":"up","stage":"awaiting_approval","round":2,"followed":true,"next":"…"}}`
-	out := plainNorm(renderFor("turf_workspace_open", content, hiddenState{}))
+	out := plainNorm(renderFor("turf_open", content, hiddenState{}))
 	for _, want := range []string{"prod", "holds p-5f3d7adf · deploy · awaiting approval · round 2"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("workspace_open missing %q: %q", want, out)
+			t.Fatalf("turf_open missing %q: %q", want, out)
 		}
 	}
 	// The alias is the session's handle for the workspace, so it wins over the state
@@ -1218,11 +1218,11 @@ func TestWorkspaceShow_Entries(t *testing.T) {
 		 "opened_at":"2026-10-13T10:00:00Z","convergence":{"id":"p-3","kind":"up","stage":"awaiting_actions","round":1,"open_questions":2,"followed":true}},
 		{"workspace_alias":"dev","config_alias":"web","config_path":"infra/web","workspace_name":"dev","opened_at":"2026-10-13T10:05:00Z",
 		 "warning":"the engine is unreachable"}]}`
-	compact := plainNorm(renderFor("turf_workspace_show", content, hiddenState{}))
+	compact := plainNorm(renderFor("turf_status", content, hiddenState{}))
 	if !strings.Contains(compact, "2 open") {
-		t.Fatalf("workspace_show compact: %q", compact)
+		t.Fatalf("turf_status compact: %q", compact)
 	}
-	shown := plainNorm(renderFor("turf_workspace_show", content, service.StaticSessionState{}))
+	shown := plainNorm(renderFor("turf_status", content, service.StaticSessionState{}))
 	for _, want := range []string{
 		"prod · s3 · infra/web · opened 2026-10-13T10:00:00Z",
 		"holds p-3 · deploy · awaiting 2 action(s) · round 1",
@@ -1230,45 +1230,45 @@ func TestWorkspaceShow_Entries(t *testing.T) {
 		"⚠ the engine is unreachable",
 	} {
 		if !strings.Contains(shown, want) {
-			t.Fatalf("workspace_show missing %q:\n%s", want, shown)
+			t.Fatalf("turf_status missing %q:\n%s", want, shown)
 		}
 	}
-	single := plainNorm(renderFor("turf_workspace_show", `{"workspaces":[{"workspace_alias":"default","workspace_name":"default","config_path":"/c","opened_at":"t"}]}`, hiddenState{}))
+	single := plainNorm(renderFor("turf_status", `{"workspaces":[{"workspace_alias":"default","workspace_name":"default","config_path":"/c","opened_at":"t"}]}`, hiddenState{}))
 	if !strings.Contains(single, "default · /c") {
 		t.Fatalf("a single workspace leads with its name: %q", single)
 	}
 }
 
 func TestWorkspaceClose_Detached(t *testing.T) {
-	plain := plainNorm(renderFor("turf_workspace_close", `{"workspace_alias":"default"}`, hiddenState{}))
+	plain := plainNorm(renderFor("turf_close", `{"workspace_alias":"default"}`, hiddenState{}))
 	if !strings.Contains(plain, "default · closed") || strings.Contains(plain, "engine") {
-		t.Fatalf("workspace_close: %q", plain)
+		t.Fatalf("turf_close: %q", plain)
 	}
-	det := plainNorm(renderFor("turf_workspace_close", `{"workspace_alias":"prod","detached":"p-5f3d7adf"}`, hiddenState{}))
+	det := plainNorm(renderFor("turf_close", `{"workspace_alias":"prod","detached":"p-5f3d7adf"}`, hiddenState{}))
 	if !strings.Contains(det, "prod · closed · left p-5f3d7adf running in the engine") {
-		t.Fatalf("workspace_close should name the convergence it detached from: %q", det)
+		t.Fatalf("turf_close should name the convergence it detached from: %q", det)
 	}
 }
 
 func TestWorkspaceList_Summary(t *testing.T) {
 	const content = `{"workspaces": ["default", "staging", "prod"]}`
-	out := renderFor("turf_workspace_list", content, service.StaticSessionState{})
+	out := renderFor("turf_list", content, service.StaticSessionState{})
 	for _, want := range []string{"List Workspaces", "3 found", "staging"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("workspace_list missing %q: %q", want, out)
+			t.Fatalf("turf_list missing %q: %q", want, out)
 		}
 	}
-	empty := renderFor("turf_workspace_list", `{"workspaces": []}`, hiddenState{})
+	empty := renderFor("turf_list", `{"workspaces": []}`, hiddenState{})
 	if !strings.Contains(empty, "none") {
-		t.Fatalf("empty workspace_list should say none: %q", empty)
+		t.Fatalf("empty turf_list should say none: %q", empty)
 	}
 }
 
 func TestWorkspaceDelete_Summary(t *testing.T) {
-	out := plainNorm(renderFor("turf_workspace_delete", `{"workspace_name":"staging","resource_count":2,"deleted":true}`, hiddenState{}))
+	out := plainNorm(renderFor("turf_delete", `{"workspace_name":"staging","resource_count":2,"deleted":true}`, hiddenState{}))
 	for _, want := range []string{"Delete Workspace", "staging · deleted · 2 orphaned resource(s)"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("workspace_delete missing %q: %q", want, out)
+			t.Fatalf("turf_delete missing %q: %q", want, out)
 		}
 	}
 }

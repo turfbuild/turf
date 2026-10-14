@@ -19,7 +19,7 @@ package main
 //   - each round's plan is approved by apply, under the server's own rule: the
 //     agent approves a low-risk round itself and consults the user for anything
 //     else, always for a destroy plan, and always for an import or invoke plan;
-//   - workspace_delete is a standalone, irreversible op confirmed per call.
+//   - turf_delete is a standalone, irreversible op confirmed per call.
 // This trades the deterministic per-tool permission gate for agent-driven
 // confirmation, on purpose — a gate on apply would double-prompt right after the
 // user had already approved a plan, which is friction on the tool that is the heart
@@ -62,16 +62,16 @@ var preApprovedTurfTools = []string{
 	// (one confirmation per edit set to the user's pre-existing .tf/.tfvars files)
 	// lives there, not here.
 	"turf_init",
-	// Workspace lifecycle. workspace_delete is server-annotated destructive and
+	// Workspace lifecycle. turf_delete is server-annotated destructive and
 	// irreversible; it is pre-approved like the rest but the persona must obtain an
 	// explicit, irreversibility-warning user_prompt before calling it (see
-	// agentConfirmTurfTools). workspace_close only stops following the workspace —
+	// agentConfirmTurfTools). turf_close only stops following the workspace —
 	// a convergence holding it goes on in the engine — so it is not destructive.
-	"turf_workspace_open",
-	"turf_workspace_list",
-	"turf_workspace_show",
-	"turf_workspace_close",
-	"turf_workspace_delete",
+	"turf_open",
+	"turf_list",
+	"turf_status",
+	"turf_close",
+	"turf_delete",
 	// Runs. up, destroy, refresh, import and invoke each start a convergence and
 	// stop at its first approval point: they plan, and apply nothing.
 	"turf_up",
@@ -188,9 +188,9 @@ func preApprovedTools() []string {
 //   - apply is the approval point of every round. The persona follows the server's
 //     rule: it approves a low-risk round itself, and consults the user for anything
 //     else — always for a destroy plan, and always for an import or invoke plan.
-//   - workspace_delete is a standalone op confirmed with its own targeted
+//   - turf_delete is a standalone op confirmed with its own targeted
 //     user_prompt.
 var agentConfirmTurfTools = []string{
-	"turf_apply",            // applies a round's plan to real infrastructure
-	"turf_workspace_delete", // irreversible state deletion — warn it cannot be undone
+	"turf_apply",  // applies a round's plan to real infrastructure
+	"turf_delete", // irreversible state deletion — warn it cannot be undone
 }

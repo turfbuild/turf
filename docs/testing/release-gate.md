@@ -200,7 +200,7 @@ then 2 creates). Expand every line (Ctrl+O). Before 5.1, note where the debug lo
 | # | Do | Expect |
 |---|---|---|
 | 7.1 | `turf exec "which providers does this configuration need?"` | Text mode, an answer naming `hashicorp/random` and `hashicorp/local`. Exit 0. |
-| 7.2 | `echo "list the workspaces" \| turf exec -` | The message is read from stdin; `Calling turf_workspace_list` in the output. |
+| 7.2 | `echo "list the workspaces" \| turf exec -` | The message is read from stdin; `Calling turf_list` in the output. |
 | 7.3 | `turf exec --json "init this configuration" \| tee $RUN/exec.jsonl \| jq -c .type \| sort \| uniq -c` | One JSON event per line; `tool_call` events among the types. |
 | 7.4 | `turf exec --hide-tool-calls "init this configuration"` | Only the agent's prose: no `Calling` lines. |
 | 7.5 | `turf exec --session gate-1 "remember the word 'heliotrope' for later"`; `turf exec --session gate-1 "what word did I ask you to remember?"`; `turf exec -c "and spell it backwards"` | `heliotrope`; then its reverse. The first call created a session with the ID `gate-1`; the third continued the most recent. |
