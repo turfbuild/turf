@@ -105,11 +105,11 @@ func builtinToolRenderers() map[string]tool.Builder {
 func turfToolRenderers() map[string]tool.Builder {
 	return map[string]tool.Builder{
 		"turf_init":              builder(renderInit),
-		"turf_workspace_open":    builder(renderWorkspaceOpen),
-		"turf_workspace_close":   builder(renderWorkspaceClose),
-		"turf_workspace_list":    builder(renderWorkspaceList),
-		"turf_workspace_show":    builder(renderWorkspaceShow),
-		"turf_workspace_delete":  builder(renderWorkspaceDelete),
+		"turf_open":              builder(renderWorkspaceOpen),
+		"turf_close":             builder(renderWorkspaceClose),
+		"turf_list":              builder(renderWorkspaceList),
+		"turf_status":            builder(renderWorkspaceShow),
+		"turf_delete":            builder(renderWorkspaceDelete),
 		"turf_up":                builder(renderConvergence),
 		"turf_destroy":           builder(renderConvergence),
 		"turf_refresh":           builder(renderConvergence),
@@ -313,9 +313,9 @@ func argInt(msg *types.Message, key string) int {
 // and TestTurfToolTargetArgsMatchServerSchemas holds them to the live input schemas.
 var turfToolTargetArgs = map[string][]string{
 	"init":              {"path", "config_alias"},
-	"workspace_open":    {"workspace_name", "config_alias"},
-	"workspace_close":   {"workspace_alias"},
-	"workspace_delete":  {"workspace_name"},
+	"open":              {"workspace_name", "config_alias"},
+	"close":             {"workspace_alias"},
+	"delete":            {"workspace_name"},
 	"invoke":            {"action_addr"},
 	"apply":             {"convergence_id"},
 	"show":              {"convergence_id"},
@@ -1890,7 +1890,7 @@ func renderOutput(msg *types.Message, s spinner.Spinner, ss service.SessionState
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
-// --- turf_workspace_open / turf_workspace_close -----------------------------
+// --- turf_open / turf_close -------------------------------------------------
 
 // A workspace is opened *against a configuration*, and that binding is the call's
 // most consequential result: it fixes the backend and what every later plan
@@ -1917,8 +1917,8 @@ type workspaceOpenView struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// convergenceFactView is the convergence holding a workspace, as workspace_open and
-// workspace_show report it. Stage is awaiting_approval, awaiting_actions, planning
+// convergenceFactView is the convergence holding a workspace, as turf_open and
+// turf_status report it. Stage is awaiting_approval, awaiting_actions, planning
 // or applying while it runs, else how it ended; Followed says whether this server is
 // following it (a convergence lives in the engine and outlasts the server).
 type convergenceFactView struct {
@@ -1995,7 +1995,7 @@ func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.Sessi
 
 // workspaceCloseView is a close's result. Detached names the convergence the server
 // stopped following: closing never cancels one, so it goes on in the engine and a
-// later workspace_open re-attaches to it.
+// later turf_open re-attaches to it.
 type workspaceCloseView struct {
 	WorkspaceAlias string `json:"workspace_alias"`
 	Detached       string `json:"detached,omitempty"`
@@ -2021,7 +2021,7 @@ func renderWorkspaceClose(msg *types.Message, s spinner.Spinner, ss service.Sess
 	return line(msg, s, summary, width)
 }
 
-// --- turf_workspace_list / turf_workspace_show ------------------------------
+// --- turf_list / turf_status ------------------------------------------------
 
 type workspaceListView struct {
 	Workspaces []string `json:"workspaces"`
@@ -2492,7 +2492,7 @@ func renderReadSkillFile(msg *types.Message, s spinner.Spinner, ss service.Sessi
 	return line(msg, s, summary, width)
 }
 
-// --- turf_workspace_delete --------------------------------------------------
+// --- turf_delete ------------------------------------------------------------
 
 type workspaceDeleteView struct {
 	WorkspaceName string `json:"workspace_name"`

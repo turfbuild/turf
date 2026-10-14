@@ -58,7 +58,7 @@ type sessionTitleCurator struct {
 // stopping the curator from titling. Keep in step with the switch in ingest.
 var titleCuratorTools = []string{
 	"turf_init",
-	"turf_workspace_open",
+	"turf_open",
 	"turf_up",
 	"turf_destroy",
 	"turf_apply",
@@ -171,7 +171,7 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 		}
 		return true
 
-	case "turf_workspace_open":
+	case "turf_open":
 		var v workspaceOpenView
 		// Only fills a hole: init runs first in every canonical workflow and labels
 		// the session there. This fires on the reopen/resume path — where the
@@ -332,7 +332,7 @@ const defaultWorkspaceName = "default"
 //     pass "." and a relative path.
 //
 // Rung 3's exclusion is deliberately confined to the title. The timeline is a
-// different surface: a workspace_open line reports one specific call, so it should
+// different surface: a turf_open line reports one specific call, so it should
 // say "default" when that is the workspace it opened (see workspaceName).
 func sessionLabel(workspaceAlias, configAlias, workspaceName, path string) string {
 	if workspaceAlias != "" {

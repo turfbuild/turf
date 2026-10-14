@@ -254,7 +254,7 @@ func TestIngestTracksTools(t *testing.T) {
 		// Realistic: the server echoes both fields, and the name is the default
 		// slot even when the caller named the workspace. The label must NOT move —
 		// init already set it, which is what the `label == ""` guard is for.
-		{"turf_workspace_open", `{"workspace_alias":"prod","workspace_name":"default","config_alias":"app"}`, true},
+		{"turf_open", `{"workspace_alias":"prod","workspace_name":"default","config_alias":"app"}`, true},
 		{"turf_up", awaiting("up", "p-1", 1, 3, 1, 0), true},
 		{"turf_apply", ended("up", "p-1", "converged"), true},
 		{"turf_state_list", `{}`, false}, // untracked tool
@@ -291,7 +291,7 @@ func TestCuratorPrefersConfigAlias(t *testing.T) {
 	}
 }
 
-// The workspace_open branch is the RESUME path: the workspace is already open
+// The turf_open branch is the RESUME path: the workspace is already open
 // server-side and the turn goes straight to reopening it, so init never
 // runs and the branch is the only thing that can label the session. It is also
 // the one place the workspace alias is available — and the case that motivates
@@ -327,7 +327,7 @@ func TestCuratorLabelsFromWorkspaceOpenOnResume(t *testing.T) {
 			ctx := context.Background()
 			c.OnRunStart(ctx, sess)
 
-			c.OnEvent(ctx, sess, respEvent("turf_workspace_open", tc.output))
+			c.OnEvent(ctx, sess, respEvent("turf_open", tc.output))
 
 			if got := sess.Title; got != tc.want {
 				t.Errorf("title = %q, want %q", got, tc.want)
