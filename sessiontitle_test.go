@@ -24,7 +24,7 @@ func respEvent(tool, output string) *runtime.ToolCallResponseEvent {
 // initOut is init's result for a configuration at path, in the workspace the server
 // always reports (an unselected directory's "default").
 func initOut(path string) string {
-	return fmt.Sprintf(`{"config_alias":"","path":%q,"workspace":"default"}`, path)
+	return fmt.Sprintf(`{"config_alias":"default","path":%q,"workspace":"default"}`, path)
 }
 
 // awaiting is an up/destroy/apply result paused at a round's approval point, with
@@ -218,6 +218,12 @@ func TestSessionLabel(t *testing.T) {
 		// The alias is what tells two workspaces on one configuration apart —
 		// exactly the case where the server's own fixtures leave the name "default".
 		{"two workspaces, one config", "prod", "app", "default", "envs/prod/myapp", "prod"},
+
+		// The unnamed binding's alias is "default" too, and for the same reason
+		// is not a label: every unnamed session would be titled alike.
+		{"default config alias is not a label", "", "default", "default", "envs/prod/myapp", "myapp"},
+		{"default workspace alias is not a label", "default", "default", "default", "envs/prod/myapp", "myapp"},
+		{"a named config beats the default workspace alias", "default", "app", "default", "envs/prod/myapp", "app"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -318,6 +324,11 @@ func TestCuratorLabelsFromWorkspaceOpenOnResume(t *testing.T) {
 		{
 			"nothing but the path",
 			`{"workspace_alias":"","workspace_name":"default","config_alias":"","config_path":"/x/myapp"}`,
+			"myapp · init",
+		},
+		{
+			"the unnamed workspace, as the server reports it",
+			`{"workspace_alias":"default","workspace_name":"default","config_alias":"default","config_path":"/x/myapp"}`,
 			"myapp · init",
 		},
 	} {

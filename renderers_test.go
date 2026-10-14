@@ -1121,28 +1121,28 @@ func TestWithUnknowns(t *testing.T) {
 
 // initCore is init's result for fixture core, recorded, with the hashes and package
 // directories dropped.
-const initCore = `{"config_alias":"","path":"/work/v1-run/core","backend":{"type":"local","defaulted":true},"workspace":"default",
-	"required_providers":{"local":{"source":"hashicorp/local","version":"~> 2.5"},"random":{"source":"hashicorp/random","version":"~> 3.6"},
-		"terraform":{"source":"terraform.io/builtin/terraform","inferred":true}},
-	"providers":[{"local_name":"local","source":"registry.opentofu.org/hashicorp/local","constraint":"~> 2.5","version":"2.9.1"},
-		{"local_name":"random","source":"registry.opentofu.org/hashicorp/random","constraint":"~> 3.6","version":"3.9.1"},
-		{"local_name":"terraform","source":"terraform.io/builtin/terraform","builtin":true}],
+const initCore = `{"config_alias":"default","path":"/work/v1-run/core","backend":{"type":"local","defaulted":true},"workspace":"default",
+	"providers":[{"provider":"registry.opentofu.org/hashicorp/local","version":"2.9.1","constraints":"~> 2.5"},
+		{"provider":"registry.opentofu.org/hashicorp/random","version":"3.9.1","constraints":"~> 3.6"}],
 	"lock_file":{"path":"/work/v1-run/core/.terraform.lock.hcl","status":"created"},
 	"variables":[{"name":"prefix","type":"string","default":"v1","required":false}],
 	"outputs":[{"name":"fan"},{"name":"password","sensitive":true},{"name":"pet"}]}`
 
+// The unnamed configuration ("default") leads with its path, not the sentinel.
 func TestInit_Core(t *testing.T) {
 	compact := plainNorm(renderFor("turf_init", initCore, hiddenState{}))
-	for _, want := range []string{"Init Configuration", "/work/v1-run/core", "backend local (default)", "3 provider(s) · 1 variable(s) · 3 output(s)"} {
+	for _, want := range []string{"Init Configuration /work/v1-run/core", "backend local (default)", "2 provider(s) · 1 variable(s) · 3 output(s)"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("init compact missing %q: %q", want, compact)
 		}
 	}
+	if strings.Contains(compact, "default ·") {
+		t.Fatalf("the unnamed configuration's alias must not lead the line: %q", compact)
+	}
 	shown := plainNorm(renderFor("turf_init", initCore, service.StaticSessionState{}))
 	for _, want := range []string{
-		"local hashicorp/local ~> 2.5 → v2.9.1",
-		"random hashicorp/random ~> 3.6 → v3.9.1",
-		"terraform terraform.io/builtin/terraform inferred built in",
+		"hashicorp/local ~> 2.5 → v2.9.1",
+		"hashicorp/random ~> 3.6 → v3.9.1",
 		"prefix string",
 		"password sensitive",
 		"lock file created",
@@ -1154,18 +1154,17 @@ func TestInit_Core(t *testing.T) {
 }
 
 // A named configuration leads with its alias; a declared backend says nothing about
-// defaults; an import block and a failed install each earn a segment.
+// defaults; an import block, a failed install and an unpinned provider each show.
 func TestInit_AliasImportsAndInstallErrors(t *testing.T) {
 	const content = `{"config_alias":"web","path":"infra/web","backend":{"type":"s3"},"workspace":"default",
-		"required_providers":{"aws":{"source":"hashicorp/aws","version":"~> 6.0"}},
-		"providers":[{"local_name":"aws","source":"registry.opentofu.org/hashicorp/aws","constraint":"~> 6.0","error":"no version matches ~> 6.0"}],
-		"provider_configs":[{"type":"aws"},{"type":"aws","alias":"west"}],
+		"providers":[{"provider":"registry.opentofu.org/hashicorp/aws","constraints":"~> 6.0","error":"no version matches ~> 6.0"},
+			{"provider":"example.com/acme/dns","version":"1.2.0"}],
 		"imports":[{"to":"aws_s3_bucket.logs","id":"my-logs"}],"modules_installed":true}`
 	out := plainNorm(renderFor("turf_init", content, service.StaticSessionState{}))
 	for _, want := range []string{
 		"web · infra/web · backend s3", "1 to import", "1 provider(s) failed to install",
-		"aws hashicorp/aws ~> 6.0 no version matches ~> 6.0",
-		"provider configurations:", "aws, aws.west",
+		"hashicorp/aws ~> 6.0 no version matches ~> 6.0",
+		"example.com/acme/dns unpinned → v1.2.0",
 		"aws_s3_bucket.logs · id=my-logs", "modules installed",
 	} {
 		if !strings.Contains(out, want) {

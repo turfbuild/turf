@@ -313,6 +313,11 @@ const (
 // is a sentinel rather than a label — see sessionLabel.
 const defaultWorkspaceName = "default"
 
+// defaultAlias is the name the server reports for a configuration or workspace
+// registered without an alias. Like the default workspace name it names every
+// unnamed binding alike, so it is a sentinel, not a label.
+const defaultAlias = "default"
+
 // sessionLabel derives the short, human label that leads every auto-title. It is
 // the answer to "which piece of infrastructure is this session about?", and the
 // rungs are ordered by how specifically each names that:
@@ -323,7 +328,6 @@ const defaultWorkspaceName = "default"
 //     telling apart. It is also the safest token to interpolate: the server
 //     constrains it to ^[a-zA-Z0-9][a-zA-Z0-9_-]*$.
 //  2. The CONFIG ALIAS — the configuration's own handle, minted by init.
-//     Empty for the unnamed default configuration.
 //  3. The WORKSPACE NAME, but only when it is not "default". A real state slot a
 //     `tofu workspace select` user created ("production") names something; the
 //     default sentinel names every configuration ever written, so it would label
@@ -331,14 +335,16 @@ const defaultWorkspaceName = "default"
 //  4. The base of the config path, else of the cwd — because the /up prompt may
 //     pass "." and a relative path.
 //
-// Rung 3's exclusion is deliberately confined to the title. The timeline is a
-// different surface: a turf_open line reports one specific call, so it should
-// say "default" when that is the workspace it opened (see workspaceName).
+// Rungs 1 and 2 skip the unnamed binding's "default" (defaultAlias) for the
+// same reason rung 3 skips the default workspace. Both exclusions are
+// deliberately confined to the title. The timeline is a different surface: a
+// turf_open line reports one specific call, so it should say "default" when
+// that is the workspace it opened (see workspaceName).
 func sessionLabel(workspaceAlias, configAlias, workspaceName, path string) string {
-	if workspaceAlias != "" {
+	if workspaceAlias != "" && workspaceAlias != defaultAlias {
 		return workspaceAlias
 	}
-	if configAlias != "" {
+	if configAlias != "" && configAlias != defaultAlias {
 		return configAlias
 	}
 	if workspaceName != "" && workspaceName != defaultWorkspaceName {

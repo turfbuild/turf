@@ -2146,7 +2146,7 @@ type stateListView struct {
 	Lineage   string              `json:"lineage,omitempty"`
 	Serial    uint64              `json:"serial,omitempty"`
 	Resources []stateResourceView `json:"resources"`
-	// Outputs are the root outputs, present only when there are any.
+	// Outputs are the root outputs ({} when there are none).
 	Outputs  map[string]outputValueView `json:"outputs,omitempty"`
 	Warnings []string                   `json:"warnings,omitempty"`
 }
@@ -2530,25 +2530,16 @@ func renderWorkspaceDelete(msg *types.Message, s spinner.Spinner, ss service.Ses
 // declares. We show the configuration + a "N providers · N variables · N outputs"
 // tally, and on expand list each, the providers with the version init installed.
 
+// initProviderView is one provider the configuration requires, as the dependency
+// lock file records it: its address, the version init selected, and the
+// constraints every module put on it — none means nothing pins it, worth showing
+// as the difference between a pin the configuration made and one nobody wrote
+// down. Error says why it did not install. Built-in providers are never listed.
 type initProviderView struct {
-	Source  string `json:"source"`
-	Version string `json:"version,omitempty"`
-	// Inferred marks a requirement turf derived from usage rather than read from a
-	// required_providers block — Terraform implies one from every resource's local
-	// name. Source is then the address OpenTofu itself implies, and Version is
-	// empty because the module stated no constraint. Worth showing: it is the
-	// difference between a pin the configuration made and one nobody wrote down.
-	Inferred bool `json:"inferred,omitempty"`
-}
-
-// initInstalledView is one provider init installed (or found built in, or failed
-// to install), keyed back to the requirement by its local name.
-type initInstalledView struct {
-	LocalName string `json:"local_name"`
-	Source    string `json:"source"`
-	Version   string `json:"version,omitempty"`
-	BuiltIn   bool   `json:"builtin,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Provider    string `json:"provider"`
+	Version     string `json:"version,omitempty"`
+	Constraints string `json:"constraints,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type initVariableView struct {
@@ -2570,7 +2561,7 @@ type initOutputView struct {
 type initView struct {
 	// ConfigAlias is the handle this configuration was registered under — the
 	// configuration's own name, and what the session title labels the work with.
-	// Empty for the unnamed default configuration.
+	// "default" for the unnamed configuration (defaultAlias).
 	ConfigAlias string `json:"config_alias"`
 	Path        string `json:"path"`
 	// Scratch marks a turf-allocated temporary directory (no path was given), so
@@ -2585,18 +2576,13 @@ type initView struct {
 	} `json:"backend"`
 	// Workspace is the OpenTofu workspace selected in the directory, "default"
 	// unless someone ran `tofu workspace select`.
-	Workspace         string                      `json:"workspace"`
-	RequiredProviders map[string]initProviderView `json:"required_providers"`
-	Providers         []initInstalledView         `json:"providers,omitempty"`
-	LockFile          *struct {
+	Workspace string             `json:"workspace"`
+	Providers []initProviderView `json:"providers,omitempty"`
+	LockFile  *struct {
 		Path string `json:"path"`
 		// Status is created, updated, unchanged or not_updated.
 		Status string `json:"status"`
 	} `json:"lock_file,omitempty"`
-	ProviderConfigs []struct {
-		Type  string `json:"type"`
-		Alias string `json:"alias,omitempty"`
-	} `json:"provider_configs,omitempty"`
 	Variables []initVariableView `json:"variables,omitempty"`
 	Outputs   []initOutputView   `json:"outputs,omitempty"`
 	// Imports are the configuration's import {} blocks, which the next up adopts.
@@ -2617,7 +2603,7 @@ func renderInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateRe
 		return fallbackLine(msg, s, ss, width)
 	}
 	target := c.ConfigAlias
-	if target == "" {
+	if target == "" || target == defaultAlias {
 		target = c.Path
 	}
 	if target == "" {
@@ -2639,7 +2625,7 @@ func renderInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateRe
 		}
 		summary = appendDot(summary, muted(backend))
 	}
-	if parts := initCountParts(len(c.RequiredProviders), len(c.Variables), len(c.Outputs)); parts != "" {
+	if parts := initCountParts(len(c.Providers), len(c.Variables), len(c.Outputs)); parts != "" {
 		summary = appendDot(summary, muted(parts))
 	}
 	if n := len(c.Imports); n > 0 {
@@ -2649,18 +2635,7 @@ func renderInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateRe
 		summary = appendDot(summary, styles.ErrorStyle.Render(fmt.Sprintf("%d provider(s) failed to install", n)))
 	}
 
-	detail := initDetail(c.RequiredProviders, c.Providers, c.Variables, c.Outputs)
-	if len(c.ProviderConfigs) > 0 {
-		names := make([]string, 0, len(c.ProviderConfigs))
-		for _, pc := range c.ProviderConfigs {
-			n := pc.Type
-			if pc.Alias != "" {
-				n += "." + pc.Alias
-			}
-			names = append(names, n)
-		}
-		detail = append(detail, section("provider configurations"), "  "+addr(strings.Join(names, ", ")))
-	}
+	detail := initDetail(c.Providers, c.Variables, c.Outputs)
 	if len(c.Imports) > 0 {
 		detail = append(detail, section("imports"))
 		for _, im := range c.Imports {
@@ -2685,7 +2660,7 @@ func renderInit(msg *types.Message, s spinner.Spinner, ss service.SessionStateRe
 }
 
 // initProviderErrors counts the providers init could not install.
-func initProviderErrors(installed []initInstalledView) int {
+func initProviderErrors(installed []initProviderView) int {
 	n := 0
 	for _, p := range installed {
 		if p.Error != "" {
@@ -2711,43 +2686,32 @@ func initCountParts(nProviders, nVars, nOutputs int) string {
 	return strings.Join(parts, " · ")
 }
 
+// providerForDisplay is a provider address as OpenTofu prints it: the default
+// registry's host left off (registry.opentofu.org/hashicorp/random is
+// hashicorp/random), any other host kept.
+func providerForDisplay(fqn string) string {
+	return strings.TrimPrefix(fqn, "registry.opentofu.org/")
+}
+
 // initDetail renders init's expanded provider/variable/output sections. Each
-// required provider carries the version init installed for it — or that it is built
-// in, or why it failed.
-func initDetail(providers map[string]initProviderView, installed []initInstalledView, vars []initVariableView, outs []initOutputView) []string {
-	byName := make(map[string]initInstalledView, len(installed))
-	for _, p := range installed {
-		byName[p.LocalName] = p
-	}
+// provider carries the constraints it was selected under ("unpinned" when nothing
+// pins it) and the version init installed — or why it failed.
+func initDetail(providers []initProviderView, vars []initVariableView, outs []initOutputView) []string {
 	var detail []string
 	if len(providers) > 0 {
-		detail = append(detail, section("required providers"))
-		names := make([]string, 0, len(providers))
-		for n := range providers {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			row := "  " + addr(n)
-			p := providers[n]
-			if p.Source != "" {
-				row += muted("  " + p.Source)
-				if p.Version != "" {
-					row += muted("  " + p.Version)
-				}
+		detail = append(detail, section("providers"))
+		for _, p := range providers {
+			row := "  " + addr(providerForDisplay(p.Provider))
+			if p.Constraints != "" {
+				row += muted("  " + p.Constraints)
+			} else {
+				row += " " + muted("unpinned")
 			}
-			if p.Inferred {
-				row += " " + muted("inferred")
-			}
-			if in, ok := byName[n]; ok {
-				switch {
-				case in.Error != "":
-					row += " " + styles.ErrorStyle.Render(in.Error)
-				case in.BuiltIn:
-					row += " " + muted("built in")
-				case in.Version != "":
-					row += muted(" → ") + colored("v"+in.Version, styles.Success)
-				}
+			switch {
+			case p.Error != "":
+				row += " " + styles.ErrorStyle.Render(p.Error)
+			case p.Version != "":
+				row += muted(" → ") + colored("v"+p.Version, styles.Success)
 			}
 			detail = append(detail, row)
 		}
