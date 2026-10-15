@@ -1,15 +1,18 @@
-# Turf — alpha
+# Turf
 
-Thanks for trying Turf. This is an early **alpha / pre-release** build shared for
-evaluation — expect rough edges, and please don't redistribute the binaries.
+Turf™ is a self-hosted, autonomous infrastructure-as-code tool, built on
+OpenTofu™. It deploys the stack an AI factory runs on and keeps it that way,
+with an agent overseeing.
 
-Turf is a drop-in replacement for Terraform with agentic superpowers: full support
-for Terraform HCL and the module registry, driven by an AI agent over the Model
-Context Protocol. This archive contains four binaries:
+Turf is free for noncommercial use. Commercial use, including a company's
+internal use, needs a license: https://turf.build/licensing.
+
+Turf runs ordinary Terraform® configurations, with the module registry and every
+provider, driven by an AI agent over the Model Context Protocol. This archive
+contains four binaries:
 
 - **`turf`** — the reference command-line client (open source, MPL-2.0).
-- **`turf-mcp-server`** — the infrastructure MCP server (the core; evaluation
-  license, see `LICENSE`).
+- **`turf-mcp-server`** — the infrastructure MCP server (the core; see `LICENSE`).
 - **`turf-engine`** and **`turf-builtin-provider`** — the Turf engine, which
   plans and applies, and its built-in provider (same license as the server).
 
@@ -121,13 +124,24 @@ container-image recipe are in the project's `SECURITY.md`.
 
 ## Licensing
 
-`turf-mcp-server` and Turf as a whole are provided for evaluation under the
-PolyForm Free Trial License 1.0.0 (`LICENSE`). The `turf` CLI is open source
-under MPL-2.0. Bundled third-party components and how to obtain their source are
-listed in `NOTICE`. Source for the MPL-2.0 CLI is available on request —
-eronwright@gmail.com.
+Turf is free for noncommercial use under the PolyForm Noncommercial License
+1.0.0 (`LICENSE`). Companies can evaluate Turf free for 60 days and license it
+for production at https://turf.build/licensing. The `turf` CLI is open source
+under MPL-2.0. Bundled third-party components and their licenses are listed in
+`NOTICE`, and `turf license` prints both files. Questions: licensing@turf.build.
 
-## Feedback
+Turf is the same binary for everyone, with the same features. There is no
+license key and nothing to unlock: a commercial license is a contract and a
+support relationship.
 
-This is an alpha for a small group — bug reports and impressions are very welcome.
-Reach out directly.
+## Telemetry
+
+Turf sends anonymous usage telemetry to Turf LLC by default: the version,
+the platform, counts of resources and tool calls, and an anonymous installation
+id. It never sends resource contents, credentials, state or variable values.
+Disable it with `TURF_TELEMETRY=off`; the full field list, endpoint and
+retention period are at https://turf.build/telemetry.
+
+Turf™ is a trademark of Turf LLC. Terraform® is a registered trademark of
+HashiCorp, Inc. OpenTofu™ is a trademark of The Linux Foundation. Turf is not
+affiliated with or endorsed by either.

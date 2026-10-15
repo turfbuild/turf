@@ -116,6 +116,10 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newLoginCmd())
 	cmd.AddCommand(newLogoutCmd())
 	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newLicenseCmd())
+	// --version prints the same three lines as `turf version`: the version, then
+	// the license statement (the formula asserts the version string is present).
+	cmd.SetVersionTemplate("turf {{.Version}}\n" + licenseLines)
 
 	return cmd
 }
