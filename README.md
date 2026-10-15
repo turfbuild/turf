@@ -95,7 +95,7 @@ deploying with guardrails (`/guide day 2`, `/guide guardrails`, …).
 | `--model`            | `TURF_MODEL`            | `auto`                      | LLM as a named model, `provider/model`, or `auto` (see [Model providers](#model-providers))                  |
 | `--base-url`         | `TURF_MODEL_BASE_URL`   | _(provider default)_        | Model endpoint for OpenAI-compatible servers (vLLM, LM Studio, gateways)                                     |
 | `--mcp-server`       | `TURF_MCP_SERVER`       | _(PATH lookup)_             | Path to the `turf-mcp-server` binary                                                                         |
-| `--tmp-dir`          | `TURF_TMP_DIR`          | system temp                 | Per-run scratch dir for the server (vended plan documents, scratch configurations)                           |
+| `--tmp-dir`          | `TURF_TMP_DIR`          | system temp                 | Per-run scratch dir for the server (scratch configurations)                                                  |
 | `--plugin-cache-dir` | `TURF_PLUGIN_CACHE_DIR` | `<user cache>/turf/plugins` | Shared provider plugin cache, kept across runs; `off` disables it                                            |
 | `--memory-path`      |                         | `./.turf/memory.db`         | SQLite memory database                                                                                       |
 | `--no-memory`        |                         | `false`                     | Disable persistent agent memory                                                                              |

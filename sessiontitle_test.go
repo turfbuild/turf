@@ -31,9 +31,9 @@ func initOut(path string) string {
 // the round's plan counts.
 func awaiting(kind, id string, round, add, change, destroy int) string {
 	return fmt.Sprintf(`{"convergence_id":%q,"workspace_alias":"default","kind":%q,"outcome":"awaiting_approval","round":%d,
-		"plan":{"path":"/tmp/p.json","digest":"sha256:ab","add":%d,"change":%d,"destroy":%d},
+		"plan":{"uri":"turf://workspaces/default/convergences/%s/rounds/%d/plan","digest":"sha256:ab","add":%d,"change":%d,"destroy":%d},
 		"rounds":[{"round":%d,"status":"awaiting_approval","approval":"asked","planned":%d}],"next":"…"}`,
-		id, kind, round, add, change, destroy, round, add+change+destroy)
+		id, kind, round, id, round, add, change, destroy, round, add+change+destroy)
 }
 
 // ended is a convergence result that has ended with outcome.
