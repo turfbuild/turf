@@ -22,13 +22,10 @@ func newLicenseCmd() *cobra.Command {
 			"and the NOTICE file of trademark lines and third-party attributions, as shipped in every release archive. " +
 			"The turf CLI's own source is open source under MPL-2.0; the release archive as a whole is the Larger Work under the license printed here.",
 		Args: cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			out := cmd.OutOrStdout()
-			fmt.Fprint(out, release.License)
-			fmt.Fprintln(out)
-			fmt.Fprintln(out, "================================================================================")
-			fmt.Fprintln(out)
-			fmt.Fprint(out, release.Notice)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			const rule = "================================================================================"
+			_, err := fmt.Fprint(cmd.OutOrStdout(), release.License+"\n"+rule+"\n\n"+release.Notice)
+			return err
 		},
 	}
 }
