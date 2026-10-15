@@ -1,18 +1,23 @@
-Turf — Pre-Release Evaluation License
-Licensor: Eron Wright (Turf)
-Software: Turf alpha (the `turf` CLI and the `turf-mcp-server` binary, as distributed
-together in this archive)
+Turf — License
+Licensor: Turf LLC (https://turf.build)
+Software: Turf, as distributed in this archive: the `turf` CLI, `turf-mcp-server`,
+`turf-engine` and `turf-builtin-provider`.
 
-The `turf-mcp-server` binary and the Turf product as a whole are made available for
-evaluation under the PolyForm Free Trial License 1.0.0, reproduced below. The `turf`
-CLI is additionally licensed as open source under the Mozilla Public License 2.0; see
-the NOTICE file for component licenses and how to obtain source.
+Turf is licensed under the PolyForm Noncommercial License 1.0.0, reproduced below.
+It is free for noncommercial use. Commercial use, including a company's internal
+use, requires a license from Turf LLC: https://turf.build/licensing.
+
+The `turf` CLI is additionally open source under the Mozilla Public License 2.0;
+its source is at https://github.com/turfbuild/turf. Third-party components and
+their licenses are listed in the NOTICE file.
 
 --------------------------------------------------------------------------------
 
-# PolyForm Free Trial License 1.0.0
+Required Notice: Copyright Turf LLC (https://turf.build)
 
-<https://polyformproject.org/licenses/free-trial/1.0.0>
+# PolyForm Noncommercial License 1.0.0
+
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
 
 ## Acceptance
 
@@ -20,7 +25,17 @@ In order to get any license under these terms, you must agree to them as both st
 
 ## Copyright License
 
-The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose.  However, you may only make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license), and you may not distribute copies of the software.
+The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose.  However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
+
+## Distribution License
+
+The licensor grants you an additional copyright license to distribute copies of the software.  Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software.  For example:
+
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
 
 ## Changes and New Works License
 
@@ -30,13 +45,21 @@ The licensor grants you an additional copyright license to make changes and new 
 
 The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
 
+## Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
+
 ## Fair Use
 
 You may have "fair use" rights for the software under the law. These terms do not limit them.
-
-## Free Trial
-
-Use to evaluate whether the software suits a particular application for less than 32 consecutive calendar days, on behalf of you or your company, is use for a permitted purpose.
 
 ## No Other Rights
 
@@ -48,7 +71,7 @@ If you make any written claim that the software infringes or contributes to infr
 
 ## Violations
 
-If you violate any of these terms, or do anything with the software not covered by your licenses, all your licenses end immediately.
+The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice.  Otherwise, all your licenses end immediately.
 
 ## No Liability
 

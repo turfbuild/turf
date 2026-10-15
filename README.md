@@ -20,8 +20,8 @@ way to consume it. Here's the CLI in action:
 
 ### Homebrew (recommended) — macOS and Linux
 
-Installs both the `turf` CLI and the `turf-mcp-server` binary from the alpha
-release:
+Installs the `turf` CLI, `turf-mcp-server`, `turf-engine` and `turf-builtin-provider`
+from the latest release, with restate-server from Restate's tap:
 
 ```sh
 brew install turfbuild/tap/turf
@@ -29,8 +29,8 @@ turf --version
 which turf-mcp-server
 ```
 
-> **Alpha / pre-release.** This is early evaluation software. Expect rough
-> edges, and please don't redistribute the binaries.
+> Turf is free for noncommercial use. Commercial use, including a company's
+> internal use, needs a license: see [License](#license) and https://turf.build/licensing.
 
 ### From source
 
@@ -625,9 +625,25 @@ The `turf` CLI — the source in this repository — is the **Covered Software**
 licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. See
 [LICENSE](./LICENSE). Copyright © The Turf Authors.
 
-**Turf as a whole** — this CLI combined with the proprietary `turf-mcp-server`
-and distributed together as the alpha binaries — is the MPL-2.0 **Larger Work**.
-Those distributed binaries are offered under a separate **Pre-Release Evaluation
-License**, which is bundled inside each release archive (and installed alongside
-the Homebrew formula). MPL-2.0 expressly permits combining the Covered Software
-into such a Larger Work under other terms.
+**Turf as a whole** — this CLI combined with `turf-mcp-server`, `turf-engine` and
+`turf-builtin-provider`, distributed together in every release archive and by the
+Homebrew formula — is the MPL-2.0 **Larger Work**, licensed under the
+[PolyForm Noncommercial License 1.0.0](./release/LICENSE) (SPDX:
+`PolyForm-Noncommercial-1.0.0`). MPL-2.0 expressly permits combining the Covered
+Software into such a Larger Work under other terms.
+
+- **Free** for personal use, research, study, and for educational, public
+  research, charitable and government institutions.
+- **Commercial use requires a license**, including use inside a company. Free
+  60-day evaluations and production subscriptions are available; see
+  https://turf.build/licensing or email licensing@turf.build.
+
+`turf license` prints the license and the third-party notices
+([NOTICE](./release/NOTICE)); `turf --version` states the license in one line.
+
+## Telemetry
+
+Turf sends anonymous usage telemetry by default. It never includes resource
+contents, credentials or state. Disable it with `TURF_TELEMETRY=off`; details at
+https://turf.build/telemetry. (`--no-telemetry` is separate: it switches off the
+embedded agent runtime's own telemetry.)
