@@ -833,9 +833,9 @@ func planRowAddr(address, deposedKey string) string {
 // stops at the next one, or at the end; cancel ends one. So one renderer serves all
 // seven, and the line reads the same whichever call produced it.
 //
-// The result carries counts, not resource changes: the per-resource plan is a
-// document on disk (plan.path) the server deletes once the round applies, and the
-// timeline does not read it. show renders a plan document's rows.
+// The result carries counts, not resource changes: the per-resource plan is the
+// round's plan resource (plan.uri), which the timeline does not read. show reads
+// that document and renders its rows.
 //
 // A convergence that ended any way but converged (failed, stalled, exhausted,
 // declined, cancelled, error, detached) arrives as an MCP error that still carries
@@ -867,11 +867,11 @@ type convergenceView struct {
 	Note           string                  `json:"note,omitempty"`
 }
 
-// vendedPlanView is a round's plan as the result reports it: where the document
-// is, its digest (the approval), and the counts OpenTofu's plan summary prints. A
+// vendedPlanView is a round's plan as the result reports it: the resource that
+// serves the document, its digest (the approval), and the counts OpenTofu's plan summary prints. A
 // replace is counted inside both Add and Destroy, as Terraform counts it.
 type vendedPlanView struct {
-	Path        string           `json:"path"`
+	URI         string           `json:"uri"`
 	Digest      string           `json:"digest"`
 	Add         int              `json:"add"`
 	Change      int              `json:"change"`
@@ -1075,14 +1075,19 @@ func refusedSegment(c convergenceView) string {
 func convergenceDetail(c convergenceView) []string {
 	var detail []string
 	if p := c.Plan; p != nil {
-		row := muted(p.Path)
+		// The URI on a row of its own: it is long enough to wrap the facts
+		// beside it mid-word.
+		detail = append(detail, section("plan"), "  "+muted(p.URI))
+		facts := ""
 		if p.Digest != "" {
-			row = appendDot(row, muted(shortDigest(p.Digest)))
+			facts = appendDot(facts, muted(shortDigest(p.Digest)))
 		}
 		if c.ExpiresAt != "" {
-			row = appendDot(row, muted("expires "+c.ExpiresAt))
+			facts = appendDot(facts, muted("expires "+c.ExpiresAt))
 		}
-		detail = append(detail, section("plan"), "  "+row)
+		if facts != "" {
+			detail = append(detail, "  "+facts)
+		}
 		if n := len(p.Invocations); n > 0 {
 			detail = append(detail, section(fmt.Sprintf("%d to invoke", n)))
 			for _, inv := range p.Invocations {

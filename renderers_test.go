@@ -594,23 +594,23 @@ func sortedKeys(m map[string]any) []string {
 // deferred to round 2 (it reads an id round 1 creates).
 const upRound1 = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
 	"outcome":"awaiting_approval","round":1,
-	"plan":{"path":"/work/v1-run/srv-tmp/plans/p-5f3d7adf-round1.json",
+	"plan":{"uri":"turf://workspaces/default/convergences/p-5f3d7adf/rounds/1/plan",
 		"digest":"sha256:247f7cef0852f871bf01d5f31401523a80452ff87e3cbfb4130d64264db75c1b",
 		"add":4,"change":0,"destroy":0,"deferred":1,"outputs":3},
 	"expires_at":"2026-10-10T23:44:36Z",
 	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":5,"deferred":1,"applied":0}],
-	"next":"Review the plan document at plan.path …"}`
+	"next":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now."}`
 
 // applyRound2 is the apply of round 1: it applied four, planned round 2, and stopped.
 const applyRound2 = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
 	"outcome":"awaiting_approval","round":2,
-	"plan":{"path":"/work/v1-run/srv-tmp/plans/p-5f3d7adf-round2.json",
+	"plan":{"uri":"turf://workspaces/default/convergences/p-5f3d7adf/rounds/2/plan",
 		"digest":"sha256:0badac7182bcbfe386f11b873c546139305dd621e8df846bda54fab498a487fc",
 		"add":2,"change":0,"destroy":0,"outputs":1},
 	"expires_at":"2026-10-10T23:45:20Z",
 	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
 		{"round":2,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
-	"next":"Review the plan document at plan.path …"}`
+	"next":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now."}`
 
 // applyConverged is the apply of round 2: nothing left deferred.
 const applyConverged = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
@@ -629,12 +629,12 @@ const upNoChange = `{"convergence_id":"p-14f188d8","workspace_alias":"default","
 
 const destroyRound1 = `{"convergence_id":"d-b75b58b2","workspace_alias":"default","kind":"destroy",
 	"outcome":"awaiting_approval","round":1,
-	"plan":{"path":"/work/v1-run/srv-tmp/plans/d-b75b58b2-round1.json",
+	"plan":{"uri":"turf://workspaces/default/convergences/d-b75b58b2/rounds/1/plan",
 		"digest":"sha256:6a6bd549bc3088b216e54764b10d2166004b4645eb1d6e07ae47cbf9fc1964b1",
 		"add":0,"change":0,"destroy":6,"outputs":3},
 	"expires_at":"2026-10-10T23:46:30Z",
 	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
-	"next":"Review the plan document …"}`
+	"next":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now."}`
 
 const destroyConverged = `{"convergence_id":"d-b75b58b2","workspace_alias":"default","kind":"destroy",
 	"outcome":"converged",
@@ -658,7 +658,7 @@ func TestConvergence_UpAwaitingApproval(t *testing.T) {
 
 	shown := plainNorm(renderFor("turf_up", upRound1, service.StaticSessionState{}))
 	for _, want := range []string{
-		"plan:", "/work/v1-run/srv-tmp/plans/p-5f3d7adf-round1.json", "sha256:247f7cef0852", "expires 2026-10-10T23:44:36Z",
+		"plan:", "turf://workspaces/default/convergences/p-5f3d7adf/rounds/1/plan", "sha256:247f7cef0852", "expires 2026-10-10T23:44:36Z",
 		"rounds:", "round 1 · awaiting approval · 5 planned · 1 deferred",
 	} {
 		if !strings.Contains(shown, want) {
@@ -860,7 +860,7 @@ func TestConvergence_ActionOutcomes(t *testing.T) {
 // import, forget and the actions to invoke as words beside it.
 func TestConvergence_PlanTallySegments(t *testing.T) {
 	const content = `{"convergence_id":"p-5","workspace_alias":"west","kind":"up","outcome":"awaiting_approval","round":1,
-		"plan":{"path":"/tmp/p.json","digest":"sha256:ab","add":2,"change":1,"destroy":1,"replace":1,"import":1,"forget":1,"read":2,
+		"plan":{"uri":"turf://workspaces/west/convergences/p-5/rounds/1/plan","digest":"sha256:ab","add":2,"change":1,"destroy":1,"replace":1,"import":1,"forget":1,"read":2,
 			"drift":1,"invocations":[{"address":"action.turf_action.gate","type":"turf_action","caller":"aws_instance.web","event":"before_create","on_failure":"halt"},
 				{"address":"action.aws_lambda_invoke.ping","type":"aws_lambda_invoke","event":"after_update","caller":"aws_instance.web","on_failure":"continue"}]},
 		"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],"next":"…"}`
