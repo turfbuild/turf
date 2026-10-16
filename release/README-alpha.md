@@ -137,10 +137,17 @@ support relationship.
 ## Telemetry
 
 Turf sends anonymous usage telemetry to Turf LLC by default: the version,
-the platform, counts of resources and tool calls, and an anonymous installation
-id. It never sends resource contents, credentials, state or variable values.
-Disable it with `TURF_TELEMETRY=off`; the full field list, endpoint and
-retention period are at https://turf.build/telemetry.
+the platform, counts of resources, changes and runs, and an anonymous
+installation id. It never sends resource contents, credentials, state,
+variable values or names. The components Turf is built on send nothing.
+
+Turn it off with `turf telemetry off`, then restart the engine
+(`brew services restart turf`, or restart `turf-mcp-server engine run`).
+`TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the engine's environment also
+turns it off; for the Homebrew service that environment is `turf.env`, not
+your shell. With Homebrew's analytics off (`brew analytics off` or
+`HOMEBREW_NO_ANALYTICS`), the service starts with it off. The full field list,
+endpoint and retention period are at https://turf.build/telemetry.
 
 Turf™ is a trademark of Turf LLC. Terraform® is a registered trademark of
 HashiCorp, Inc. OpenTofu™ is a trademark of The Linux Foundation. Turf is not

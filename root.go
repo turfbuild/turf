@@ -60,16 +60,14 @@ func newRootCmd() *cobra.Command {
 			if err := setupLogging(); err != nil {
 				return err
 			}
-			if flagNoTelemetry {
-				// cagent's runtime and the turf-mcp-server subprocess both read
-				// this env var at startup (pkg/telemetry/utils.go). Setting it
-				// here, before any subcommand builds the runtime or launches the
-				// subprocess, disables telemetry uniformly for chat/up/destroy.
-				// We only ever force-disable: leaving the flag unset preserves
-				// whatever TELEMETRY_ENABLED the user set in their environment.
-				if err := os.Setenv("TELEMETRY_ENABLED", "false"); err != nil {
-					return err
-				}
+			// The agent runtime's own telemetry (cagent's, to Docker) is always
+			// off: Turf's disclosure names Turf LLC as the only recipient, and
+			// Turf's usage telemetry is the engine's (telemetry.go). cagent's
+			// runtime reads this at startup (pkg/telemetry/utils.go), so it is
+			// set here, before any subcommand builds the runtime or launches the
+			// server. --no-telemetry is kept, hidden, for scripts that pass it.
+			if err := os.Setenv("TELEMETRY_ENABLED", "false"); err != nil {
+				return err
 			}
 			if flagChdir != "" {
 				return os.Chdir(flagChdir)
@@ -93,7 +91,8 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flagNoMemory, "no-memory", false, "Disable persistent agent memory")
 	cmd.PersistentFlags().StringVar(&flagSessionDB, "session-db", os.Getenv("TURF_SESSION_DB"), "Path to SQLite session-history database (default: .turf/sessions.db in working dir; env: TURF_SESSION_DB)")
 	cmd.PersistentFlags().BoolVar(&flagNoSession, "no-session", false, "Disable session persistence and resume")
-	cmd.PersistentFlags().BoolVar(&flagNoTelemetry, "no-telemetry", os.Getenv("TURF_NO_TELEMETRY") != "", "Disable anonymous usage telemetry sent by the underlying agent runtime (env: TURF_NO_TELEMETRY)")
+	cmd.PersistentFlags().BoolVar(&flagNoTelemetry, "no-telemetry", os.Getenv("TURF_NO_TELEMETRY") != "", "Deprecated and without effect: the agent runtime's telemetry is always off. Turf's usage telemetry is the engine's; see turf telemetry")
+	_ = cmd.PersistentFlags().MarkHidden("no-telemetry")
 	cmd.PersistentFlags().StringVar(&flagMCPServer, "mcp-server", os.Getenv("TURF_MCP_SERVER"), "Path to turf-mcp-server binary (default: looked up on PATH; env: TURF_MCP_SERVER)")
 	cmd.PersistentFlags().StringVar(&flagLogFile, "log-file", "", "Write turf-mcp-server logs to this file (default: stderr; env passthrough: TF_LOG_PATH)")
 	cmd.PersistentFlags().StringVar(&flagLogLevel, "log-level", "", "turf-mcp-server log level: trace|debug|info|warn|error|off (env passthrough: TF_LOG_CORE / TF_LOG)")
@@ -117,9 +116,11 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newLogoutCmd())
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newLicenseCmd())
-	// --version prints the same three lines as `turf version`: the version, then
-	// the license statement (the formula asserts the version string is present).
-	cmd.SetVersionTemplate("turf {{.Version}}\n" + licenseLines)
+	cmd.AddCommand(newTelemetryCmd())
+	// --version prints the same lines as `turf version`: the version first (the
+	// formula and turf-mcp-server's e2e read it there), then the license
+	// statement and the telemetry setting.
+	cmd.SetVersionTemplate("turf {{.Version}}\n" + licenseLines + telemetryVersionLine())
 
 	return cmd
 }

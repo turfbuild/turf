@@ -15,7 +15,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("turf %s\n%s", Version, licenseLines)
+			fmt.Printf("turf %s\n%s%s", Version, licenseLines, telemetryVersionLine())
 		},
 	}
 }
