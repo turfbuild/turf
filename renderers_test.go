@@ -785,7 +785,7 @@ func TestConvergence_StaleSaysPlanAgain(t *testing.T) {
 	const content = `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"stale",
 		"rounds":[{"round":1,"status":"cancelled","approval":"asked","planned":1,"deferred":0,"applied":0,
 			"stale_reason":"the configuration changed after it was planned"}],
-		"next":"The configuration changed after this plan was made (rounds[].stale_reason), so nothing was applied. Run up to plan it again and review the new plan; don't edit between up and apply."}`
+		"next":"The configuration changed, or no longer loads, after this plan was made (rounds[].stale_reason), so nothing was applied. If it no longer loads, fix what stale_reason names; then run up to plan it again and review the new plan. Don't edit between up and apply."}`
 	compact := plainNorm(renderErr("turf_apply", content, hiddenState{}))
 	for _, want := range []string{"p-8", "stale"} {
 		if !strings.Contains(compact, want) {
@@ -793,7 +793,7 @@ func TestConvergence_StaleSaysPlanAgain(t *testing.T) {
 		}
 	}
 	shown := plainNorm(renderErr("turf_apply", content, service.StaticSessionState{}))
-	for _, want := range []string{"round 1 · cancelled", "approved", "stale: the configuration changed after it was planned"} {
+	for _, want := range []string{"round 1 · cancelled · 1 planned · approved", "stale: the configuration changed after it was planned"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("stale expansion missing %q:\n%s", want, shown)
 		}
