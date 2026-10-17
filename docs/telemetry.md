@@ -36,8 +36,8 @@ instead of sending it, so you can read exactly what would leave.
 ## What it sends
 
 There are three events. Each one is a single JSON `POST` to
-`https://telemetry.turf.build/v1/events`, whose only header beyond the HTTP basics is
-`User-Agent: turf-engine/<version> (<platform>; <arch>)`.
+`https://telemetry.turf.build/v1/events`, whose only headers beyond the HTTP basics are
+`Content-Type: application/json` and `User-Agent: turf-engine/<version> (<platform>; <arch>)`.
 
 **On every event:**
 
@@ -73,7 +73,7 @@ There are three events. Each one is a single JSON `POST` to
 | Field | Meaning |
 | --- | --- |
 | `mode` | `up`, `destroy`, `refresh`, `import`, `invoke`, or `other` |
-| `outcome` | `converged`, `stalled`, `exhausted`, `failed`, `declined`, `cancelled`, `error`, or `other` |
+| `outcome` | `converged`, `stalled`, `exhausted`, `failed`, `declined`, `stale`, `cancelled`, `error`, or `other` |
 | `failure` | For a failed run: `plan`, `apply`, `checks`, `refused` or `engine`; else `none` |
 | `refused` | For a run refused over a Terraform® construct Turf does not run, the construct's name (such as `provisioners`). Always one of a fixed list, never your configuration's text. |
 | `rounds`, `deferred` | How many plan-and-apply rounds the run took, and the changes it deferred between them |
@@ -83,7 +83,7 @@ There are three events. Each one is a single JSON `POST` to
 | `actions`, `actions_failed`, `turf_actions` | How many actions ran, failed, and were Turf's own |
 | `providers`, `modules` | The most providers and module instances any round's plan used. Never which. |
 | `managed_resources`, `data_sources` | How many the workspace holds afterwards |
-| `backend` | The state backend's type, such as `local` or `s3`, from OpenTofu™'s built-in list; any other is `other` |
+| `backend` | The state backend's type, such as `local` or `s3`, one of the backends built into OpenTofu™; any other is `other` |
 | `duration_s`, `plan_s`, `apply_s`, `wait_s` | Seconds the run took, spent planning, applying, and waiting for approval |
 | `changes_bucket`, `managed_bucket`, `duration_bucket` | The same numbers in ranges, such as `6-25` or `1-5m`; `duration_bucket` is `unknown` for a run that failed before its plan was ready |
 
@@ -98,12 +98,15 @@ There are three events. Each one is a single JSON `POST` to
 
 ## Where it goes
 
-Events go to `telemetry.turf.build`, a hostname Turf LLC controls. Scarf operates it for Turf
-LLC as a data processor. Like any HTTP request, an event arrives from your network's IP
-address. Scarf uses the address to estimate the organization and the approximate location it
-comes from, and does not keep the address. Events are kept for 90 days. Turf LLC uses them to
-understand how Turf is used, to see which installations are active, and to size commercial
-licenses.
+Events go to `telemetry.turf.build`, a hostname Turf LLC controls, which Scarf operates for
+Turf LLC. Like any HTTP request, an event arrives from your network's IP address. Scarf uses
+the address to estimate the organization and the approximate location the event comes from,
+then discards it ([how](https://docs.scarf.sh/company-matching/)). For the address, Scarf is
+Turf LLC's data processor under a data processing agreement, and acts only on Turf LLC's
+instructions. Scarf's terms of use also give Scarf a license to use, and to share, the rest of
+what it receives for its own purposes, such as running and improving its services
+([section 4](https://about.scarf.sh/terms-of-use/#4-data)). Turf LLC uses events to understand
+how Turf is used, to see which installations are active, and to size commercial licenses.
 
 Terraform® is a registered trademark of HashiCorp, Inc. OpenTofu™ is a trademark of The Linux
 Foundation. Turf is not affiliated with or endorsed by either.

@@ -646,7 +646,7 @@ Turf sends anonymous usage telemetry to Turf LLC by default: the version, the
 platform, counts of resources, changes and runs, and an anonymous installation
 id. It never includes resource contents, credentials, state, variable values or
 names. The Turf engine sends it; the CLI and the components Turf is built on
-send nothing. The field list, the endpoint and the retention period are in
+send nothing. The field list and the endpoint are in
 [docs/telemetry.md](./docs/telemetry.md) and at https://turf.build/telemetry.
 
 - `turf telemetry off` turns it off, then restart the engine:

@@ -146,8 +146,8 @@ Turn it off with `turf telemetry off`, then restart the engine
 `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the engine's environment also
 turns it off; for the Homebrew service that environment is `turf.env`, not
 your shell. With Homebrew's analytics off (`brew analytics off` or
-`HOMEBREW_NO_ANALYTICS`), the service starts with it off. The full field list,
-endpoint and retention period are at https://turf.build/telemetry.
+`HOMEBREW_NO_ANALYTICS`), the service starts with it off. The full field list
+and the endpoint are at https://turf.build/telemetry.
 
 Turf™ is a trademark of Turf LLC. Terraform® is a registered trademark of
 HashiCorp, Inc. OpenTofu™ is a trademark of The Linux Foundation. Turf is not
