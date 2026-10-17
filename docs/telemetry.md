@@ -17,6 +17,11 @@ either: restate-server's telemetry and the embedded agent runtime's are always o
 | `turf-mcp-server engine run` in a terminal | `turf telemetry off` before you start it, or `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in that terminal. |
 | A container or CI | `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the engine's environment, or `turf-engine --telemetry=off`. |
 
+To install with telemetry off from the start, run the installer with `--no-telemetry`
+(`curl -fsSL https://get.turf.build/install.sh | bash -s -- --no-telemetry`), or with
+`TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in your shell. It runs `turf telemetry off` before the
+engine starts, so the setting covers the Homebrew service too.
+
 `turf telemetry off` writes the setting to `$TURF_HOME/telemetry.json` (`~/.turf` by default).
 `turf-mcp-server engine run`, which the Homebrew service runs, reads it each time it starts the
 engine, so a change takes effect at the next start. A setting that is not valid JSON, or whose
