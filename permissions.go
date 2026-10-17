@@ -73,7 +73,9 @@ var preApprovedTurfTools = []string{
 	"turf_close",
 	"turf_delete",
 	// Runs. up, destroy, refresh, import and invoke each start a convergence and
-	// stop at its first approval point: they plan, and apply nothing.
+	// stop at its first approval point: they plan, and apply nothing. The server
+	// marks up and destroy destructive for their auto_approve, which runs every
+	// round without pausing and is passed only for a run the user pre-approved.
 	"turf_up",
 	"turf_destroy",
 	"turf_refresh",
@@ -182,7 +184,8 @@ func preApprovedTools() []string {
 // permission layer (a subset of preApprovedTurfTools) — this list is documentation
 // plus a drift guard (permissions_test.go), not a permission list. It is turf's
 // own confirm-policy, deliberately NOT a mirror of the server's destructiveHint:
-// cancel, taint and untaint are destructive yet authorize no new change (see
+// cancel, taint and untaint are destructive yet authorize no new change, and up
+// and destroy stop at an approval point unless the user pre-approved (see
 // destructiveNoConfirm in permissions_test.go). Two confirmation shapes, spelled out
 // in the persona (see agent.go):
 //   - apply is the approval point of every round. The persona follows the server's
