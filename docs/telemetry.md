@@ -45,7 +45,7 @@ There are three events. Each one is a single JSON `POST` to
 | --- | --- |
 | `schema` | The event schema's version, `1` |
 | `event` | `engine.start`, `engine.daily` or `convergence` |
-| `installation_id` | A random UUID generated for your installation, stored in `telemetry.json`. It identifies an installation, not a person. |
+| `installation_id` | A random UUID generated for your installation, stored in `telemetry.json`. It identifies an installation, not a person. An engine with no setting, such as one in a container or CI, sends none unless `TURF_INSTALLATION_ID` gives it one. |
 | `version` | Turf's version |
 | `platform`, `arch` | The operating system and CPU architecture, such as `darwin` and `arm64` |
 | `deployment` | `local` (the per-user engine), `container` or `standalone` |
@@ -58,7 +58,6 @@ There are three events. Each one is a single JSON `POST` to
 | --- | --- |
 | `restate_version` | The restate-server version the engine runs on |
 | `scopes`, `mise`, `plugin_cache`, `request_identity` | Whether each engine feature is on |
-| `persisted_id` | Whether the installation id outlives the process |
 
 **`engine.daily`**, every 24 hours the engine has been running, idle or not:
 
