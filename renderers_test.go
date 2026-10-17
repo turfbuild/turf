@@ -763,8 +763,8 @@ func TestConvergence_FailedArrivesAsAnErrorWithItsBody(t *testing.T) {
 	}
 }
 
-// Stalled, exhausted, declined and cancelled are neutral endings that still owe an
-// account: a stall names how much was left deferred.
+// Stalled, exhausted, declined, stale and cancelled are neutral endings that still
+// owe an account: a stall names how much was left deferred.
 func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
 	const content = `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"stalled",
 		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":4,"deferred":2,"applied":2},
@@ -774,6 +774,28 @@ func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
 	for _, want := range []string{"stalled · 2 deferred", "2 applied", "carried b (still deferred)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stalled missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// A stale plan was approved and never applied, because the configuration moved
+// after it: a neutral ending, its round cancelled at its gate, approved, saying how
+// the configuration moved.
+func TestConvergence_StaleSaysPlanAgain(t *testing.T) {
+	const content = `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"stale",
+		"rounds":[{"round":1,"status":"cancelled","approval":"asked","planned":1,"deferred":0,"applied":0,
+			"stale_reason":"the configuration changed after it was planned"}],
+		"next":"The configuration changed, or no longer loads, after this plan was made (rounds[].stale_reason), so nothing was applied. If it no longer loads, fix what stale_reason names; then run up to plan it again and review the new plan. Don't edit between up and apply."}`
+	compact := plainNorm(renderErr("turf_apply", content, hiddenState{}))
+	for _, want := range []string{"p-8", "stale"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("stale compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderErr("turf_apply", content, service.StaticSessionState{}))
+	for _, want := range []string{"round 1 · cancelled · 1 planned · approved", "stale: the configuration changed after it was planned"} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("stale expansion missing %q:\n%s", want, shown)
 		}
 	}
 }

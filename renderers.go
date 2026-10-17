@@ -47,7 +47,7 @@ import (
 // The vocabulary is Terraform's where Terraform has a word for it (the plan glyphs
 // in planAction, "(known after apply)", "(sensitive value)"), and the Turf engine
 // console's where it is a Turf concept Terraform lacks: a convergence's outcome
-// (converged, stalled, exhausted, declined), a round's status, an action
+// (converged, stalled, exhausted, declined, stale), a round's status, an action
 // invocation's verdict. Color stays the CLI theme's own.
 //
 // Reusing toolcommon.Icon gives us the live spinner, elapsed-time, and exact
@@ -838,7 +838,7 @@ func planRowAddr(address, deposedKey string) string {
 // that document and renders its rows.
 //
 // A convergence that ended any way but converged (failed, stalled, exhausted,
-// declined, cancelled, error, detached) arrives as an MCP error that still carries
+// declined, stale, cancelled, error, detached) arrives as an MCP error that still carries
 // the whole result, so the renderer parses before it defers to errorLine. A refusal —
 // a stale digest, a busy workspace — is plain text and falls through to errorLine.
 
@@ -849,8 +849,8 @@ type convergenceView struct {
 	// apply and cancel report the kind of the convergence they act on.
 	Kind string `json:"kind"`
 	// Outcome is awaiting_approval or awaiting_actions while paused; otherwise how it
-	// ended (converged, stalled, exhausted, failed, declined, cancelled, error,
-	// detached). A cancel of a convergence nobody follows reports the driver's word.
+	// ended (converged, stalled, exhausted, failed, declined, stale, cancelled,
+	// error, detached). A cancel of a convergence nobody follows reports the driver's word.
 	Outcome string `json:"outcome"`
 	// Round, Plan and ExpiresAt are set at an approval point.
 	Round     int             `json:"round,omitempty"`
@@ -942,7 +942,10 @@ type roundView struct {
 	Warnings       []string            `json:"warnings,omitempty"`
 	CheckFailures  []string            `json:"check_failures,omitempty"`
 	CancelCause    string              `json:"cancel_cause,omitempty"`
-	Error          string              `json:"error,omitempty"`
+	// StaleReason says how the configuration moved after the round's plan, which
+	// is why its approved plan was never applied (the convergence ends stale).
+	StaleReason string `json:"stale_reason,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // actionOutcomeView is one invocation a round settled: invoked, failed, or skipped
@@ -1249,6 +1252,9 @@ func roundLines(r roundView) []string {
 	if r.CancelCause != "" {
 		out = append(out, "    "+muted("cancelled: "+r.CancelCause))
 	}
+	if r.StaleReason != "" {
+		out = append(out, "    "+muted("stale: "+r.StaleReason))
+	}
 	if r.Error != "" {
 		out = append(out, "    "+styles.ToolErrorMessageStyle.Render(r.Error))
 	}
@@ -1318,7 +1324,7 @@ func runKindWord(kind string) string {
 }
 
 // outcomeWord names how a convergence ended, in the engine console's words: a deploy
-// converges, every other kind is done; stalled, exhausted, declined and cancelled are
+// converges, every other kind is done; stalled, exhausted, declined, stale and cancelled are
 // neutral, because red is for failure and nothing else.
 func outcomeWord(kind, outcome string) (string, color.Color) {
 	switch outcome {
@@ -1360,8 +1366,12 @@ func approvalWord(r roundView) string {
 	case "unneeded":
 		return "nothing to approve"
 	case "asked":
-		switch r.Status {
-		case "applied", "failed", "partial":
+		switch {
+		case r.Status == "applied", r.Status == "failed", r.Status == "partial":
+			return "approved"
+		case r.StaleReason != "":
+			// Approved, then never applied: the staleness gate comes after
+			// the approval.
 			return "approved"
 		}
 	}
