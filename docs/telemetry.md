@@ -9,8 +9,6 @@ The Turf engine sends it: `turf-engine`, which the `turf` Homebrew service runs.
 CLI and `turf-mcp-server` send none of their own. The components Turf is built on send nothing
 either: restate-server's telemetry and the embedded agent runtime's are always off.
 
-Only a release build sends. A Turf you build from source sends nothing.
-
 ## Turning it off
 
 | Where Turf runs | How |
@@ -106,7 +104,7 @@ LLC as a data processor. Like any HTTP request, an event arrives from your netwo
 address. Scarf uses the address to estimate the organization and the approximate location it
 comes from, and does not keep the address. Events are kept for 90 days. Turf LLC uses them to
 understand how Turf is used, to see which installations are active, and to size commercial
-licenses. It shares them with no one else, except in aggregate.
+licenses.
 
 Terraform® is a registered trademark of HashiCorp, Inc. OpenTofu™ is a trademark of The Linux
 Foundation. Turf is not affiliated with or endorsed by either.
