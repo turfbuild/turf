@@ -17,7 +17,7 @@ func newDestroyCmd() *cobra.Command {
 		Use:   "destroy [instructions...]",
 		Short: "Destroy all managed infrastructure",
 		Long: "Destroy all infrastructure resources managed by the HCL configuration in the current directory. Use -C/--chdir to target another directory.\n\n" +
-			"Optionally pass freeform instructions to steer the teardown (e.g. `turf destroy only module.staging`, or `turf destroy -- -target=module.network` when the text starts with a dash). Instructions are honored within the normal plan/approve flow and never bypass the destroy confirmation.\n\n" +
+			"Optionally pass freeform instructions to steer the teardown (e.g. `turf destroy only module.staging`, or `turf destroy -- -var-file=env/staging.tfvars` when the text starts with a dash). Instructions are honored within the normal plan/approve flow and never bypass the destroy confirmation.\n\n" +
 			"Without a terminal (a pipe, CI) nobody can answer the destroy confirmation, so it is declined and nothing is destroyed; pass --yes to approve it.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

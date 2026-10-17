@@ -37,7 +37,7 @@ func TestUpDestroyAcceptInstructionArgs(t *testing.T) {
 // instructions to the RunE, including the `turf up -- <text>` form: cobra strips
 // the -- and forwards the remainder as positional args, which RunE joins into
 // the instructions argument. This is what lets instructions that start with a
-// dash (e.g. `-target=...`) pass through without being parsed as flags.
+// dash (e.g. `-var-file=...`) pass through without being parsed as flags.
 func TestUpDestroyInstructionsReachArgs(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -47,7 +47,7 @@ func TestUpDestroyInstructionsReachArgs(t *testing.T) {
 		{"none", nil, ""},
 		{"plain", []string{"replace", "the", "vpc"}, "replace the vpc"},
 		{"single quoted", []string{"replace aws_s3_bucket.assets"}, "replace aws_s3_bucket.assets"},
-		{"dash dash guards dash-leading text", []string{"--", "-target=module.network", "now"}, "-target=module.network now"},
+		{"dash dash guards dash-leading text", []string{"--", "-var-file=env/staging.tfvars", "now"}, "-var-file=env/staging.tfvars now"},
 	}
 	for _, ctor := range []struct {
 		name string

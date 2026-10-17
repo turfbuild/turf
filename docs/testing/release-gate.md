@@ -175,6 +175,8 @@ then 2 creates). Expand every line (Ctrl+O). Before 5.1, note where the debug lo
 | 5.8 | "Destroy everything." | `Destroy  d-xxxxxxxx · round 1 · -6 · awaiting approval`. **Title: `core · planned teardown -6`.** **The dialog always appears for a destroy**, whatever the plan. Answer **yes**. `Apply Plan  d-… · destroy · done · 6 applied`. **Title: `core · destroyed -6`.** `<core>/out/default/` is empty. |
 | 5.9 | Scroll the timeline with the mouse wheel and the trackpad; drag the window down to 80 columns, then back | Smooth scrolling. At 80 columns the compact lines are cut with `…`, never wrapped into garbage, and widen back. |
 | 5.10 | `/exit`; `ls <core>/.turf`; `tail -n +$((N+1)) $TURF_HOME/turf.debug.log \| grep -c level=ERROR` | `memory.db`, `sessions.db` (and the SQLite sidecars). Zero ERROR lines since 5.1. No orphan `turf-mcp-server`. |
+| 5.11 | `cd /tmp; turf -C <core>`, then `/up set the prefix to v3` | The first message is the server's `/up` prompt for `<core>` (the working directory after `-C`), with a **User Instructions** section quoting `set the prefix to v3`. It never says `Deploy … at "set the prefix to v3"` (rc.1 finding F9). Creates only, so the agent approves itself; converged, 6 applied, and the marker holds a `v3-` name. |
+| 5.12 | `/destroy`, then `/exit` | The `/destroy` prompt for `<core>`, with no User Instructions section. The dialog; **yes**; `done · 6 applied`. |
 
 ---
 
