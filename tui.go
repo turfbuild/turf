@@ -78,6 +78,9 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, cura
 		// the sidebar's per-session metadata adds little for an infra workflow, so
 		// we drop it (this also disables its ctrl+b toggle). Lean mode has no sidebar.
 		tui.WithHideSidebar(),
+		// /up and /destroy deploy the working directory, with the typed text as
+		// instructions, exactly as `turf up` and `turf destroy` do.
+		tui.WithCommandBuilder(turfPromptCommands(a, wd)),
 	)
 
 	// Coalesce raw mouse-wheel events into the WheelCoalescedMsg the TUI acts on.

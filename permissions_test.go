@@ -40,6 +40,13 @@ var destructiveNoConfirm = map[string]struct{}{
 	"turf_cancel":  {}, // ends a convergence: in-flight work finishes, the rest is abandoned
 	"turf_taint":   {}, // marks for replacement; the replace is in the next plan, which is approved
 	"turf_untaint": {}, // lifts that mark; likewise applies nothing by itself
+	// up and destroy plan and stop at an approval point; turf_apply is where the
+	// persona confirms. The server marks them destructive for auto_approve, which
+	// applies every round without pausing: the persona passes it only when the
+	// user pre-approved the run (--yes, which the server's /up and /destroy
+	// prompts carry as auto_approve).
+	"turf_up":      {},
+	"turf_destroy": {},
 }
 
 // TestPermissionListsConsistent checks the curated lists are internally coherent,

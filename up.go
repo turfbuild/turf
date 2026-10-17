@@ -17,7 +17,7 @@ func newUpCmd() *cobra.Command {
 		Use:   "up [instructions...]",
 		Short: "Deploy infrastructure from HCL configuration",
 		Long: "Deploy or reconcile infrastructure by running an AI agent that plans and applies changes from HCL configuration files in the current directory. Use -C/--chdir to target another directory.\n\n" +
-			"Optionally pass freeform instructions to steer the plan (e.g. `turf up replace aws_s3_bucket.assets`, or `turf up -- -target=module.network` when the text starts with a dash). Instructions are honored within the normal plan/approve flow and never bypass approval.\n\n" +
+			"Optionally pass freeform instructions to steer the plan (e.g. `turf up replace aws_s3_bucket.assets`, or `turf up -- -var-file=env/staging.tfvars` when the text starts with a dash). Instructions are honored within the normal plan/approve flow and never bypass approval.\n\n" +
 			"Without a terminal (a pipe, CI) nobody can answer the agent's approval questions, so a plan that needs your yes is declined and left waiting; pass --yes to approve every plan of the run.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
