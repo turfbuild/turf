@@ -25,11 +25,12 @@ restatedev/tap/restate-server`). Homebrew installs everything together.
 ## Install (Homebrew, macOS)
 
 ```sh
-brew install turfbuild/tap/turf
+brew install restatedev/tap/restate-server turfbuild/tap/turf
 ```
 
 This installs `turf`, `turf-mcp-server`, `turf-engine`, `turf-builtin-provider`,
-and restate-server from Restate's tap. Verify:
+and restate-server from Restate's tap. Homebrew loads a formula from a third-party
+tap only when you name it, so the command names both. Verify:
 
 ```sh
 turf --version
