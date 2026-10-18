@@ -66,17 +66,40 @@ trusting a config lets it run its code when a plan is made. `TURF_MISE=off` in
 `turf.env` turns that off. To use an engine you run yourself, set
 `TURF_RESTATE_URL` to its restate-server ingress.
 
-## Model credentials
+## Quick start: from your agent
 
-The CLI drives an LLM via [Docker Agent](https://github.com/docker/docker-agent). Supply the
-API key for whichever provider you use, in the environment:
+Register the server with the agent you already use — Claude Code, Claude Desktop,
+Cursor, Codex, Gemini CLI, VS Code — in one command. It detects the agents on this
+machine, lets you pick, and writes each config with the server's absolute path
+(Node 18+; add-mcp is Neon's open-source installer). Without Node, the agent's own
+command does the same, e.g. `claude mcp add turf --scope user -- turf-mcp-server`.
+
+```sh
+npx add-mcp@2 "$(command -v turf-mcp-server)" --name turf -g
+```
+
+In Claude Code and Claude Desktop, Turf runs on your Claude subscription — no model
+API key. Turf's prompts are slash commands there (arguments are one word each):
+
+```
+/turf:guide                      # a use-case walkthrough on a real example
+/turf:up path/to/config          # deploy or reconcile a configuration
+/turf:destroy path/to/config     # tear it down
+```
+
+Every other client takes the same requests in words. Per-client setup:
+https://github.com/turfbuild#connect-your-agent.
+
+## Quick start: the Turf CLI
+
+The CLI is Turf's own agent: the same server and engine, driven by a model you bring
+via [Docker Agent](https://github.com/docker/docker-agent). Supply the API key for
+whichever provider you use, in the environment:
 
 ```sh
 export ANTHROPIC_API_KEY=...     # for --model anthropic/claude-...
 # or OPENAI_API_KEY / GOOGLE_API_KEY, etc.
 ```
-
-## Quick start
 
 ```sh
 # Interactive infrastructure management (TUI)

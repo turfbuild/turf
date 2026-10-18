@@ -40,7 +40,7 @@ saved theme, your sessions or your dev engine. Use a second terminal for the eng
 | P.4 | Terminal 2: `turf-mcp-server engine run`. Terminal 1: `turf-mcp-server engine status` | The engine's stack lives in `$RUN/home/engine` on free ports, beside any dev engine. `status` reports it running, with the server and the engine both at `$TAG`, and names its console. |
 | P.5 | `git checkout $TAG`; `go test -count=1 -v -run 'TestPermissionListsMatchServerAnnotations\|TestTurfToolTargetArgsMatchServerSchemas\|TestTitleCuratorToolsExistOnServer\|TestCreateAgentRuntimeWiresSessionStore' .` | Each test **runs** (no `SKIP`) and passes, against the `turf-mcp-server` P.3 put first on `PATH`. A `pre-approved "turf_…" is not a server tool (stale entry)` or `server tool "turf_…" is not pre-approved` line means the CLI and the server it ships with disagree on the tool set: a blocker. |
 | P.6 | `D=<a doof checkout at the server's release commit>`; `cp -R $D/docs/development/testing/v1-suite/fixtures/{core,gates,import} $RUN/`; `cp -R ../turf-examples/integrations/turf-cli $RUN/`; `rm -f $RUN/turf-cli/.turf/*.db* $RUN/turf-cli/.turf/memory.lock` | The fixtures copied, without any local state an example directory carries. The checked-in ones are never run in place. The doof commit is the one in the server's provenance (ritual step 7). |
-| P.7 | `export ANTHROPIC_API_KEY=…`; `export TURF_MODEL=anthropic/claude-sonnet-5` | Model credits are spent **only** in Suites 5–11 and row 12.3; everything before Suite 5 sends no model request. Suite 10 changes the model on purpose. |
+| P.7 | `export ANTHROPIC_API_KEY=…`; `export TURF_MODEL=anthropic/claude-sonnet-5` | Model credits are spent **only** in Suites 5–11 and row 12.3b; everything before Suite 5 sends no model request (12.3a runs on Claude Code's own plan). Suite 10 changes the model on purpose. |
 | P.8 | A truecolor terminal (Ghostty, iTerm2, WezTerm, kitty) at least 120×40 | Row 4.7 also wants a 256-color one (Terminal.app). |
 | P.9 | After the run: quit every turf; Ctrl-C the engine (terminal 2); `pgrep -fl 'turf-mcp-server\|turf-engine\|restate-server\|terraform-provider'`; `find $RUN -name .terraform.tfstate.lock.info` | No process of this run's left; no lock file. `grep -E 'level=(ERROR\|WARN)' $RUN/home/turf.debug.log`: each line explained (Suite 2's are expected). |
 
@@ -54,7 +54,7 @@ contents check is then skipped.
 |---|---|---|---|---|
 | Gate | P, 1–5 | registry access (`hashicorp/random`, `hashicorp/local`), restate-server | Suite 5 | ~1 h |
 | Full | 6–11 | the same, plus git | yes | ~2.5 h |
-| Post-publish | 12 | Homebrew, a user without `~/.turf` (or with it moved aside) | 12.3 | ~20 min |
+| Post-publish | 12 | Homebrew, a user without `~/.turf` (or with it moved aside), Claude Code signed in to a Claude plan, Node 18+ | 12.3b | ~25 min |
 
 ### Conventions
 
@@ -289,9 +289,10 @@ move yours aside first: `mv ~/.turf ~/.turf.gate-bak`).
 |---|---|---|
 | 12.1 | `brew uninstall turf` (if installed); `brew install restatedev/tap/restate-server turfbuild/tap/turf`; `which turf turf-mcp-server turf-engine restate-server`; `turf --version` | All four resolve into Homebrew's prefix; `turf version $TAG`. |
 | 12.2 | `brew services start turf`; `turf-mcp-server engine status` | Running; the server and the engine both at `$TAG`. |
-| 12.3 | `cp -R <core> /tmp/gate-core; cd /tmp/gate-core`; follow the installed README's quick start **as written** | It works as written; the deploy converges. |
+| 12.3a | `cp -R <core> /tmp/gate-core-agent`; follow the installed README's "Quick start: from your agent" **as written**: `npx add-mcp@2 "$(command -v turf-mcp-server)" --name turf -g`, pick Claude Code; `claude mcp list`; open `claude` in `/tmp/gate-core-agent`; `/turf:up /tmp/gate-core-agent` | add-mcp writes `~/.claude.json` with the absolute path; `claude mcp list` shows turf connected; the deploy converges, its approval shown in Claude Code; none of P.7's credits are spent. |
+| 12.3b | `cp -R <core> /tmp/gate-core; cd /tmp/gate-core`; follow "Quick start: the Turf CLI" **as written** | It works as written; the deploy converges. |
 | 12.4 | `brew services stop turf`; `turf up` | The agent's first engine call fails with the server's message that the local Turf engine is not running and `brew services start turf` starts it. It reads as a sentence, not a stack trace. `brew services start turf` again. |
-| 12.5 | `cd /tmp/gate-core; turf destroy --yes`; `brew services stop turf`; `rm -rf ~/.turf; mv ~/.turf.gate-bak ~/.turf`; `brew services start turf` | Your own setup restored. |
+| 12.5 | `cd /tmp/gate-core; turf destroy --yes`; `turf -C /tmp/gate-core-agent destroy --yes`; `npx add-mcp@2 remove turf -g -y`; `brew services stop turf`; `rm -rf ~/.turf; mv ~/.turf.gate-bak ~/.turf`; `brew services start turf` | Your own setup restored. |
 
 ---
 
