@@ -26,8 +26,9 @@ from a third-party tap only when you name it, so the command names both:
 
 ```sh
 brew install restatedev/tap/restate-server turfbuild/tap/turf
+brew services start turf          # the engine, now and at every login
+turf-mcp-server engine status     # the health check
 turf --version
-which turf-mcp-server
 ```
 
 The same command upgrades a 0.x install, where `brew upgrade turf` alone stops at
@@ -57,7 +58,38 @@ which turf-mcp-server
 export TURF_MCP_SERVER=/path/to/turf-mcp-server
 ```
 
+## Connect your agent
+
+`turf-mcp-server` is a stdio MCP server, and this CLI is one of its clients. Register it
+with the agent you already use — Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI,
+VS Code — in one command: it detects the agents on this machine, lets you pick, and writes
+each config with the server's absolute path (Node 18+;
+[add-mcp](https://github.com/neon-solutions/add-mcp) is Neon's open-source installer).
+
+```sh
+npx add-mcp@2 "$(command -v turf-mcp-server)" --name turf -g
+```
+
+Without Node, the agent's own command does the same:
+
+```sh
+claude mcp add turf --scope user -- turf-mcp-server             # Claude Code
+codex  mcp add turf -- turf-mcp-server                          # Codex CLI
+gemini mcp add -s user turf turf-mcp-server                     # Gemini CLI
+code --add-mcp '{"name":"turf","command":"turf-mcp-server"}'    # VS Code
+```
+
+In Claude Code and Claude Desktop, Turf runs on your Claude subscription — no model API key.
+Turf's prompts are slash commands there: `/mcp__turf__guide` walks through a use case on a
+real example, `/mcp__turf__up path/to/config` deploys or reconciles a configuration, and
+`/mcp__turf__destroy path/to/config` tears it down (arguments are one word each). Every
+other client takes the same requests in words. Per-client setup, scopes and env vars:
+[github.com/turfbuild](https://github.com/turfbuild#connect-your-agent).
+
 ## Usage
+
+The CLI is Turf's standalone agent: the same server and engine, driven by a model you
+bring (see [Model providers](#model-providers)).
 
 ```sh
 # Interactive infrastructure management (TUI)
@@ -592,13 +624,17 @@ For a working project skill you can copy, see the
 ## Architecture
 
 ```
-turf (this binary)
-   │
-   │  cagent runtime + LLM (local via Docker Model Runner / Ollama,
-   │                        or cloud: Anthropic / OpenAI / Google / …)
+turf (this binary)                      your agent (Claude Code, Cursor, Codex, …)
+   │                                       │
+   │  cagent runtime + LLM                 │  the agent's own model
+   │  (local via Docker Model Runner /     │
+   │   Ollama, or cloud: Anthropic /       │
+   │   OpenAI / Google / …)                │
+   ▼                                       ▼
+turf-mcp-server (separate binary, on PATH; MCP over stdio)
    │
    ▼
-turf-mcp-server (separate binary, on PATH)
+the Turf engine (turf-engine + restate-server; `brew services start turf`)
    │
    ▼
 OpenTofu providers (downloaded on demand)
