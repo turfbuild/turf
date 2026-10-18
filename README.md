@@ -21,13 +21,17 @@ way to consume it. Here's the CLI in action:
 ### Homebrew (recommended) — macOS and Linux
 
 Installs the `turf` CLI, `turf-mcp-server`, `turf-engine` and `turf-builtin-provider`
-from the latest release, with restate-server from Restate's tap:
+from the latest release, with restate-server from Restate's tap. Homebrew loads a formula
+from a third-party tap only when you name it, so the command names both:
 
 ```sh
-brew install turfbuild/tap/turf
+brew install restatedev/tap/restate-server turfbuild/tap/turf
 turf --version
 which turf-mcp-server
 ```
+
+The same command upgrades a 0.x install, where `brew upgrade turf` alone stops at
+restate-server. Later upgrades are `brew upgrade turf`.
 
 > Turf is free for noncommercial use. Commercial use, including a company's
 > internal use, needs a license: see [License](#license) and https://turf.build/licensing.

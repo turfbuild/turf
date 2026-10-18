@@ -287,7 +287,7 @@ move yours aside first: `mv ~/.turf ~/.turf.gate-bak`).
 
 | # | Do | Expect |
 |---|---|---|
-| 12.1 | `brew uninstall turf` (if installed); `brew install turfbuild/tap/turf`; `which turf turf-mcp-server turf-engine restate-server`; `turf --version` | All four resolve into Homebrew's prefix; `turf version $TAG`. |
+| 12.1 | `brew uninstall turf` (if installed); `brew install restatedev/tap/restate-server turfbuild/tap/turf`; `which turf turf-mcp-server turf-engine restate-server`; `turf --version` | All four resolve into Homebrew's prefix; `turf version $TAG`. |
 | 12.2 | `brew services start turf`; `turf-mcp-server engine status` | Running; the server and the engine both at `$TAG`. |
 | 12.3 | `cp -R <core> /tmp/gate-core; cd /tmp/gate-core`; follow the installed README's quick start **as written** | It works as written; the deploy converges. |
 | 12.4 | `brew services stop turf`; `turf up` | The agent's first engine call fails with the server's message that the local Turf engine is not running and `brew services start turf` starts it. It reads as a sentence, not a stack trace. `brew services start turf` again. |
