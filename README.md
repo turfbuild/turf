@@ -80,9 +80,9 @@ code --add-mcp '{"name":"turf","command":"turf-mcp-server"}'    # VS Code
 ```
 
 In Claude Code and Claude Desktop, Turf runs on your Claude subscription — no model API key.
-Turf's prompts are slash commands there: `/mcp__turf__guide` walks through a use case on a
-real example, `/mcp__turf__up path/to/config` deploys or reconciles a configuration, and
-`/mcp__turf__destroy path/to/config` tears it down (arguments are one word each). Every
+Turf's prompts are slash commands there: `/turf:guide` walks through a use case on a
+real example, `/turf:up path/to/config` deploys or reconciles a configuration, and
+`/turf:destroy path/to/config` tears it down (arguments are one word each). Every
 other client takes the same requests in words. Per-client setup, scopes and env vars:
 [github.com/turfbuild](https://github.com/turfbuild#connect-your-agent).
 

@@ -82,9 +82,9 @@ In Claude Code and Claude Desktop, Turf runs on your Claude subscription — no 
 API key. Turf's prompts are slash commands there (arguments are one word each):
 
 ```
-/mcp__turf__guide                      # a use-case walkthrough on a real example
-/mcp__turf__up path/to/config          # deploy or reconcile a configuration
-/mcp__turf__destroy path/to/config     # tear it down
+/turf:guide                      # a use-case walkthrough on a real example
+/turf:up path/to/config          # deploy or reconcile a configuration
+/turf:destroy path/to/config     # tear it down
 ```
 
 Every other client takes the same requests in words. Per-client setup:
