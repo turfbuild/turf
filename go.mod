@@ -1,6 +1,6 @@
 module github.com/turfbuild/turf
 
-go 1.26.9
+go 1.26.10
 
 replace github.com/docker/docker-agent => ./docker-agent
 
@@ -102,7 +102,7 @@ require (
 	github.com/junegunn/fzf v0.74.1 // indirect
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741 // indirect
 	github.com/k3a/html2text v1.4.0 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
