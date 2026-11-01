@@ -705,5 +705,8 @@ send nothing. The field list and the endpoint are in
 - `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the engine's environment also
   turns it off. For the Homebrew service that environment is `turf.env`
   (`~/.homebrew/services/turf.env`), not your shell.
+- Under CI the engine sends no installation id, so a job on a fresh runner is
+  not a new installation, unless `TURF_INSTALLATION_ID` gives it one: a UUID
+  kept in a CI variable counts your pipelines as one installation.
 - With Homebrew's analytics off (`brew analytics off` or
   `HOMEBREW_NO_ANALYTICS`), the Homebrew service starts with it off.
