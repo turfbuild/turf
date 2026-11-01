@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,8 +23,10 @@ import (
 func examplesDir(t *testing.T) string {
 	t.Helper()
 	if dir := os.Getenv("TURF_EXAMPLES_DIR"); dir != "" {
+		// Set, it is an opt-in: a path that does not resolve is a mistake to
+		// report, not a checkout to do without.
 		if _, err := os.Stat(dir); err != nil {
-			t.Skipf("TURF_EXAMPLES_DIR=%q not accessible: %v", dir, err)
+			t.Fatalf("TURF_EXAMPLES_DIR=%q not accessible: %v", dir, err)
 		}
 		return dir
 	}
@@ -66,32 +67,21 @@ func TestCliExampleSkillDiscovered(t *testing.T) {
 }
 
 // TestCliConfigExamplesValid confirms the example turf.yaml model-configuration
-// files (integrations/turf-cli) parse into turfConfig and pass cagent's schema
-// validation (e.g. first_available's mutual-exclusion rules), so the gallery
-// cannot drift into an invalid state against the pinned docker-agent.
+// files — integrations/turf-cli's own .turf/turf.yaml and every gallery config —
+// parse into turfConfig and pass cagent's schema validation (e.g.
+// first_available's mutual-exclusion rules), so the gallery cannot drift into
+// an invalid state against the pinned docker-agent. Only those committed files
+// are read: the rest of .turf/ is the example's machine-local state.
 func TestCliConfigExamplesValid(t *testing.T) {
 	root := filepath.Join(examplesDir(t), "integrations", "turf-cli")
-	if _, err := os.Stat(filepath.Join(root, "gallery")); err != nil {
-		t.Fatalf("turf-cli model-config gallery not present: %v", err)
-	}
-
-	var files []string
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		// Both the active .turf/turf.yaml and the gallery/*.turf.yaml configs.
-		if filepath.Base(p) == turfConfigFileName || filepath.Ext(p) == ".yaml" {
-			files = append(files, p)
-		}
-		return nil
-	})
+	gallery, err := filepath.Glob(filepath.Join(root, "gallery", "*.y*ml"))
 	if err != nil {
-		t.Fatalf("walking %s: %v", root, err)
+		t.Fatal(err)
 	}
-	if len(files) == 0 {
-		t.Fatalf("no example configs found under %s", root)
+	if len(gallery) == 0 {
+		t.Fatalf("no gallery configs under %s/gallery", root)
 	}
+	files := append([]string{filepath.Join(root, ".turf", turfConfigFileName)}, gallery...)
 
 	for _, f := range files {
 		data, err := os.ReadFile(f)
