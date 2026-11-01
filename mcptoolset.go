@@ -20,7 +20,7 @@ import (
 //     26-tool wall into scannable groups (replacing the generic "mcp" bucket the
 //     MCP toolset hardcodes onto every tool).
 //   - Tools() also strips the redundant "turf_" prefix for display by setting each
-//     tool's Annotations.Title to a friendly name ("Apply Plan" rather than
+//     tool's Annotations.Title to a friendly name ("Apply" rather than
 //     "turf_apply"); the category header already says "turf". This is
 //     display-only — providers send only Name/Description/Parameters, and
 //     permissions/dispatch key on Name, so the model still calls "turf_apply".
@@ -57,7 +57,7 @@ func (d *turfMCPToolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 // decorateTurfTool rewrites one tool's Category and display Title for the /tools
 // dialog: it files the tool under its functional sub-category and gives it a
-// friendly, verb-first display name ("Apply Plan" rather than "turf_apply").
+// friendly, verb-first display name ("Apply" rather than "turf_apply").
 // Display-only — Name is left untouched, so the model still calls the tool by its
 // prefixed name, and permissions/dispatch (which key on Name) are unaffected. Names
 // arrive already prefixed ("turf_apply"); TrimPrefix yields the bare name and
@@ -91,18 +91,19 @@ var turfToolInfo = map[string]struct {
 	"list":   {"workspace", "List Workspaces"},
 	"close":  {"workspace", "Close Workspace"},
 	"delete": {"workspace", "Delete Workspace"},
-	// run — the calls that start a convergence and stop at round 1's plan gate,
-	// and plan, which plans the round at its gate and stops at its approval
-	// point. up is titled by the engine console's word for its run kind, "deploy".
+	// run — the calls that start a convergence and stop at round 1's plan gate.
+	// up is titled by the engine console's word for its run kind, "deploy".
 	"up":      {"run", "Deploy"},
 	"destroy": {"run", "Destroy"},
 	"refresh": {"run", "Refresh State"},
 	"import":  {"run", "Import Resources"},
 	"invoke":  {"run", "Invoke Action"},
-	"plan":    {"run", "Plan"},
-	// apply — approving a vended plan (or answering turf actions), and ending a
-	// convergence
-	"apply":  {"apply", "Apply Plan"},
+	// apply — the calls that drive a started convergence round by round:
+	// planning a round at its gate, approving its plan (or answering turf
+	// actions), and ending the convergence. apply is "Apply", not "Apply Plan",
+	// so it does not read as a second Plan.
+	"plan":   {"apply", "Plan"},
+	"apply":  {"apply", "Apply"},
 	"cancel": {"apply", "Cancel Run"},
 	// state — reads, and the state edits that apply nothing by themselves
 	"show":       {"state", "Show"},

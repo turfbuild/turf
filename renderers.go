@@ -32,7 +32,7 @@ import (
 // Design goals (per the experiment): blend into the conversation. Every renderer
 // emits a borderless icon + one colored line, matching the default tool line
 // (✓ Title …) so turf tools read as first-class conversation entries. The line leads
-// with the friendly, English-readable tool title (e.g. "Apply Plan") — resolved via
+// with the friendly, English-readable tool title (e.g. "Apply") — resolved via
 // toolTitle from the shared turfToolInfo source and styled with the same neutral
 // styles.ToolName cagent's built-in renderers use — followed by the target + status.
 // Color and the status glyph come from cagent's theme via the styles package and
@@ -880,7 +880,9 @@ type convergenceView struct {
 	Rounds         []roundView             `json:"rounds"`
 	Outputs        *convergenceOutputsView `json:"outputs,omitempty"`
 	Error          string                  `json:"error,omitempty"`
-	Note           string                  `json:"note,omitempty"`
+	// The result's note is not read: it is the server's guidance to the agent
+	// (what to call next, and with what), which the next: row already shows the
+	// user in a line.
 }
 
 // nextCallView is the call that continues a convergence, as the result names it:
@@ -1202,9 +1204,6 @@ func convergenceDetail(c convergenceView) []string {
 	}
 	if n := c.Next; n != nil && n.Tool != "" {
 		detail = append(detail, section("next"), "  "+nextCallLine(*n))
-	}
-	if c.Note != "" {
-		detail = append(detail, muted(c.Note))
 	}
 	if c.Error != "" {
 		detail = append(detail, styles.ToolErrorMessageStyle.Render(c.Error))

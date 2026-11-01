@@ -737,7 +737,7 @@ func TestConvergence_UpStopsAtThePlanGate(t *testing.T) {
 		}
 	}
 	shown := plainNorm(renderFor("turf_up", upAwaitingPlan, service.StaticSessionState{}))
-	for _, want := range []string{"rounds:", "round 1 · awaiting plan", "next:", "plan convergence_id=p-9bc1215f", "waits at its plan gate"} {
+	for _, want := range []string{"rounds:", "round 1 · awaiting plan", "next:", "plan convergence_id=p-9bc1215f"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("up expanded missing %q:\n%s", want, shown)
 		}
@@ -786,12 +786,35 @@ func TestConvergence_PlanAwaitingApproval(t *testing.T) {
 	}
 }
 
+// The result's note is the server's guidance to the agent; the timeline does not
+// print it, expanded or not.
+func TestConvergence_NoteIsTheAgents(t *testing.T) {
+	for _, tc := range []struct{ tool, content string }{
+		{"turf_up", upAwaitingPlan},
+		{"turf_plan", planRound1},
+		{"turf_apply", applyConverged},
+		{"turf_plan", planPlanning},
+		{"turf_apply", applyDeclined},
+	} {
+		var v struct {
+			Note string `json:"note"`
+		}
+		if err := json.Unmarshal([]byte(tc.content), &v); err != nil || v.Note == "" {
+			t.Fatalf("%s fixture carries no note (%v)", tc.tool, err)
+		}
+		out := plainNorm(renderFor(tc.tool, tc.content, service.StaticSessionState{}))
+		if strings.Contains(out, plainNorm(v.Note)[:40]) {
+			t.Fatalf("%s rendered the agent's note:\n%s", tc.tool, out)
+		}
+	}
+}
+
 // apply applies the round and stops at the next round's plan gate; the next plan
 // plans it.
 func TestConvergence_ApplyStopsAtTheNextGate(t *testing.T) {
 	out := plainNorm(renderFor("turf_apply", applyRound1Gate, service.StaticSessionState{}))
 	for _, want := range []string{
-		"Apply Plan", "p-9bc1215f · deploy · round 2", "awaiting plan",
+		"Apply", "p-9bc1215f · deploy · round 2", "awaiting plan",
 		"round 1 · applied · 4 applied · 1 deferred · approved",
 		"round 2 · awaiting plan",
 		"next:", "plan convergence_id=p-9bc1215f",
@@ -817,7 +840,7 @@ func TestConvergence_ApplyStopsAtTheNextGate(t *testing.T) {
 
 func TestConvergence_Converged(t *testing.T) {
 	compact := plainNorm(renderFor("turf_apply", applyConverged, hiddenState{}))
-	for _, want := range []string{"Apply Plan", "p-9bc1215f", "deploy", "converged", "2 rounds", "6 applied"} {
+	for _, want := range []string{"Apply", "p-9bc1215f", "deploy", "converged", "2 rounds", "6 applied"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("converged compact missing %q: %q", want, compact)
 		}
@@ -850,7 +873,7 @@ func TestConvergence_PlanningAtTheDeadline(t *testing.T) {
 		}
 	}
 	shown := plainNorm(renderFor("turf_plan", planPlanning, service.StaticSessionState{}))
-	for _, want := range []string{"round 1 · planning", "next:", "plan convergence_id=p-f28d0184", "returned at its deadline"} {
+	for _, want := range []string{"round 1 · planning", "next:", "plan convergence_id=p-f28d0184"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("planning expanded missing %q:\n%s", want, shown)
 		}
@@ -865,7 +888,7 @@ func TestConvergence_CancellingAndNextArgs(t *testing.T) {
 		"rounds":[{"round":1,"status":"applying","approval":"asked","planned":4}],
 		"ended":false,"next":{"tool":"apply","args":{"convergence_id":"p-1"}}}`
 	compact := plainNorm(renderFor("turf_apply", cancelling, hiddenState{}))
-	for _, want := range []string{"Apply Plan", "p-1", "round 1", "applying…", "cancelling"} {
+	for _, want := range []string{"Apply", "p-1", "round 1", "applying…", "cancelling"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("cancelling compact missing %q: %q", want, compact)
 		}
@@ -888,7 +911,7 @@ func TestConvergence_CancellingAndNextArgs(t *testing.T) {
 // applied, and the reason under the round.
 func TestConvergence_DeclinedAndCancelled(t *testing.T) {
 	declined := plainNorm(renderFor("turf_apply", applyDeclined, service.StaticSessionState{}))
-	for _, want := range []string{"Apply Plan", "p-8cd5c969", "deploy", "declined", "round 1 · cancelled · 6 planned", "declined: the user said no"} {
+	for _, want := range []string{"Apply", "p-8cd5c969", "deploy", "declined", "round 1 · cancelled · 6 planned", "declined: the user said no"} {
 		if !strings.Contains(declined, want) {
 			t.Fatalf("declined missing %q:\n%s", want, declined)
 		}
@@ -967,7 +990,7 @@ func TestConvergence_FailedArrivesAsAnErrorWithItsBody(t *testing.T) {
 	// the call named.
 	const refusal = `stale plan digest: plan_digest "sha256:0000" is not the digest of the plan round 1 waits on.`
 	ref := plainNorm(renderErrArgs("turf_apply", refusal, `{"convergence_id":"p-5f3d7adf","plan_digest":"sha256:0000"}`, service.StaticSessionState{}))
-	for _, want := range []string{"Apply Plan", "p-5f3d7adf", "stale plan digest"} {
+	for _, want := range []string{"Apply", "p-5f3d7adf", "stale plan digest"} {
 		if !strings.Contains(ref, want) {
 			t.Fatalf("refusal missing %q: %q", want, ref)
 		}
