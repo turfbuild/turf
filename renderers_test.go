@@ -723,7 +723,7 @@ const statusHolding = `{"workspaces":[{"workspace_alias":"default","config_alias
 // which call continues.
 func TestConvergence_UpStopsAtThePlanGate(t *testing.T) {
 	compact := plainNorm(renderFor("turf_up", upAwaitingPlan, hiddenState{}))
-	for _, want := range []string{"Deploy", "p-9bc1215f", "round 1", "awaiting plan"} {
+	for _, want := range []string{"Up", "p-9bc1215f", "round 1", "awaiting plan"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("up compact missing %q: %q", want, compact)
 		}
@@ -737,7 +737,7 @@ func TestConvergence_UpStopsAtThePlanGate(t *testing.T) {
 		}
 	}
 	shown := plainNorm(renderFor("turf_up", upAwaitingPlan, service.StaticSessionState{}))
-	for _, want := range []string{"rounds:", "round 1 · awaiting plan", "next:", "plan convergence_id=p-9bc1215f"} {
+	for _, want := range []string{"rounds:", "round 1 · awaiting plan"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("up expanded missing %q:\n%s", want, shown)
 		}
@@ -765,7 +765,6 @@ func TestConvergence_PlanAwaitingApproval(t *testing.T) {
 	for _, want := range []string{
 		"plan:", "turf://workspaces/default/convergences/p-9bc1215f/rounds/1/plan", "sha256:88c4c6dea91a", "expires 2026-11-02T07:31:41Z",
 		"rounds:", "round 1 · awaiting approval · 5 planned · 1 deferred",
-		"next:", "apply convergence_id=p-9bc1215f",
 	} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("plan expanded missing %q:\n%s", want, shown)
@@ -786,9 +785,9 @@ func TestConvergence_PlanAwaitingApproval(t *testing.T) {
 	}
 }
 
-// The result's note is the server's guidance to the agent; the timeline does not
-// print it, expanded or not.
-func TestConvergence_NoteIsTheAgents(t *testing.T) {
+// The result's note and next are the server's guidance to the agent; the timeline
+// prints neither, expanded or not.
+func TestConvergence_GuidanceIsTheAgents(t *testing.T) {
 	for _, tc := range []struct{ tool, content string }{
 		{"turf_up", upAwaitingPlan},
 		{"turf_plan", planRound1},
@@ -806,6 +805,9 @@ func TestConvergence_NoteIsTheAgents(t *testing.T) {
 		if strings.Contains(out, plainNorm(v.Note)[:40]) {
 			t.Fatalf("%s rendered the agent's note:\n%s", tc.tool, out)
 		}
+		if strings.Contains(out, "next:") || strings.Contains(out, "convergence_id=") {
+			t.Fatalf("%s rendered the agent's next call:\n%s", tc.tool, out)
+		}
 	}
 }
 
@@ -817,7 +819,6 @@ func TestConvergence_ApplyStopsAtTheNextGate(t *testing.T) {
 		"Apply", "p-9bc1215f · deploy · round 2", "awaiting plan",
 		"round 1 · applied · 4 applied · 1 deferred · approved",
 		"round 2 · awaiting plan",
-		"next:", "plan convergence_id=p-9bc1215f",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("apply (to round 2's gate) missing %q:\n%s", want, out)
@@ -873,7 +874,7 @@ func TestConvergence_PlanningAtTheDeadline(t *testing.T) {
 		}
 	}
 	shown := plainNorm(renderFor("turf_plan", planPlanning, service.StaticSessionState{}))
-	for _, want := range []string{"round 1 · planning", "next:", "plan convergence_id=p-f28d0184"} {
+	for _, want := range []string{"round 1 · planning"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("planning expanded missing %q:\n%s", want, shown)
 		}
@@ -881,9 +882,8 @@ func TestConvergence_PlanningAtTheDeadline(t *testing.T) {
 }
 
 // A call that returned at the deadline after a cancel was asked says the
-// convergence is cancelling; the call that continues a convergence renders a list
-// argument as its JSON, a string bare.
-func TestConvergence_CancellingAndNextArgs(t *testing.T) {
+// convergence is cancelling.
+func TestConvergence_Cancelling(t *testing.T) {
 	cancelling := `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"applying","round":1,"cancelling":true,
 		"rounds":[{"round":1,"status":"applying","approval":"asked","planned":4}],
 		"ended":false,"next":{"tool":"apply","args":{"convergence_id":"p-1"}}}`
@@ -896,14 +896,6 @@ func TestConvergence_CancellingAndNextArgs(t *testing.T) {
 	plain := plainNorm(renderFor("turf_apply", planPlanning, hiddenState{}))
 	if strings.Contains(plain, "cancelling") {
 		t.Fatalf("nothing is cancelling here: %q", plain)
-	}
-	line := plainNorm(nextCallLine(nextCallView{Tool: "plan", Args: map[string]any{
-		"replace":        []any{"random_pet.name", "local_file.marker"},
-		"convergence_id": "p-1",
-		"refresh":        false,
-	}}))
-	if want := `plan convergence_id=p-1 refresh=false replace=["random_pet.name","local_file.marker"]`; line != want {
-		t.Fatalf("next line = %q, want %q", line, want)
 	}
 }
 
@@ -1708,13 +1700,12 @@ const applyPlanfileStale = `{"convergence_id":"p-9b9ca992","workspace_alias":"de
 const applyPlanfileConverged = `{"convergence_id":"p-fc14679f","workspace_alias":"default","kind":"up","outcome":"converged","rounds":[{"round":1,"status":"applied","approval":"planfile","planned":1,"deferred":0,"applied":1}],"note":"Done: nothing is left deferred. Read outputs with output, and state with state_list or show.","ended":true}`
 
 // A plan-only run ends planned: the line carries the plan's tally and the
-// planfile's short digest with no totals (nothing applied); the expansion a
-// planfile: row and the next that applies it — with no digest, which is the
-// approver's to read.
+// planfile's short digest with no totals (nothing applied); the expansion adds a
+// planfile: row.
 func TestConvergence_Planned(t *testing.T) {
 	full := plainNorm(renderFor("turf_plan", planPlannedResult, service.StaticSessionState{}))
 	for _, want := range []string{"Plan", "p-0e49a64f", "deploy", "planned", "+1", "planfile sha256:3bc99a231f7f", "planfile:",
-		"expires 2026-11-02T10:12:56Z", "round 1 · planned · 1 planned", "next:", "apply planfile=p-0e49a64f workspace_alias=default"} {
+		"expires 2026-11-02T10:12:56Z", "round 1 · planned · 1 planned"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("planned missing %q:\n%s", want, full)
 		}
