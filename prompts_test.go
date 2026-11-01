@@ -11,19 +11,19 @@ import (
 )
 
 func TestServerPromptArgs(t *testing.T) {
+	// --yes never reaches the server: approval is the agent's, per plan, and the
+	// flag only auto-confirms its user_prompt (autoconfirm.go).
 	for _, tc := range []struct {
 		name         string
 		instructions string
-		autoApprove  bool
 		want         map[string]string
 	}{
-		{"path only", "", false, map[string]string{"config_path": "/w"}},
-		{"blank instructions dropped", "  \t", false, map[string]string{"config_path": "/w"}},
-		{"instructions trimmed", " use env/staging.tfvars ", false, map[string]string{"config_path": "/w", "instructions": "use env/staging.tfvars"}},
-		{"auto approve", "", true, map[string]string{"config_path": "/w", "auto_approve": "true"}},
+		{"path only", "", map[string]string{"config_path": "/w"}},
+		{"blank instructions dropped", "  \t", map[string]string{"config_path": "/w"}},
+		{"instructions trimmed", " use env/staging.tfvars ", map[string]string{"config_path": "/w", "instructions": "use env/staging.tfvars"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := serverPromptArgs("/w", tc.instructions, tc.autoApprove); !maps.Equal(got, tc.want) {
+			if got := serverPromptArgs("/w", tc.instructions); !maps.Equal(got, tc.want) {
 				t.Errorf("serverPromptArgs = %v, want %v", got, tc.want)
 			}
 		})

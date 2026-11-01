@@ -69,8 +69,9 @@ func newDestroyCmd() *cobra.Command {
 			// Render the server's authored /destroy runbook as the first message —
 			// the same content the TUI's /destroy slash command produces — with any
 			// positional args joined into the optional instructions argument, and
-			// --yes forwarded as the prompt's auto_approve.
-			prompt, err := renderServerPrompt(ctx, rt, "destroy", absPath, strings.Join(args, " "), autoApprove)
+			// --yes stays on this side: it answers the agent's user_prompt yes
+			// (userPromptToolset); the server has no approval argument.
+			prompt, err := renderServerPrompt(ctx, rt, "destroy", absPath, strings.Join(args, " "))
 			if err != nil {
 				return err
 			}

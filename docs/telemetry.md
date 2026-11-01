@@ -89,7 +89,7 @@ There are three events. Each one is a single JSON `POST` to
 | `failure` | For a failed run: `plan`, `apply`, `checks`, `refused` or `engine`; else `none` |
 | `refused` | For a run refused over a Terraform® construct Turf does not run, the construct's name (such as `provisioners`). Always one of a fixed list, never your configuration's text. |
 | `rounds`, `deferred` | How many plan-and-apply rounds the run took, and the changes it deferred between them |
-| `auto_approve`, `approvals_asked`, `approvals_auto`, `declined` | How plans were approved |
+| `auto_approve`, `approvals_asked`, `approvals_auto`, `declined` | How plans were approved. `auto_approve` is false for every run turf starts: nothing is approved up front, each round's plan is approved by its digest. |
 | `creates`, `updates`, `replaces`, `deletes`, `reads`, `noops`, `taints`, `forgets`, `imports`, `moves`, `drifted` | How many planned changes of each kind, summed over the run's rounds |
 | `applied`, `failed`, `cancelled` | How many changes applied, failed or were cancelled |
 | `actions`, `actions_failed`, `turf_actions` | How many actions ran, failed, and were Turf's own |
