@@ -590,7 +590,7 @@ func sortedKeys(m map[string]any) []string {
 // Run 1) against fixture `core`, paths shortened. Each tool's line is asserted in both
 // detail levels.
 
-// The v2 loop on fixture core, as the server returned it against a real engine
+// The plan-gate loop on fixture core, as the server returned it against a real engine
 // (2026-11-01, turf-mcp-server v1.2.0-7-g6101c5e27d): a start verb stops at round
 // 1's plan gate, plan plans the round and stops at its approval point, apply
 // applies it and stops at the next round's gate or ends the convergence. The
@@ -1685,7 +1685,7 @@ func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
 	}
 }
 
-// The planfile fixtures: the v2 server's own results on fixture core, recorded
+// The planfile fixtures: the server's own results on fixture core, recorded
 // against a real engine (turf-mcp-server #208): a plan-only run's planned
 // result, status and open with the planfile listed, the stale apply of a wrong
 // digest, the apply that converged.
