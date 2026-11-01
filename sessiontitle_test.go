@@ -42,6 +42,17 @@ func ended(kind, id, outcome string) string {
 		id, kind, outcome)
 }
 
+// plannedRun is a plan-only convergence's ending: the plan vended as at an
+// approval point, the planfile beside it, nothing applied.
+func plannedRun(kind, id string, add, change, destroy int) string {
+	return fmt.Sprintf(`{"convergence_id":%q,"workspace_alias":"default","kind":%q,"outcome":"planned",
+		"plan":{"uri":"turf://workspaces/default/convergences/%s/rounds/1/plan","digest":"sha256:ab","add":%d,"change":%d,"destroy":%d},
+		"planfile":{"ref":%q,"digest":"sha256:ab","expires_at":"2026-11-02T01:00:00Z"},
+		"rounds":[{"round":1,"status":"planned","planned":%d}],"ended":true,
+		"next":{"tool":"apply","args":{"workspace_alias":"default","planfile":%q}}}`,
+		id, kind, id, add, change, destroy, id, add+change+destroy, id)
+}
+
 // atGate is a result stopped at a round's plan gate (a start verb's, or an apply's
 // when another round is needed): no plan yet.
 func atGate(kind, id string, round int) string {
@@ -237,6 +248,8 @@ func TestAutoTitlePattern(t *testing.T) {
 		{label: "a", stage: stageEnded, ending: "declined", added: 2, changed: 3, destroyed: 2},
 		{label: "a", stage: stageEnded, ending: "cancelled"},
 		{label: "a", stage: stageEnded, ending: "stale", destroyed: 1},
+		{label: "a", stage: stageEnded, ending: "planned", added: 1},
+		{label: "a", stage: stageEnded, ending: "planned", destroyed: 6}, // a plan-only destroy: planned teardown
 	}
 	for _, d := range digests {
 		got := d.title()
@@ -496,6 +509,39 @@ func TestCuratorTitlesADecline(t *testing.T) {
 	c.OnEvent(ctx, sess, respEvent("turf_cancel", cancelAtApproval))
 	if last != "core · declined +2 ~3 -2" {
 		t.Errorf("a cancel of a convergence never planned here retitled: %q", last)
+	}
+}
+
+// TestCuratorTitlesAPlannedRun: a plan-only run ends planned with its plan
+// vended, so the ending titles with the plan's counts, as a decline does; a
+// plan-only destroy reads as a planned teardown.
+func TestCuratorTitlesAPlannedRun(t *testing.T) {
+	c := newSessionTitleCurator(nil)
+	var last string
+	c.setEmitter(func(title string) { last = title })
+
+	sess := session.New()
+	ctx := context.Background()
+	c.OnRunStart(ctx, sess)
+	c.OnEvent(ctx, sess, respEvent("turf_init", initOut("/x/core")))
+	c.OnEvent(ctx, sess, respEvent("turf_up", atGate("up", "p-7", 1)))
+	if last != "core · init" {
+		t.Fatalf("a start verb at its gate titles nothing: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_plan", plannedRun("up", "p-7", 2, 1, 0)))
+	if last != "core · planned +2 ~1 -0" {
+		t.Errorf("after the planned run: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_plan", plannedRun("destroy", "d-8", 0, 0, 6)))
+	if last != "core · planned teardown -6" {
+		t.Errorf("after the planned destroy: %q", last)
+	}
+	// Applying the planfile converges a new convergence whose round the
+	// curator never saw planned: the applied count stands in.
+	c.OnEvent(ctx, sess, respEvent("turf_apply", `{"convergence_id":"p-9","workspace_alias":"default","kind":"destroy","outcome":"converged",
+		"rounds":[{"round":1,"status":"applied","approval":"planfile","planned":6,"applied":6}],"ended":true}`))
+	if last != "core · destroyed -6" {
+		t.Errorf("after the planfile's apply: %q", last)
 	}
 }
 

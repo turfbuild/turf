@@ -321,8 +321,8 @@ var turfToolTargetArgs = map[string][]string{
 	"delete":            {"workspace_name"},
 	"invoke":            {"action_addr"},
 	"plan":              {"convergence_id"},
-	"apply":             {"convergence_id"},
-	"show":              {"convergence_id"},
+	"apply":             {"convergence_id", "planfile"},
+	"show":              {"convergence_id", "planfile"},
 	"output":            {"name"},
 	"taint":             {"addrs"},
 	"untaint":           {"addrs"},
@@ -860,10 +860,13 @@ type convergenceView struct {
 	// the driver's word.
 	Outcome string `json:"outcome"`
 	// Round is the round at the gate, or the one running; Plan and ExpiresAt are
-	// set at an approval point.
+	// set at an approval point. Planfile is set on a planned ending (a start verb
+	// with plan_only): the plan the engine keeps for turf_apply with planfile, with
+	// Plan vended beside it.
 	Round     int             `json:"round,omitempty"`
 	Plan      *vendedPlanView `json:"plan,omitempty"`
 	ExpiresAt string          `json:"expires_at,omitempty"`
+	Planfile  *planfileView   `json:"planfile,omitempty"`
 	// Ended says the convergence is over; Next is the call that continues it,
 	// with the arguments known to be right for it (never an approval's digest).
 	Ended bool          `json:"ended"`
@@ -881,6 +884,50 @@ type convergenceView struct {
 	Outputs        *convergenceOutputsView `json:"outputs,omitempty"`
 	Error          string                  `json:"error,omitempty"`
 	Note           string                  `json:"note,omitempty"`
+}
+
+// planfileView is a planfile as a planned result names it: its ref (the planned
+// round's id, which turf_apply and turf_show take), the digest of its document
+// (what turf_apply names as the approval; it equals plan.digest) and its expiry.
+type planfileView struct {
+	Ref       string `json:"ref"`
+	Digest    string `json:"digest"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+// planfileFactView is a planfile a workspace holds, as turf_open and turf_status
+// list them: what a plan_only run left for turf_apply with planfile.
+type planfileFactView struct {
+	Ref       string `json:"ref"`
+	Kind      string `json:"kind"`
+	Digest    string `json:"digest"`
+	Planned   int    `json:"planned"`
+	Deferred  int    `json:"deferred,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Applying  bool   `json:"applying,omitempty"`
+}
+
+// planfileFactLine renders one held planfile: its ref, the kind of plan, its row
+// counts, its digest and its expiry, and whether a convergence is applying it.
+func planfileFactLine(p planfileFactView) string {
+	out := muted("planfile ") + addr(p.Ref)
+	if w := runKindWord(p.Kind); w != "" {
+		out += dot() + muted(w)
+	}
+	out += dot() + muted(fmt.Sprintf("%d planned", p.Planned))
+	if p.Deferred > 0 {
+		out += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", p.Deferred))
+	}
+	if p.Digest != "" {
+		out += dot() + muted(shortDigest(p.Digest))
+	}
+	if p.ExpiresAt != "" {
+		out += dot() + muted("expires "+p.ExpiresAt)
+	}
+	if p.Applying {
+		out += dot() + bold("applying", styles.Warning)
+	}
+	return out
 }
 
 // nextCallView is the call that continues a convergence, as the result names it:
@@ -1123,6 +1170,16 @@ func convergenceSummary(msg *types.Message, c convergenceView) string {
 		if n := lastRound(c.Rounds).Deferred; n > 0 {
 			summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", n))
 		}
+	case "planned":
+		// The plan's tally, as an approval point shows it, and the planfile
+		// the engine keeps it as: nothing was applied, so no totals follow.
+		if c.Plan != nil {
+			summary += dot() + planCountsTally(*c.Plan)
+		}
+		if c.Planfile != nil && c.Planfile.Digest != "" {
+			summary += dot() + muted("planfile "+shortDigest(c.Planfile.Digest))
+		}
+		return summary + refusedSegment(c)
 	}
 	if t.applied > 0 {
 		summary += dot() + muted(fmt.Sprintf("%d applied", t.applied))
@@ -1170,6 +1227,18 @@ func convergenceDetail(c convergenceView) []string {
 				detail = append(detail, "  "+invocationLine(inv.Address, inv.Event, inv.Caller, inv.OnFailure))
 			}
 		}
+	}
+	if pf := c.Planfile; pf != nil {
+		// What turf_apply with planfile names: the ref, and the digest the
+		// approver reads from the document, never pre-filled in next.
+		row := addr(pf.Ref)
+		if pf.Digest != "" {
+			row += dot() + muted(shortDigest(pf.Digest))
+		}
+		if pf.ExpiresAt != "" {
+			row += dot() + muted("expires "+pf.ExpiresAt)
+		}
+		detail = append(detail, section("planfile"), "  "+row)
 	}
 	if n := len(c.ActionRequests); n > 0 {
 		detail = append(detail, section(fmt.Sprintf("%d action(s) waiting", n)))
@@ -1429,6 +1498,9 @@ func outcomeWord(kind, outcome string) (string, color.Color) {
 			return "converged", styles.Success
 		}
 		return "done", styles.Success
+	case "planned":
+		// A plan-only run ended as it meant to: the plan kept as a planfile.
+		return "planned", styles.Success
 	case "failed", "error":
 		return outcome, styles.Error
 	default:
@@ -1442,7 +1514,7 @@ func roundStatusWord(status string) string {
 
 func roundStatusColor(status string) color.Color {
 	switch status {
-	case "applied":
+	case "applied", "planned":
 		return styles.Success
 	case "failed", "error":
 		return styles.Error
@@ -1461,6 +1533,10 @@ func approvalWord(r roundView) string {
 		return "auto-approved"
 	case "unneeded":
 		return "nothing to approve"
+	case "planfile":
+		// The round applied a planfile: the apply that named its digest was
+		// the approval.
+		return "approved by planfile"
 	case "asked":
 		switch {
 		case r.Status == "applied", r.Status == "failed", r.Status == "partial":
@@ -1652,6 +1728,11 @@ func showHead(msg *types.Message) string {
 		return keyword("state")
 	}
 	head := keyword("plan")
+	if pf := argString(msg, "planfile"); pf != "" {
+		// A planfile is the planned round, named by its ref; convergence_id
+		// and round are not read beside it.
+		return head + dot() + muted("planfile ") + addr(pf)
+	}
 	if id := argString(msg, "convergence_id"); id != "" {
 		head += dot() + addr(id)
 	}
@@ -2022,6 +2103,8 @@ type workspaceOpenView struct {
 	Serial        uint64               `json:"serial,omitempty"`
 	ResourceCount int                  `json:"resource_count"`
 	Convergence   *convergenceFactView `json:"convergence,omitempty"`
+	// Planfiles are the plans plan_only runs left on this workspace.
+	Planfiles []planfileFactView `json:"planfiles,omitempty"`
 	// Warnings carries informational notes — a backend type diverging from the
 	// declared one, or state recording a provider the configuration no longer
 	// declares.
@@ -2102,6 +2185,12 @@ func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		}
 		detail = append(detail, section("state"), row)
 	}
+	if len(w.Planfiles) > 0 {
+		detail = append(detail, section("planfiles"))
+		for _, p := range w.Planfiles {
+			detail = append(detail, "  "+planfileFactLine(p))
+		}
+	}
 	detail = append(detail, warningLines(w.Warnings)...)
 	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
@@ -2180,6 +2269,7 @@ type workspaceShowView struct {
 		StatePath      string               `json:"state_path,omitempty"`
 		OpenedAt       string               `json:"opened_at"`
 		Convergence    *convergenceFactView `json:"convergence,omitempty"`
+		Planfiles      []planfileFactView   `json:"planfiles,omitempty"`
 		Warning        string               `json:"warning,omitempty"`
 	} `json:"workspaces"`
 }
@@ -2225,6 +2315,9 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		detail = append(detail, row)
 		if fact := convergenceFactLine(w.Convergence); fact != "" {
 			detail = append(detail, "  "+fact)
+		}
+		for _, p := range w.Planfiles {
+			detail = append(detail, "  "+planfileFactLine(p))
 		}
 		if w.Warning != "" {
 			detail = append(detail, "  "+styles.WarningStyle.Render("⚠ "+w.Warning))

@@ -152,7 +152,7 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 // is gone from the server), but a session titled by an older turf may still carry
 // it, and recognizing it keeps that title curator-owned on resume rather than
 // mistaking it for a human one and freezing it.
-var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes|\d+ change\(s\))|destroyed -\d+|(declined|cancelled|stale) (\+\d+ ~\d+ -\d+|no changes)|promoted)$`)
+var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes|\d+ change\(s\))|destroyed -\d+|(declined|cancelled|stale|planned) (\+\d+ ~\d+ -\d+|no changes)|promoted)$`)
 
 // isAutoTitle reports whether s looks like a curator-generated milestone title
 // (so the curator may replace it). The bare-label case is handled separately.
@@ -232,6 +232,22 @@ func (d *titleDigest) ingestConvergence(v convergenceView) bool {
 			return false
 		}
 		d.setCounts(last)
+		d.appliedOnly = 0
+		d.ending = v.Outcome
+		d.stage = stageEnded
+		return true
+	case "planned":
+		// A plan-only run: the plan is kept as a planfile and nothing applies.
+		// The result carries the plan the way an approval point does, so the
+		// ending titles with its counts.
+		if v.Plan == nil {
+			return false
+		}
+		round := planCounts{added: v.Plan.Add, changed: v.Plan.Change, destroyed: v.Plan.Destroy}
+		if n := len(v.Rounds); n > 0 {
+			d.rounds[v.Rounds[n-1].Round] = round
+		}
+		d.setCounts(round)
 		d.appliedOnly = 0
 		d.ending = v.Outcome
 		d.stage = stageEnded
@@ -443,6 +459,11 @@ func (d *titleDigest) title() string {
 		}
 		return d.label + " · applied " + d.counts()
 	case stageEnded:
+		if d.ending == "planned" && d.isDestroy() {
+			// A plan-only destroy reads as a planned teardown, as a destroy
+			// plan at its approval point does.
+			return d.label + " · planned teardown " + destroyCount(d.destroyed)
+		}
 		return d.label + " · " + d.ending + " " + d.counts()
 	default:
 		// Pre-plan: config known, nothing done yet. The " · init" suffix makes it
