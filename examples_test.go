@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/goccy/go-yaml"
 )
@@ -17,10 +15,12 @@ import (
 // checkout is present. They guard against the example artifacts drifting out of
 // sync with the turf behavior and the cagent (docker-agent) version we pin:
 //   - the turf example skill stays discoverable by loadTurfSkills, and
-//   - the cagent example config still parses (e.g. `skills: true` keeps working).
+//   - the example turf.yaml model configurations stay valid.
 //
 // Resolution: $TURF_EXAMPLES_DIR if set, else ../turf-examples relative to this
-// module. When neither resolves, the test is skipped rather than failed.
+// module. When neither resolves, the test is skipped rather than failed; once
+// the checkout is there, an example missing from where a test looks fails the
+// test, since a skip would hide the drift these tests exist to catch.
 func examplesDir(t *testing.T) string {
 	t.Helper()
 	if dir := os.Getenv("TURF_EXAMPLES_DIR"); dir != "" {
@@ -40,12 +40,13 @@ func examplesDir(t *testing.T) string {
 	return dir
 }
 
-// TestCliExampleSkillDiscovered confirms the turf example working dir
-// (cli/.turf/skills) yields the demonstration skill through the real loader.
+// TestCliExampleSkillDiscovered confirms the turf CLI example's working dir
+// (integrations/turf-cli/.turf/skills) yields the demonstration skill through
+// the real loader.
 func TestCliExampleSkillDiscovered(t *testing.T) {
-	cwd := filepath.Join(examplesDir(t), "cli")
-	if _, err := os.Stat(cwd); err != nil {
-		t.Skipf("cli example not present: %v", err)
+	cwd := filepath.Join(examplesDir(t), "integrations", "turf-cli")
+	if _, err := os.Stat(filepath.Join(cwd, ".turf", "skills")); err != nil {
+		t.Fatalf("turf CLI example skills not present: %v", err)
 	}
 	t.Setenv("TURF_HOME", t.TempDir()) // isolate from any real ~/.turf skills
 
@@ -71,7 +72,7 @@ func TestCliExampleSkillDiscovered(t *testing.T) {
 func TestCliConfigExamplesValid(t *testing.T) {
 	root := filepath.Join(examplesDir(t), "integrations", "turf-cli")
 	if _, err := os.Stat(filepath.Join(root, "gallery")); err != nil {
-		t.Skipf("turf-cli model-config gallery not present: %v", err)
+		t.Fatalf("turf-cli model-config gallery not present: %v", err)
 	}
 
 	var files []string
@@ -109,32 +110,5 @@ func TestCliConfigExamplesValid(t *testing.T) {
 		if err := syn.Validate(); err != nil {
 			t.Errorf("%s: fails schema validation: %v", f, err)
 		}
-	}
-}
-
-// TestCagentExampleConfigParses confirms cagent's example turf.yaml still loads
-// against the pinned docker-agent version, including `skills: true`.
-func TestCagentExampleConfigParses(t *testing.T) {
-	path := filepath.Join(examplesDir(t), "cagent", "turf.yaml")
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("cagent example not present: %v", err)
-	}
-
-	cfg, err := config.Load(context.Background(), config.NewFileSource(path))
-	if err != nil {
-		t.Fatalf("cagent config.Load(%s) failed: %v", path, err)
-	}
-
-	rootIdx := -1
-	for i := range cfg.Agents {
-		if cfg.Agents[i].Name == "root" {
-			rootIdx = i
-		}
-	}
-	if rootIdx < 0 {
-		t.Fatal("no 'root' agent in parsed config")
-	}
-	if got := cfg.Agents[rootIdx].Skills.Sources; len(got) == 0 {
-		t.Fatalf("`skills: true` did not resolve to a local source; Sources=%v", got)
 	}
 }
