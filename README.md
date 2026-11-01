@@ -658,6 +658,16 @@ Runnable examples live in
   Helm release; credential-free, Docker only), Azure and GCP modules, and
   language/feature tours (Terraform Actions, Turf-native actions).
 
+## Community
+
+- **Questions, ideas, show and tell, chat**: [Discord](https://turf.build/discord/).
+- **Bugs and feature requests**: [GitHub Issues](https://github.com/turfbuild/turf/issues),
+  or Ctrl+K → "Report Bug" in `turf chat`.
+- **Release notes by email**: [the newsletter](https://turf.build/newsletter/). Follow Turf on
+  [LinkedIn](https://www.linkedin.com/company/turfbuild/) and [X](https://x.com/turfbuild).
+- **Anything else**: contact@turf.build. Security reports, privately: security@turf.build
+  ([security policy](https://github.com/turfbuild/.github/blob/main/SECURITY.md)).
+
 ## License
 
 The `turf` CLI — the source in this repository — is the **Covered Software**,
