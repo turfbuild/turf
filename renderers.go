@@ -30,7 +30,7 @@ import (
 // Design goals (per the experiment): blend into the conversation. Every renderer
 // emits a borderless icon + one colored line, matching the default tool line
 // (✓ Title …) so turf tools read as first-class conversation entries. The line leads
-// with the friendly, English-readable tool title (e.g. "Apply Plan") — resolved via
+// with the friendly, English-readable tool title (e.g. "Apply") — resolved via
 // toolTitle from the shared turfToolInfo source and styled with the same neutral
 // styles.ToolName cagent's built-in renderers use — followed by the target + status.
 // Color and the status glyph come from cagent's theme via the styles package and
@@ -115,6 +115,7 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_refresh":           builder(renderConvergence),
 		"turf_import":            builder(renderConvergence),
 		"turf_invoke":            builder(renderConvergence),
+		"turf_plan":              builder(renderConvergence),
 		"turf_apply":             builder(renderConvergence),
 		"turf_cancel":            builder(renderConvergence),
 		"turf_show":              builder(renderShow),
@@ -317,6 +318,7 @@ var turfToolTargetArgs = map[string][]string{
 	"close":             {"workspace_alias"},
 	"delete":            {"workspace_name"},
 	"invoke":            {"action_addr"},
+	"plan":              {"convergence_id"},
 	"apply":             {"convergence_id"},
 	"show":              {"convergence_id"},
 	"output":            {"name"},
@@ -848,14 +850,24 @@ type convergenceView struct {
 	// Kind is up, destroy, refresh, import or invoke: what started the convergence.
 	// apply and cancel report the kind of the convergence they act on.
 	Kind string `json:"kind"`
-	// Outcome is awaiting_approval or awaiting_actions while paused; otherwise how it
-	// ended (converged, stalled, exhausted, failed, declined, stale, cancelled,
-	// error, detached). A cancel of a convergence nobody follows reports the driver's word.
+	// Outcome is awaiting_plan (a round waits at its plan gate for turf_plan),
+	// awaiting_approval or awaiting_actions while paused; planning or applying when
+	// the call returned at the server's deadline with the convergence still running;
+	// otherwise how it ended (converged, stalled, exhausted, failed, declined, stale,
+	// cancelled, error, detached). A cancel of a convergence nobody follows reports
+	// the driver's word.
 	Outcome string `json:"outcome"`
-	// Round, Plan and ExpiresAt are set at an approval point.
+	// Round is the round at the gate, or the one running; Plan and ExpiresAt are
+	// set at an approval point.
 	Round     int             `json:"round,omitempty"`
 	Plan      *vendedPlanView `json:"plan,omitempty"`
 	ExpiresAt string          `json:"expires_at,omitempty"`
+	// Ended says the convergence is over.
+	Ended bool `json:"ended"`
+	// Cancelling says a cancel was asked and the convergence is still running
+	// (planning or applying): the result came back at the deadline before the
+	// cancel landed.
+	Cancelling bool `json:"cancelling,omitempty"`
 	// ActionRequests are the turf actions waiting on the agent at awaiting_actions,
 	// which its next apply answers by key; Refused names the answers an apply sent
 	// that were not taken, each request still open.
@@ -864,7 +876,8 @@ type convergenceView struct {
 	Rounds         []roundView             `json:"rounds"`
 	Outputs        *convergenceOutputsView `json:"outputs,omitempty"`
 	Error          string                  `json:"error,omitempty"`
-	Note           string                  `json:"note,omitempty"`
+	// The result's note and next are not read: they are the server's guidance
+	// to the agent (what to call next, and with what), not the user's to read.
 }
 
 // vendedPlanView is a round's plan as the result reports it: the resource that
@@ -914,9 +927,10 @@ type actionRequestView struct {
 	Inputs     json.RawMessage `json:"inputs,omitempty"`
 }
 
-// roundView is one round of a convergence: its status (planning, awaiting_approval
-// and applying while it runs; then applied, failed, partial, cancelled or error),
-// how its plan was approved (asked, auto, unneeded), and what its apply did.
+// roundView is one round of a convergence: its status (awaiting_plan, planning,
+// awaiting_approval and applying while it runs; then applied, failed, partial,
+// cancelled or error), how its plan was approved (asked, auto, unneeded), and what
+// its apply did.
 type roundView struct {
 	Round     int    `json:"round"`
 	Status    string `json:"status"`
@@ -942,6 +956,9 @@ type roundView struct {
 	Warnings       []string            `json:"warnings,omitempty"`
 	CheckFailures  []string            `json:"check_failures,omitempty"`
 	CancelCause    string              `json:"cancel_cause,omitempty"`
+	// DeclineReason is why the round's plan was declined at its approval point, in
+	// the words of whoever declined it (the convergence ends declined).
+	DeclineReason string `json:"decline_reason,omitempty"`
 	// StaleReason says how the configuration moved after the round's plan, which
 	// is why its approved plan was never applied (the convergence ends stale).
 	StaleReason string `json:"stale_reason,omitempty"`
@@ -988,14 +1005,27 @@ func renderConvergence(msg *types.Message, s spinner.Spinner, ss service.Session
 func convergenceRunningWord(msg *types.Message) string {
 	switch strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_") {
 	case "apply":
-		if strings.Contains(msg.ToolCall.Function.Arguments, `"action_results"`) {
+		// The arguments decide what the apply does; parse them, so a reason that
+		// happens to mention a decline does not read as one.
+		var args struct {
+			Decline       bool            `json:"decline"`
+			ActionResults json.RawMessage `json:"action_results"`
+		}
+		_ = json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args)
+		if len(args.ActionResults) > 0 && string(args.ActionResults) != "null" {
 			return "answering actions…"
+		}
+		if args.Decline {
+			return "declining…"
 		}
 		return "applying…"
 	case "cancel":
 		return "cancelling…"
-	default:
+	case "plan":
 		return "planning…"
+	default:
+		// A start verb submits the convergence and stops at its plan gate.
+		return "starting…"
 	}
 }
 
@@ -1012,14 +1042,29 @@ func convergenceSummary(msg *types.Message, c convergenceView) string {
 	if c.ConvergenceID != "" {
 		summary = appendDot(summary, addr(c.ConvergenceID))
 	}
-	// up and its siblings are titled by their kind already ("Deploy", "Destroy");
-	// apply and cancel act on a convergence some earlier call started, so they name it.
-	if bare := strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_"); bare == "apply" || bare == "cancel" {
+	// up and its siblings are titled by their kind already ("Up", "Destroy");
+	// plan, apply and cancel act on a convergence some earlier call started, so
+	// they name it.
+	if bare := strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_"); bare == "plan" || bare == "apply" || bare == "cancel" {
 		if w := runKindWord(c.Kind); w != "" {
 			summary = appendDot(summary, muted(w))
 		}
 	}
 	switch c.Outcome {
+	case "awaiting_plan":
+		if c.Round > 0 {
+			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
+		}
+		return appendDot(summary, bold("awaiting plan", styles.Warning)) + refusedSegment(c)
+	case "planning", "applying":
+		if c.Round > 0 {
+			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
+		}
+		summary = appendDot(summary, bold(c.Outcome+"…", styles.Warning))
+		if c.Cancelling {
+			summary = appendDot(summary, muted("cancelling"))
+		}
+		return summary + refusedSegment(c)
 	case "awaiting_approval":
 		if c.Round > 0 {
 			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
@@ -1126,9 +1171,6 @@ func convergenceDetail(c convergenceView) []string {
 		if len(o.Carried) > 0 {
 			detail = append(detail, "  "+muted("carried ")+addr(strings.Join(o.Carried, ", "))+muted(" (still deferred)"))
 		}
-	}
-	if c.Note != "" {
-		detail = append(detail, muted(c.Note))
 	}
 	if c.Error != "" {
 		detail = append(detail, styles.ToolErrorMessageStyle.Render(c.Error))
@@ -1252,6 +1294,9 @@ func roundLines(r roundView) []string {
 	if r.CancelCause != "" {
 		out = append(out, "    "+muted("cancelled: "+r.CancelCause))
 	}
+	if r.DeclineReason != "" {
+		out = append(out, "    "+muted("declined: "+r.DeclineReason))
+	}
 	if r.StaleReason != "" {
 		out = append(out, "    "+muted("stale: "+r.StaleReason))
 	}
@@ -1350,7 +1395,7 @@ func roundStatusColor(status string) color.Color {
 		return styles.Success
 	case "failed", "error":
 		return styles.Error
-	case "planning", "awaiting_approval", "applying":
+	case "awaiting_plan", "planning", "awaiting_approval", "applying":
 		return styles.Warning
 	default:
 		return styles.TextMuted
@@ -1956,6 +2001,8 @@ func convergenceFactLine(f *convergenceFactView) string {
 		out += dot() + muted(w)
 	}
 	switch f.Stage {
+	case "awaiting_plan":
+		out += dot() + bold("awaiting plan", styles.Warning)
 	case "awaiting_approval":
 		out += dot() + bold("awaiting approval", styles.Warning)
 	case "awaiting_actions":
