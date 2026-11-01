@@ -192,9 +192,9 @@ then 2 creates). Expand every line (Ctrl+O). Before 5.1, note where the debug lo
 | 6.3 | `cd /tmp; turf -C <core> up` | The same as a run from `<core>`: `config_path` is `<core>`. With no instructions the plan returns the prefix to its default, `v1`: a replace, so the dialog. `y`; converged. |
 | 6.4 | `turf destroy`; press `n` at the dialog. Then `turf destroy`; press `y` | The first: the destroy plan (`-6`), the dialog, declined: nothing destroyed (`state_list` in a later run still lists 6). The second: `done · 6 applied`. |
 | 6.5 | `turf up --yes` | No dialog at any point. If the agent calls `user_prompt` anyway, it is answered for you: a `User Prompt (auto-confirmed)` line. Converged; the title is `core · applied +6 ~0 -0` (`--yes` pre-approves nothing on the server: the agent still plans each round, so every round's counts are seen; `core · applied 6 change(s)` appears only for a convergence taken up after a restart). |
-| 6.6 | `turf up --yes \| tee $RUN/up.log`; `echo $?` | Text mode: `Calling turf_…(…)` and `… response` lines, the agent's prose, no TUI. A no-change convergence. Exit 0. |
-| 6.7 | `turf destroy \| tee $RUN/destroy.log` (**no `--yes`**) | Nobody can answer, so the destroy question is **declined**: a `User Prompt (declined: unattended)` call whose response is `"action":"decline"` with a reason naming `--yes`. Nothing is destroyed (a later `turf exec "list the state"` still lists 6). The agent ends by saying the destroy is waiting for approval and that `--yes` would approve it. Exit 0. |
-| 6.8 | `turf destroy --yes \| tee $RUN/destroy-yes.log` | The question, if asked, is auto-confirmed (`"auto_confirmed": true`); `done · 6 applied`. Approval without a person takes `--yes`. |
+| 6.6 | `turf up --yes \| tee $RUN/up.log`; `echo $?` | Text mode: `Calling turf_…(…)` and `… response` lines, the agent's prose, no TUI. The loop reads in the log: `turf_up`'s response is `"outcome":"awaiting_plan"`, then a `Calling turf_plan(…)` whose response is a no-change round that converges (`"outcome":"converged"`). Exit 0. |
+| 6.7 | `turf destroy \| tee $RUN/destroy.log` (**no `--yes`**) | `turf_destroy` responds `awaiting_plan`; `turf_plan` responds `awaiting_approval` with `"destroy":6`. Nobody can answer, so the destroy question is **declined**: a `User Prompt (declined: unattended)` call whose response is `"action":"decline"` with a reason naming `--yes`. The plan stays waiting in the engine (no `turf_apply` with `decline`, no `turf_cancel`): nothing is destroyed (a later `turf exec "list the state"` still lists 6). The agent ends by saying the destroy is waiting for approval and that `--yes` would approve it. Exit 0. |
+| 6.8 | `turf destroy --yes \| tee $RUN/destroy-yes.log` | `turf_destroy` → `awaiting_plan`, `turf_plan` → the `-6` plan at `awaiting_approval`; the question, if asked, is auto-confirmed (`"auto_confirmed": true`); `turf_apply` with the digest → `done · 6 applied` (`"outcome":"converged"`). Approval without a person takes `--yes`. |
 
 ---
 
@@ -310,7 +310,9 @@ Stated so a run does not rediscover them; none is a step.
 - **No progress while a round runs.** docker-agent sends no MCP `progressToken` and relays no
   progress, so a running `Deploy`/`Plan`/`Apply Plan` shows its spinner and `starting…`/`planning…`/`applying…`;
   the server's own deadline (five minutes from the CLI) bounds each call, and a call that outlasts it
-  returns `planning…`/`applying…` as its line for the next call to follow.
+  returns `planning…`/`applying…` as its line for the next call to follow. A `TURF_DEADLINE` in the
+  environment replaces the five minutes (the CLI then sends no `--deadline`), and a server older
+  than the CLI rejects the flag: `turf` fails to start, naming the binary and the same-release rule.
 - **The lean TUI has no welcome message and no Ctrl+O** (its tool lines are always expanded).
 - **`--worktree name` with a space** makes `name` a positional argument (an unknown command
   for bare `turf`, instructions for `up`). Use `--worktree=name`.

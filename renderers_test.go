@@ -600,7 +600,7 @@ func sortedKeys(m map[string]any) []string {
 const upAwaitingPlan = `{"convergence_id":"p-9bc1215f","workspace_alias":"default","kind":"up",
 	"outcome":"awaiting_plan","round":1,"expires_at":"2026-11-02T07:31:34Z",
 	"rounds":[{"round":1,"status":"awaiting_plan","planned":0,"deferred":0,"applied":0}],
-	"note":"Round 1 waits at its plan gate: nothing is planned yet. Call plan with convergence_id p-9bc1215f to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). To change course first, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"note":"Round 1 waits at its plan gate: nothing is planned yet. Call plan with convergence_id p-9bc1215f to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). The round plans the .tf files as they stand when plan is called; variable values, var files and overlays are the start verb's. To change those, or to start over, call up again, which supersedes this convergence; cancel ends it now.",
 	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"p-9bc1215f"}}}`
 
 // planRound1 is `plan` planning round 1 and stopping at its approval point: four
@@ -621,7 +621,7 @@ const applyRound1Gate = `{"convergence_id":"p-9bc1215f","workspace_alias":"defau
 	"outcome":"awaiting_plan","round":2,"expires_at":"2026-11-02T07:31:46Z",
 	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
 		{"round":2,"status":"awaiting_plan","planned":0,"deferred":0,"applied":0}],
-	"note":"Round 2 waits at its plan gate: nothing is planned yet. Call plan with convergence_id p-9bc1215f to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). To change course first, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"note":"Round 2 waits at its plan gate: nothing is planned yet. Call plan with convergence_id p-9bc1215f to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). The round plans the .tf files as they stand when plan is called; variable values, var files and overlays are the start verb's. To change those, or to start over, call up again, which supersedes this convergence; cancel ends it now.",
 	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"p-9bc1215f"}}}`
 
 // planRound2 is `plan` planning round 2: the two creates round 1 deferred.
@@ -688,7 +688,7 @@ const cancelAtApproval = `{"convergence_id":"p-f9f726c9","workspace_alias":"defa
 const destroyAwaitingPlan = `{"convergence_id":"d-4d7663e9","workspace_alias":"default","kind":"destroy",
 	"outcome":"awaiting_plan","round":1,"expires_at":"2026-11-02T07:32:37Z",
 	"rounds":[{"round":1,"status":"awaiting_plan","planned":0,"deferred":0,"applied":0}],
-	"note":"Round 1 waits at its plan gate: nothing is planned yet. Call plan with convergence_id d-4d7663e9 to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). To change course first, edit the configuration and call destroy again, which supersedes this convergence; cancel ends it now.",
+	"note":"Round 1 waits at its plan gate: nothing is planned yet. Call plan with convergence_id d-4d7663e9 to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). The round plans the .tf files as they stand when plan is called; variable values, var files and overlays are the start verb's. To change those, or to start over, call destroy again, which supersedes this convergence; cancel ends it now.",
 	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"d-4d7663e9"}}}`
 
 const planDestroy = `{"convergence_id":"d-4d7663e9","workspace_alias":"default","kind":"destroy",
@@ -854,6 +854,33 @@ func TestConvergence_PlanningAtTheDeadline(t *testing.T) {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("planning expanded missing %q:\n%s", want, shown)
 		}
+	}
+}
+
+// A call that returned at the deadline after a cancel was asked says the
+// convergence is cancelling; the call that continues a convergence renders a list
+// argument as its JSON, a string bare.
+func TestConvergence_CancellingAndNextArgs(t *testing.T) {
+	cancelling := `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"applying","round":1,"cancelling":true,
+		"rounds":[{"round":1,"status":"applying","approval":"asked","planned":4}],
+		"ended":false,"next":{"tool":"apply","args":{"convergence_id":"p-1"}}}`
+	compact := plainNorm(renderFor("turf_apply", cancelling, hiddenState{}))
+	for _, want := range []string{"Apply Plan", "p-1", "round 1", "applying…", "cancelling"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("cancelling compact missing %q: %q", want, compact)
+		}
+	}
+	plain := plainNorm(renderFor("turf_apply", planPlanning, hiddenState{}))
+	if strings.Contains(plain, "cancelling") {
+		t.Fatalf("nothing is cancelling here: %q", plain)
+	}
+	line := plainNorm(nextCallLine(nextCallView{Tool: "plan", Args: map[string]any{
+		"replace":        []any{"random_pet.name", "local_file.marker"},
+		"convergence_id": "p-1",
+		"refresh":        false,
+	}}))
+	if want := `plan convergence_id=p-1 refresh=false replace=["random_pet.name","local_file.marker"]`; line != want {
+		t.Fatalf("next line = %q, want %q", line, want)
 	}
 }
 
@@ -1111,7 +1138,9 @@ func TestConvergence_RunningWords(t *testing.T) {
 		{"turf_destroy", `{"workspace_alias":"west"}`, "west · starting…"},
 		{"turf_plan", `{"convergence_id":"p-1"}`, "p-1 · planning…"},
 		{"turf_apply", `{"convergence_id":"p-1","plan_digest":"sha256:ab"}`, "p-1 · applying…"},
-		{"turf_apply", `{"convergence_id":"p-1","decline":true}`, "p-1 · declining…"},
+		{"turf_apply", `{"convergence_id":"p-1","decline":true,"reason":"too many replaces"}`, "p-1 · declining…"},
+		// The arguments are parsed, not pattern-matched: a false decline applies.
+		{"turf_apply", `{"convergence_id":"p-1","plan_digest":"sha256:ab","decline":false}`, "p-1 · applying…"},
 		{"turf_apply", `{"convergence_id":"p-1","action_results":{"k1":{"succeeded":true}}}`, "answering actions…"},
 		{"turf_cancel", `{}`, "cancelling…"},
 	}

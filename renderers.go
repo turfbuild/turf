@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/color"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -866,6 +868,10 @@ type convergenceView struct {
 	// with the arguments known to be right for it (never an approval's digest).
 	Ended bool          `json:"ended"`
 	Next  *nextCallView `json:"next,omitempty"`
+	// Cancelling says a cancel was asked and the convergence is still running
+	// (planning or applying): the result came back at the deadline before the
+	// cancel landed.
+	Cancelling bool `json:"cancelling,omitempty"`
 	// ActionRequests are the turf actions waiting on the agent at awaiting_actions,
 	// which its next apply answers by key; Refused names the answers an apply sent
 	// that were not taken, each request still open.
@@ -1027,10 +1033,17 @@ func renderConvergence(msg *types.Message, s spinner.Spinner, ss service.Session
 func convergenceRunningWord(msg *types.Message) string {
 	switch strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_") {
 	case "apply":
-		if strings.Contains(msg.ToolCall.Function.Arguments, `"action_results"`) {
+		// The arguments decide what the apply does; parse them, so a reason that
+		// happens to mention a decline does not read as one.
+		var args struct {
+			Decline       bool            `json:"decline"`
+			ActionResults json.RawMessage `json:"action_results"`
+		}
+		_ = json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args)
+		if len(args.ActionResults) > 0 && string(args.ActionResults) != "null" {
 			return "answering actions…"
 		}
-		if strings.Contains(msg.ToolCall.Function.Arguments, `"decline"`) {
+		if args.Decline {
 			return "declining…"
 		}
 		return "applying…"
@@ -1075,7 +1088,11 @@ func convergenceSummary(msg *types.Message, c convergenceView) string {
 		if c.Round > 0 {
 			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
 		}
-		return appendDot(summary, bold(c.Outcome+"…", styles.Warning)) + refusedSegment(c)
+		summary = appendDot(summary, bold(c.Outcome+"…", styles.Warning))
+		if c.Cancelling {
+			summary = appendDot(summary, muted("cancelling"))
+		}
+		return summary + refusedSegment(c)
 	case "awaiting_approval":
 		if c.Round > 0 {
 			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
@@ -1196,16 +1213,18 @@ func convergenceDetail(c convergenceView) []string {
 }
 
 // nextCallLine renders the call that continues a convergence as the agent would
-// call it: the tool, then its arguments as key=value in key order.
+// call it: the tool, then its arguments as key=value in key order. A string
+// argument (an id, an alias) prints bare; anything else prints as fmtVal does,
+// so a list or an object reads as its JSON rather than Go's %v.
 func nextCallLine(n nextCallView) string {
 	out := keyword(n.Tool)
-	keys := make([]string, 0, len(n.Args))
-	for k := range n.Args {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		out += " " + muted(k+"=") + addr(fmt.Sprint(n.Args[k]))
+	for _, k := range slices.Sorted(maps.Keys(n.Args)) {
+		v := n.Args[k]
+		s, ok := v.(string)
+		if !ok {
+			s = fmtVal(v)
+		}
+		out += " " + muted(k+"=") + addr(s)
 	}
 	return out
 }

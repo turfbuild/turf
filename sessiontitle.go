@@ -63,6 +63,7 @@ var titleCuratorTools = []string{
 	"turf_destroy",
 	"turf_plan",
 	"turf_apply",
+	"turf_cancel",
 }
 
 func newSessionTitleCurator(store session.Store) *sessionTitleCurator {
@@ -151,7 +152,7 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 // is gone from the server), but a session titled by an older turf may still carry
 // it, and recognizing it keeps that title curator-owned on resume rather than
 // mistaking it for a human one and freezing it.
-var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes|\d+ change\(s\))|destroyed -\d+|promoted)$`)
+var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes|\d+ change\(s\))|destroyed -\d+|(declined|cancelled|stale) (\+\d+ ~\d+ -\d+|no changes)|promoted)$`)
 
 // isAutoTitle reports whether s looks like a curator-generated milestone title
 // (so the curator may replace it). The bare-label case is handled separately.
@@ -184,7 +185,7 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 		}
 		return true
 
-	case "turf_up", "turf_destroy", "turf_plan", "turf_apply":
+	case "turf_up", "turf_destroy", "turf_plan", "turf_apply", "turf_cancel":
 		var v convergenceView
 		if json.Unmarshal([]byte(output), &v) != nil {
 			return false
@@ -194,13 +195,17 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 	return false
 }
 
-// ingestConvergence folds one up/destroy/plan/apply result into the digest. Only a deploy
-// or a destroy titles the session — a refresh, an import or an invoke is upkeep on
-// infrastructure the title already names. Each round of a convergence stops at its
-// own approval point (plan's result), so the title shows the round awaiting
-// approval — a start verb's awaiting_plan has no counts yet; once the
-// convergence converges it shows everything its rounds applied, summed. A new
-// convergence starts the sum over; any other ending (failed, stalled, cancelled)
+// ingestConvergence folds one up/destroy/plan/apply/cancel result into the digest.
+// Only a deploy or a destroy titles the session — a refresh, an import or an invoke
+// is upkeep on infrastructure the title already names. Each round of a convergence
+// stops at its own approval point (plan's result), so the title shows the round
+// awaiting approval — a start verb's awaiting_plan has no counts yet; once the
+// convergence converges (or ends stalled or exhausted, having applied what it
+// could) it shows everything its rounds applied, summed. A convergence that ends
+// with its last plan unapplied — declined, cancelled, stale — titles that ending
+// with the plan's counts, so a session that stopped at "no" does not go on reading
+// as a plan still waiting; one that ends before any plan was seen (a cancel at the
+// plan gate) titles nothing. A new convergence starts the sum over; a failure
 // leaves the title on the last plan, which is what was still pending.
 func (d *titleDigest) ingestConvergence(v convergenceView) bool {
 	if v.Kind != "up" && v.Kind != "destroy" {
@@ -221,7 +226,20 @@ func (d *titleDigest) ingestConvergence(v convergenceView) bool {
 		d.appliedOnly = 0
 		d.stage = stagePlan
 		return true
-	case "converged":
+	case "declined", "cancelled", "stale":
+		last, ok := d.lastPlanned()
+		if !ok {
+			return false
+		}
+		d.setCounts(last)
+		d.appliedOnly = 0
+		d.ending = v.Outcome
+		d.stage = stageEnded
+		return true
+	case "converged", "stalled", "exhausted":
+		// Every round these endings record was applied (a stalled or exhausted
+		// convergence stops after applying its last round, with work still
+		// deferred), so the sum is what reached the world.
 		d.stage = stageApplied
 		d.appliedOnly = 0
 		applied, unseen := 0, false
@@ -288,6 +306,9 @@ type titleDigest struct {
 	// round's plan was seen to split them into add/change/destroy (see
 	// ingestConvergence); zero when the counts above are the title.
 	appliedOnly int
+	// ending, at stageEnded, is the outcome word of a convergence that ended with
+	// its last plan unapplied: declined, cancelled or stale.
+	ending string
 	// convergenceID and rounds track the convergence being titled: each round's plan
 	// counts, keyed by round, so a round re-vended after a restart is not counted
 	// twice when the convergence converges.
@@ -307,7 +328,25 @@ const (
 	stageNone titleStage = iota
 	stagePlan
 	stageApplied
+	// stageEnded: the convergence ended without applying its last plan; the
+	// digest's ending says how, its counts are that plan's.
+	stageEnded
 )
+
+// lastPlanned is the plan counts of the latest round seen planned in the
+// convergence being titled, if any round was.
+func (d *titleDigest) lastPlanned() (planCounts, bool) {
+	best, found := 0, false
+	for n := range d.rounds {
+		if !found || n > best {
+			best, found = n, true
+		}
+	}
+	if !found {
+		return planCounts{}, false
+	}
+	return d.rounds[best], true
+}
 
 // defaultWorkspaceName is the OpenTofu workspace every configuration has when
 // nobody selected another one. The server always sends it (workspace.name has no
@@ -382,8 +421,9 @@ func (d *titleDigest) isDestroy() bool {
 
 // title renders the finished session title in the terraform-plan glyph idiom,
 // e.g. "actions", "actions · plan +2 ~0 -2", "actions · applied +2 ~0 -2",
-// "actions · destroyed -4" — or "actions · applied 6 change(s)" for a deploy whose
-// plans were never seen. Returns "" before the session label is known.
+// "actions · destroyed -4", "actions · declined +2 ~3 -2" — or "actions · applied
+// 6 change(s)" for a deploy whose plans were never seen. Returns "" before the
+// session label is known.
 func (d *titleDigest) title() string {
 	if d.label == "" {
 		return ""
@@ -402,6 +442,8 @@ func (d *titleDigest) title() string {
 			return fmt.Sprintf("%s · applied %d change(s)", d.label, d.appliedOnly)
 		}
 		return d.label + " · applied " + d.counts()
+	case stageEnded:
+		return d.label + " · " + d.ending + " " + d.counts()
 	default:
 		// Pre-plan: config known, nothing done yet. The " · init" suffix makes it
 		// a regular auto-title shape (matched by isAutoTitle) rather than a bare

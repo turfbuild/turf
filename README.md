@@ -58,6 +58,13 @@ which turf-mcp-server
 export TURF_MCP_SERVER=/path/to/turf-mcp-server
 ```
 
+The CLI and the server are released together and must be from the same release: `turf`
+launches the server with its own release's flags (`--deadline`, the five minutes it gives
+each convergence call), which an older `turf-mcp-server` rejects at startup. When that
+happens `turf` names the binary it ran and says to point it at a matching one. Setting
+`TURF_DEADLINE` in the environment replaces the five minutes (the CLI then passes no
+`--deadline`, so the server reads the variable).
+
 ## Connect your agent
 
 `turf-mcp-server` is a stdio MCP server, and this CLI is one of its clients. Register it

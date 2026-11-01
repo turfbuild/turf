@@ -87,6 +87,21 @@ func TestTitleDigestTitle(t *testing.T) {
 			want:  "myapp · destroyed -4",
 		},
 		{
+			name: "declined",
+			setup: func(d *titleDigest) {
+				d.label = "myapp"
+				d.stage = stageEnded
+				d.ending = "declined"
+				d.added, d.changed, d.destroyed = 2, 3, 2
+			},
+			want: "myapp · declined +2 ~3 -2",
+		},
+		{
+			name:  "cancelled with nothing to change",
+			setup: func(d *titleDigest) { d.label = "myapp"; d.stage = stageEnded; d.ending = "cancelled" },
+			want:  "myapp · cancelled no changes",
+		},
+		{
 			name:  "no label yet",
 			setup: func(d *titleDigest) { d.stage = stagePlan; d.added = 1 },
 			want:  "",
@@ -147,6 +162,33 @@ func TestIngestConvergenceRounds(t *testing.T) {
 		t.Fatalf("after a failure: %q, want %q", got, want)
 	}
 
+	// An ending that leaves the last plan unapplied names itself with that plan's
+	// counts, so the title stops reading as a plan still waiting.
+	feed("turf_up", atGate("up", "p-4", 1))
+	feed("turf_plan", awaiting("up", "p-4", 1, 2, 3, 2))
+	feed("turf_apply", ended("up", "p-4", "declined"))
+	if got, want := c.digest.title(), "core · declined +2 ~3 -2"; got != want {
+		t.Fatalf("declined: %q, want %q", got, want)
+	}
+	// A cancel at the plan gate planned nothing, so it titles nothing; one at the
+	// approval point names the plan it left.
+	feed("turf_up", atGate("up", "p-5", 1))
+	if feed("turf_cancel", ended("up", "p-5", "cancelled")) || c.digest.title() != "core · declined +2 ~3 -2" {
+		t.Fatalf("a cancel at the plan gate should not retitle: %q", c.digest.title())
+	}
+	feed("turf_plan", awaiting("up", "p-5", 1, 0, 1, 0))
+	feed("turf_cancel", ended("up", "p-5", "cancelled"))
+	if got, want := c.digest.title(), "core · cancelled +0 ~1 -0"; got != want {
+		t.Fatalf("cancelled: %q, want %q", got, want)
+	}
+	// Stalled and exhausted applied what they planned, like converged.
+	feed("turf_up", atGate("up", "p-6", 1))
+	feed("turf_plan", awaiting("up", "p-6", 1, 3, 0, 0))
+	feed("turf_apply", ended("up", "p-6", "exhausted"))
+	if got, want := c.digest.title(), "core · applied +3 ~0 -0"; got != want {
+		t.Fatalf("exhausted: %q, want %q", got, want)
+	}
+
 	// A convergence taken up after a restart converges with rounds this session never
 	// saw planned: a destroy still knows it deleted what it applied, and a deploy
 	// says how many changes it applied rather than claiming none.
@@ -192,6 +234,9 @@ func TestAutoTitlePattern(t *testing.T) {
 		{label: "a", stage: stageApplied, added: 2, destroyed: 3},
 		{label: "a", stage: stageApplied, destroyed: 4},
 		{label: "a", stage: stageApplied, appliedOnly: 6},
+		{label: "a", stage: stageEnded, ending: "declined", added: 2, changed: 3, destroyed: 2},
+		{label: "a", stage: stageEnded, ending: "cancelled"},
+		{label: "a", stage: stageEnded, ending: "stale", destroyed: 1},
 	}
 	for _, d := range digests {
 		got := d.title()
@@ -285,7 +330,9 @@ func TestIngestTracksTools(t *testing.T) {
 		{"turf_up", atGate("up", "p-1", 1), false}, // tracked, but a gate carries no plan
 		{"turf_plan", awaiting("up", "p-1", 1, 3, 1, 0), true},
 		{"turf_apply", ended("up", "p-1", "converged"), true},
-		{"turf_state_list", `{}`, false}, // untracked tool
+		{"turf_up", atGate("up", "p-2", 1), false},
+		{"turf_cancel", ended("up", "p-2", "cancelled"), false}, // tracked, but nothing was planned
+		{"turf_state_list", `{}`, false},                        // untracked tool
 	}
 	for i, s := range steps {
 		if got := c.ingest(s.tool, s.output); got != s.handled {
@@ -423,6 +470,32 @@ func TestCuratorTitlesDestroy(t *testing.T) {
 	c.OnEvent(ctx, sess, respEvent("turf_apply", applyDestroyConverged))
 	if last != "core · destroyed -6" {
 		t.Errorf("after destroy apply: %q", last)
+	}
+}
+
+// A declined plan titles the session with the ending and the plan's counts (the v2
+// server returns a decline as an ordinary result, so it reaches the curator); a
+// cancel of a convergence whose plan this session never saw leaves the title alone.
+func TestCuratorTitlesADecline(t *testing.T) {
+	c := newSessionTitleCurator(nil)
+	var last string
+	c.setEmitter(func(title string) { last = title })
+
+	sess := session.New()
+	ctx := context.Background()
+	c.OnRunStart(ctx, sess)
+	c.OnEvent(ctx, sess, respEvent("turf_init", initOut("/x/core")))
+	c.OnEvent(ctx, sess, respEvent("turf_plan", planReplace))
+	if last != "core · plan +2 ~3 -2" {
+		t.Fatalf("after the replace plan: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_apply", applyDeclined))
+	if last != "core · declined +2 ~3 -2" {
+		t.Errorf("after the decline: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_cancel", cancelAtApproval))
+	if last != "core · declined +2 ~3 -2" {
+		t.Errorf("a cancel of a convergence never planned here retitled: %q", last)
 	}
 }
 
