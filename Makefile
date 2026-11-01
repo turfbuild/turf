@@ -3,8 +3,12 @@ BINARY := turf
 # Derive a version string from git. Falls back to "dev" outside a checkout.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # Version is in package main, so the linker symbol is main.Version (the full
-# module-path form does not match a main-package symbol).
-LDFLAGS := -X 'main.Version=$(VERSION)'
+# module-path form does not match a main-package symbol). The feedback links
+# are the cagent fork's package vars: the TUI's Ctrl+K "Give Feedback" and
+# "Report Bug" open them, so they point at Turf's channels, not Docker's.
+LDFLAGS := -X 'main.Version=$(VERSION)' \
+  -X 'github.com/docker/docker-agent/pkg/feedback.Link=https://turf.build/feedback/' \
+  -X 'github.com/docker/docker-agent/pkg/feedback.BugLink=https://github.com/turfbuild/turf/issues/new/choose'
 
 .PHONY: build install test fmt vet tidy clean
 

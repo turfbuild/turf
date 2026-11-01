@@ -73,7 +73,7 @@ jobs:
             os="${p%_*}"; arch="${p#*_}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
               go build -tags no_audio -trimpath \
-                -ldflags "-s -w -X main.Version=${TAG}" \
+                -ldflags "-s -w -X main.Version=${TAG} -X github.com/docker/docker-agent/pkg/feedback.Link=https://turf.build/feedback/ -X github.com/docker/docker-agent/pkg/feedback.BugLink=https://github.com/turfbuild/turf/issues/new/choose" \
                 -o "dist/turf-${p}" .
           done
           ls -l dist
