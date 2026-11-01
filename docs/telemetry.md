@@ -15,7 +15,7 @@ either: restate-server's telemetry and the embedded agent runtime's are always o
 | --- | --- |
 | The Homebrew service | `turf telemetry off`, then `brew services restart turf`. Or put `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in `~/.homebrew/services/turf.env` and restart the service. With Homebrew's analytics off (`brew analytics off` or `HOMEBREW_NO_ANALYTICS`), the service starts with telemetry off. |
 | `turf-mcp-server engine run` in a terminal | `turf telemetry off` before you start it, or `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in that terminal. |
-| A container or CI | `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the engine's environment, or `turf-engine --telemetry=off`. |
+| A container or CI | `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the environment of `turf-engine` or `turf-mcp-server engine run`, or `turf-engine --telemetry=off`. |
 
 To install with telemetry off from the start, run the installer with `--no-telemetry`
 (`curl -fsSL https://get.turf.build/install.sh | bash -s -- --no-telemetry`), or with
@@ -32,6 +32,13 @@ reads no file: use the variables or the flag. `TURF_TELEMETRY` takes precedence 
 reach the Homebrew service, whose environment is `turf.env`. That file is
 `$XDG_CONFIG_HOME/homebrew/services/turf.env` if you set `XDG_CONFIG_HOME`, and Homebrew skips it
 if it is group- or world-writable.
+
+Under CI (`CI`, or the variable GitHub Actions, GitLab CI, Buildkite, CircleCI, Jenkins, Azure
+Pipelines or TeamCity sets), `turf-mcp-server engine run` writes no setting and sends no
+installation id, so a job on a fresh runner does not count as a new installation. To count your
+organization's pipelines as one installation, set `TURF_INSTALLATION_ID` to a UUID (`uuidgen`)
+kept in a repository or organization variable; on GitHub Actions,
+`TURF_INSTALLATION_ID: ${{ vars.TURF_INSTALLATION_ID }}`.
 
 `turf telemetry status` shows the setting and your installation id.
 `turf-mcp-server engine status` shows whether the running engine sends.
@@ -50,7 +57,7 @@ There are three events. Each one is a single JSON `POST` to
 | --- | --- |
 | `schema` | The event schema's version, `1` |
 | `event` | `engine.start`, `engine.daily` or `convergence` |
-| `installation_id` | A random UUID generated for your installation, stored in `telemetry.json`. It identifies an installation, not a person. An engine with no setting, such as one in a container or CI, sends none unless `TURF_INSTALLATION_ID` gives it one. |
+| `installation_id` | A random UUID generated for your installation, stored in `telemetry.json`. It identifies an installation, not a person. `TURF_INSTALLATION_ID`, when it is a UUID, is sent in its place; any other value is dropped and no id is sent. An engine with no setting, such as one in a container or CI, sends none unless `TURF_INSTALLATION_ID` gives it one. |
 | `version` | Turf's version |
 | `platform`, `arch` | The operating system and CPU architecture, such as `darwin` and `arm64` |
 | `deployment` | `local` (the per-user engine), `container` or `standalone` |

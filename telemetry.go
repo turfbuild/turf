@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,7 +22,10 @@ import (
 //	{"enabled": true, "installation_id": "<uuid>"}
 //
 // The contract with turf-mcp-server, which reads and writes the same file: those
-// two keys, an atomic write, and any other key kept as found.
+// two keys, an atomic write, and any other key kept as found. The CLI mints no
+// installation id: the supervisor does, outside CI, when it starts the engine.
+// So a setting written on a CI runner, as the installer's --no-telemetry
+// writes one, carries no id that would count each job as a new installation.
 
 const telemetryURL = "https://turf.build/telemetry"
 
@@ -35,8 +37,8 @@ const telemetryRestartHint = "Takes effect when the engine restarts: brew servic
 func telemetryPath() string { return filepath.Join(turfHome(), "telemetry.json") }
 
 // telemetrySetting is what the file says. exists is false when there is no
-// file yet: telemetry is then on, the default, and the engine's supervisor
-// writes the file with an id at its first start.
+// file yet: telemetry is then on, the default, and outside CI the engine's
+// supervisor writes the file with an id at its first start.
 type telemetrySetting struct {
 	enabled        bool
 	installationID string
@@ -80,9 +82,9 @@ func readTelemetrySetting(path string) (telemetrySetting, map[string]any, error)
 	return s, doc, nil
 }
 
-// writeTelemetrySetting sets enabled, keeping the file's other keys and giving
-// it an installation id if it has none. A broken file is replaced: the user
-// asked for a setting, and nothing in it could be trusted.
+// writeTelemetrySetting sets enabled, keeping the file's other keys and its
+// installation id; it gives a file without one none. A broken file is
+// replaced: the user asked for a setting, and nothing in it could be trusted.
 func writeTelemetrySetting(path string, enabled bool) (telemetrySetting, error) {
 	s, doc, err := readTelemetrySetting(path)
 	if err != nil {
@@ -91,13 +93,13 @@ func writeTelemetrySetting(path string, enabled bool) (telemetrySetting, error) 
 		}
 		s, doc = telemetrySetting{}, map[string]any{}
 	}
-	if s.installationID == "" {
-		if s.installationID, err = newUUID(); err != nil {
-			return telemetrySetting{}, err
-		}
-	}
 	s.enabled, s.exists = enabled, true
-	doc["enabled"], doc["installation_id"] = enabled, s.installationID
+	doc["enabled"] = enabled
+	if s.installationID != "" {
+		doc["installation_id"] = s.installationID
+	} else {
+		delete(doc, "installation_id") // not a UUID: never sent, so not kept
+	}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return telemetrySetting{}, err
@@ -122,17 +124,6 @@ func writeTelemetrySetting(path string, enabled bool) (telemetrySetting, error) 
 		return telemetrySetting{}, err
 	}
 	return s, os.Rename(tmp.Name(), path)
-}
-
-// newUUID is a random (version 4) UUID.
-func newUUID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 // telemetryVersionLine is the line `turf --version` prints under the license:
@@ -183,7 +174,11 @@ func newTelemetryCmd() *cobra.Command {
 					return fmt.Errorf("writing %s: %w", telemetryPath(), err)
 				}
 				out := cmd.OutOrStdout()
-				_, _ = fmt.Fprintf(out, "Telemetry is %s (installation %s), in %s.\n%s\n", name, s.installationID, telemetryPath(), telemetryRestartHint)
+				if s.installationID != "" {
+					_, _ = fmt.Fprintf(out, "Telemetry is %s (installation %s), in %s.\n%s\n", name, s.installationID, telemetryPath(), telemetryRestartHint)
+				} else {
+					_, _ = fmt.Fprintf(out, "Telemetry is %s, in %s.\n%s\n", name, telemetryPath(), telemetryRestartHint)
+				}
 				if os.Getenv("TURF_HOME") != "" {
 					_, _ = fmt.Fprintf(out, "TURF_HOME is set in this shell; the Homebrew service reads ~/.turf unless TURF_HOME is in its turf.env too.\n")
 				}
@@ -204,6 +199,9 @@ func telemetryStatus(out io.Writer) error {
 		_, _ = fmt.Fprintf(out, "                 turf telemetry on|off rewrites it\n")
 	case !s.exists:
 		_, _ = fmt.Fprintf(out, "Telemetry:       %s (the default; no setting yet)\n", state)
+		_, _ = fmt.Fprintf(out, "Installation id: none yet; the engine's first start assigns one\n")
+	case s.installationID == "":
+		_, _ = fmt.Fprintf(out, "Telemetry:       %s\n", state)
 		_, _ = fmt.Fprintf(out, "Installation id: none yet; the engine's first start assigns one\n")
 	default:
 		_, _ = fmt.Fprintf(out, "Telemetry:       %s\n", state)

@@ -44,20 +44,57 @@ func TestTelemetryOffOnRoundTrip(t *testing.T) {
 		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
 	}
 	off, _, err := readTelemetrySetting(path)
-	if err != nil || off.enabled || !uuidPattern.MatchString(off.installationID) {
-		t.Fatalf("after off: %+v %v", off, err)
+	if err != nil || off.enabled || off.installationID != "" {
+		t.Fatalf("after off: %+v %v; want off, and no id: the CLI mints none", off, err)
 	}
 	if line := telemetryVersionLine(); line != "Telemetry: off (turf telemetry on to enable)\n" {
 		t.Errorf("version line when off: %q", line)
 	}
 
-	runTelemetry(t, "on")
-	on, _, _ := readTelemetrySetting(path)
-	if !on.enabled || on.installationID != off.installationID {
-		t.Errorf("after on: %+v, want on with the same id %s", on, off.installationID)
+	if out := runTelemetry(t, "on"); strings.Contains(out, "installation") {
+		t.Errorf("on named an installation it does not have:\n%s", out)
 	}
-	if out := runTelemetry(t, "status"); !strings.Contains(out, "Installation id: "+on.installationID) {
+	on, _, _ := readTelemetrySetting(path)
+	if !on.enabled || on.installationID != "" {
+		t.Errorf("after on: %+v, want on with no id", on)
+	}
+	if out := runTelemetry(t, "status"); !strings.Contains(out, "Installation id: none yet") {
 		t.Errorf("status:\n%s", out)
+	}
+
+	// An id the supervisor wrote is kept through off and on.
+	const id = "1b4e28ba-2fa1-11d2-883f-b9a761bde3fb"
+	if err := os.WriteFile(path, []byte(`{"enabled": true, "installation_id": "`+id+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out := runTelemetry(t, "off"); !strings.Contains(out, "(installation "+id+")") {
+		t.Errorf("off:\n%s", out)
+	}
+	runTelemetry(t, "on")
+	if kept, _, _ := readTelemetrySetting(path); !kept.enabled || kept.installationID != id {
+		t.Errorf("after off and on: %+v, want on with %s", kept, id)
+	}
+	if out := runTelemetry(t, "status"); !strings.Contains(out, "Installation id: "+id) {
+		t.Errorf("status:\n%s", out)
+	}
+}
+
+// An installation_id that is not a UUID is never sent, so a write drops it.
+func TestTelemetryWriteDropsAnIDThatIsNotAUUID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "telemetry.json")
+	if err := os.WriteFile(path, []byte(`{"enabled": true, "installation_id": "acme-ci"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeTelemetrySetting(path, false); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := doc["installation_id"]; present || doc["enabled"] != false {
+		t.Errorf("rewritten as %s", raw)
 	}
 }
 
@@ -111,20 +148,9 @@ func TestTelemetryBrokenSetting(t *testing.T) {
 			t.Errorf("%s: status\n%s", body, out)
 		}
 		runTelemetry(t, "off")
-		if s, _, err := readTelemetrySetting(path); err != nil || s.enabled || s.installationID == "" {
+		if s, _, err := readTelemetrySetting(path); err != nil || s.enabled || s.installationID != "" {
 			t.Errorf("%s after off: %+v, %v", body, s, err)
 		}
-	}
-}
-
-func TestNewUUIDIsVersion4(t *testing.T) {
-	a, err := newUUID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := newUUID()
-	if !uuidPattern.MatchString(a) || a == b || a[14] != '4' || !strings.ContainsRune("89ab", rune(a[19])) {
-		t.Errorf("newUUID = %q, %q", a, b)
 	}
 }
 
