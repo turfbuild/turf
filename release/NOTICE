@@ -41,7 +41,7 @@ Mozilla Public License 2.0 (MPL-2.0)
 ------------------------------------
 
   * OpenTofu (downstream fork)
-      https://github.com/turfbuild/opentofu  (tag v1.12.9-turf.2)
+      https://github.com/turfbuild/opentofu  (tag v1.12.9-turf.3)
       Upstream: https://github.com/opentofu/opentofu
       Copyright (c) The OpenTofu Authors; Copyright (c) 2014 HashiCorp, Inc.
       The fork additionally carries x/ ("OpenTofu extensions"), a library
@@ -64,7 +64,7 @@ Permissive licenses (MIT, Apache-2.0, BSD)
   * Docker Agent (formerly cagent), downstream fork — the LLM runtime embedded
     by the turf CLI
       github.com/docker/docker-agent  (Apache License 2.0)
-      https://github.com/turfbuild/docker-agent  (tag v1.118.0-turf.2)
+      https://github.com/turfbuild/docker-agent  (tag v1.118.0-turf.3)
       Upstream: https://github.com/docker/docker-agent
       Copyright (c) Docker Inc. and the Docker Agent authors
 
