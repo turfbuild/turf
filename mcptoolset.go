@@ -92,8 +92,7 @@ var turfToolInfo = map[string]struct {
 	"close":  {"workspace", "Close Workspace"},
 	"delete": {"workspace", "Delete Workspace"},
 	// run — the calls that start a convergence and stop at round 1's plan gate.
-	// up is titled by the engine console's word for its run kind, "deploy".
-	"up":      {"run", "Deploy"},
+	"up":      {"run", "Up"},
 	"destroy": {"run", "Destroy"},
 	"refresh": {"run", "Refresh State"},
 	"import":  {"run", "Import Resources"},

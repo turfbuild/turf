@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/color"
-	"maps"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -864,10 +862,8 @@ type convergenceView struct {
 	Round     int             `json:"round,omitempty"`
 	Plan      *vendedPlanView `json:"plan,omitempty"`
 	ExpiresAt string          `json:"expires_at,omitempty"`
-	// Ended says the convergence is over; Next is the call that continues it,
-	// with the arguments known to be right for it (never an approval's digest).
-	Ended bool          `json:"ended"`
-	Next  *nextCallView `json:"next,omitempty"`
+	// Ended says the convergence is over.
+	Ended bool `json:"ended"`
 	// Cancelling says a cancel was asked and the convergence is still running
 	// (planning or applying): the result came back at the deadline before the
 	// cancel landed.
@@ -880,34 +876,8 @@ type convergenceView struct {
 	Rounds         []roundView             `json:"rounds"`
 	Outputs        *convergenceOutputsView `json:"outputs,omitempty"`
 	Error          string                  `json:"error,omitempty"`
-	// The result's note is not read: it is the server's guidance to the agent
-	// (what to call next, and with what), which the next: row already shows the
-	// user in a line.
-}
-
-// nextCallView is the call that continues a convergence, as the result names it:
-// plan for a round at its gate, apply for an approval point or turf actions, the
-// start verb on the workspace after an ending that leaves work standing.
-type nextCallView struct {
-	Tool string         `json:"tool"`
-	Args map[string]any `json:"args,omitempty"`
-}
-
-// UnmarshalJSON reads the structured call, and reads the v1 server's prose next —
-// a string — as no call at all, so a result from an older server still renders
-// (the prose lives in note now).
-func (n *nextCallView) UnmarshalJSON(b []byte) error {
-	if len(b) > 0 && b[0] == '"' {
-		*n = nextCallView{}
-		return nil
-	}
-	type plain nextCallView
-	var v plain
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-	*n = nextCallView(v)
-	return nil
+	// The result's note and next are not read: they are the server's guidance
+	// to the agent (what to call next, and with what), not the user's to read.
 }
 
 // vendedPlanView is a round's plan as the result reports it: the resource that
@@ -1072,7 +1042,7 @@ func convergenceSummary(msg *types.Message, c convergenceView) string {
 	if c.ConvergenceID != "" {
 		summary = appendDot(summary, addr(c.ConvergenceID))
 	}
-	// up and its siblings are titled by their kind already ("Deploy", "Destroy");
+	// up and its siblings are titled by their kind already ("Up", "Destroy");
 	// plan, apply and cancel act on a convergence some earlier call started, so
 	// they name it.
 	if bare := strings.TrimPrefix(msg.ToolCall.Function.Name, appName+"_"); bare == "plan" || bare == "apply" || bare == "cancel" {
@@ -1202,30 +1172,10 @@ func convergenceDetail(c convergenceView) []string {
 			detail = append(detail, "  "+muted("carried ")+addr(strings.Join(o.Carried, ", "))+muted(" (still deferred)"))
 		}
 	}
-	if n := c.Next; n != nil && n.Tool != "" {
-		detail = append(detail, section("next"), "  "+nextCallLine(*n))
-	}
 	if c.Error != "" {
 		detail = append(detail, styles.ToolErrorMessageStyle.Render(c.Error))
 	}
 	return detail
-}
-
-// nextCallLine renders the call that continues a convergence as the agent would
-// call it: the tool, then its arguments as key=value in key order. A string
-// argument (an id, an alias) prints bare; anything else prints as fmtVal does,
-// so a list or an object reads as its JSON rather than Go's %v.
-func nextCallLine(n nextCallView) string {
-	out := keyword(n.Tool)
-	for _, k := range slices.Sorted(maps.Keys(n.Args)) {
-		v := n.Args[k]
-		s, ok := v.(string)
-		if !ok {
-			s = fmtVal(v)
-		}
-		out += " " + muted(k+"=") + addr(s)
-	}
-	return out
 }
 
 // orphanRefusals lists, sorted, the refused keys no open action request carries.
