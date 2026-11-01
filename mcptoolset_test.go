@@ -92,7 +92,7 @@ func TestDecorateTurfTool(t *testing.T) {
 	if tool.Name != "turf_apply" {
 		t.Errorf("Name mutated to %q; it must stay the prefixed, model-facing name", tool.Name)
 	}
-	if want := "Apply Plan"; tool.Annotations.Title != want {
+	if want := "Apply"; tool.Annotations.Title != want {
 		t.Errorf("Title = %q, want %q (friendly display label)", tool.Annotations.Title, want)
 	}
 	if want := appName + " · apply"; tool.Category != want {
