@@ -923,9 +923,11 @@ func TestConvergence_RunningWords(t *testing.T) {
 		return plainNorm(b.View())
 	}
 	cases := []struct{ name, args, want string }{
-		{"turf_up", `{}`, "planning…"},
-		{"turf_destroy", `{"workspace_alias":"west"}`, "west · planning…"},
+		{"turf_up", `{}`, "starting…"},
+		{"turf_destroy", `{"workspace_alias":"west"}`, "west · starting…"},
+		{"turf_plan", `{"convergence_id":"p-1"}`, "p-1 · planning…"},
 		{"turf_apply", `{"convergence_id":"p-1","plan_digest":"sha256:ab"}`, "p-1 · applying…"},
+		{"turf_apply", `{"convergence_id":"p-1","decline":true}`, "p-1 · declining…"},
 		{"turf_apply", `{"convergence_id":"p-1","action_results":{"k1":{"succeeded":true}}}`, "answering actions…"},
 		{"turf_cancel", `{}`, "cancelling…"},
 	}

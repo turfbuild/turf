@@ -22,11 +22,11 @@ import (
 // config_path is passed explicitly (resolved after any --worktree chdir): the
 // server defaults none, and without one its prompt asks; instructions, when
 // non-empty, are woven into the prompt's User Instructions section server-side.
-// autoApprove (--yes/--auto-approve) sends the prompt's auto_approve argument: the
-// user pre-approved every plan of this run, so the server's runbook has up/destroy
-// run to the end without pausing at each round's approval point.
-func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPath, instructions string, autoApprove bool) (string, error) {
-	text, err := rt.ExecuteMCPPrompt(ctx, name, serverPromptArgs(configPath, instructions, autoApprove))
+// --yes/--auto-approve never reaches the server: the server has no approval
+// argument (every round's plan is approved by apply, by its digest), and the
+// flag's whole meaning is the agent's user_prompt answering yes (autoconfirm.go).
+func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPath, instructions string) (string, error) {
+	text, err := rt.ExecuteMCPPrompt(ctx, name, serverPromptArgs(configPath, instructions))
 	if err != nil {
 		return "", fmt.Errorf("render %q prompt from turf-mcp-server: %w", name, err)
 	}
@@ -37,11 +37,8 @@ func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPat
 // by name: config_path is the directory the CLI runs in, and the user's words
 // go to instructions. The subcommands (renderServerPrompt) and the TUI's /up and
 // /destroy (turfPromptCommands) both build them here, so the two can't drift.
-func serverPromptArgs(configPath, instructions string, autoApprove bool) map[string]string {
+func serverPromptArgs(configPath, instructions string) map[string]string {
 	args := map[string]string{"config_path": configPath}
-	if autoApprove {
-		args["auto_approve"] = "true"
-	}
 	if instructions = strings.TrimSpace(instructions); instructions != "" {
 		args["instructions"] = instructions
 	}
@@ -62,7 +59,7 @@ func turfPromptCommands(a *app.App, wd string) func(context.Context, tea.Model) 
 }
 
 // withTurfPromptArgs rewires the up and destroy prompt items of cats in place
-// and returns cats. The TUI has no --yes, so auto_approve is never sent.
+// and returns cats.
 func withTurfPromptArgs(cats []commands.Category, wd string) []commands.Category {
 	for ci := range cats {
 		for ii := range cats[ci].Commands {
@@ -74,7 +71,7 @@ func withTurfPromptArgs(cats []commands.Category, wd string) []commands.Category
 			item.Execute = func(arg string) tea.Cmd {
 				return core.CmdHandler(messages.MCPPromptMsg{
 					PromptName: name,
-					Arguments:  serverPromptArgs(wd, arg, false),
+					Arguments:  serverPromptArgs(wd, arg),
 				})
 			}
 		}

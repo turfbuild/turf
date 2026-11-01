@@ -73,17 +73,20 @@ var preApprovedTurfTools = []string{
 	"turf_close",
 	"turf_delete",
 	// Runs. up, destroy, refresh, import and invoke each start a convergence and
-	// stop at its first approval point: they plan, and apply nothing. The server
-	// marks up and destroy destructive for their auto_approve, which runs every
-	// round without pausing and is passed only for a run the user pre-approved.
+	// stop at round 1's plan gate: they submit, and plan and apply nothing. No
+	// start verb approves anything up front, so none is destructive.
 	"turf_up",
 	"turf_destroy",
 	"turf_refresh",
 	"turf_import",
 	"turf_invoke",
-	// Approval. apply approves the plan a round vended (or answers the turf actions
-	// a round asked) — the persona applies the server's approval rule before each
-	// call (see agentConfirmTurfTools). cancel ends a convergence: what is in flight
+	// Planning. plan answers the plan gate a start verb stopped at — with that
+	// round's refresh and replace — and stops at the round's approval point with
+	// the plan vended; it applies nothing.
+	"turf_plan",
+	// Approval. apply approves the plan a round vended (or declines it, or
+	// answers the turf actions a round asked) — the persona applies the server's
+	// approval rule before each call (see agentConfirmTurfTools). cancel ends a convergence: what is in flight
 	// finishes and the rest is abandoned, so it authorizes nothing new.
 	"turf_apply",
 	"turf_cancel",

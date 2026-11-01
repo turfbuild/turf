@@ -91,13 +91,15 @@ var turfToolInfo = map[string]struct {
 	"list":   {"workspace", "List Workspaces"},
 	"close":  {"workspace", "Close Workspace"},
 	"delete": {"workspace", "Delete Workspace"},
-	// run — the calls that start a convergence and stop at its first approval
+	// run — the calls that start a convergence and stop at round 1's plan gate,
+	// and plan, which plans the round at its gate and stops at its approval
 	// point. up is titled by the engine console's word for its run kind, "deploy".
 	"up":      {"run", "Deploy"},
 	"destroy": {"run", "Destroy"},
 	"refresh": {"run", "Refresh State"},
 	"import":  {"run", "Import Resources"},
 	"invoke":  {"run", "Invoke Action"},
+	"plan":    {"run", "Plan"},
 	// apply — approving a vended plan (or answering turf actions), and ending a
 	// convergence
 	"apply":  {"apply", "Apply Plan"},

@@ -61,6 +61,7 @@ var titleCuratorTools = []string{
 	"turf_open",
 	"turf_up",
 	"turf_destroy",
+	"turf_plan",
 	"turf_apply",
 }
 
@@ -183,7 +184,7 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 		}
 		return true
 
-	case "turf_up", "turf_destroy", "turf_apply":
+	case "turf_up", "turf_destroy", "turf_plan", "turf_apply":
 		var v convergenceView
 		if json.Unmarshal([]byte(output), &v) != nil {
 			return false
@@ -193,10 +194,11 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 	return false
 }
 
-// ingestConvergence folds one up/destroy/apply result into the digest. Only a deploy
+// ingestConvergence folds one up/destroy/plan/apply result into the digest. Only a deploy
 // or a destroy titles the session — a refresh, an import or an invoke is upkeep on
 // infrastructure the title already names. Each round of a convergence stops at its
-// own approval point, so the title shows the round awaiting approval; once the
+// own approval point (plan's result), so the title shows the round awaiting
+// approval — a start verb's awaiting_plan has no counts yet; once the
 // convergence converges it shows everything its rounds applied, summed. A new
 // convergence starts the sum over; any other ending (failed, stalled, cancelled)
 // leaves the title on the last plan, which is what was still pending.
