@@ -5,7 +5,7 @@ go 1.26.10
 replace github.com/docker/docker-agent => ./docker-agent
 
 require (
-	charm.land/bubbletea/v2 v2.1.0
+	charm.land/bubbletea/v2 v2.1.1
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/docker/docker-agent v1.118.0-turf.2
 	github.com/goccy/go-yaml v1.19.2
