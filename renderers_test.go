@@ -590,102 +590,234 @@ func sortedKeys(m map[string]any) []string {
 // Run 1) against fixture `core`, paths shortened. Each tool's line is asserted in both
 // detail levels.
 
-// upRound1 is `up` stopping at round 1's approval point: four creates, one resource
-// deferred to round 2 (it reads an id round 1 creates).
-const upRound1 = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
-	"outcome":"awaiting_approval","round":1,
-	"plan":{"uri":"turf://workspaces/default/convergences/p-5f3d7adf/rounds/1/plan",
-		"digest":"sha256:247f7cef0852f871bf01d5f31401523a80452ff87e3cbfb4130d64264db75c1b",
-		"add":4,"change":0,"destroy":0,"deferred":1,"outputs":3},
-	"expires_at":"2026-10-10T23:44:36Z",
-	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":5,"deferred":1,"applied":0}],
-	"next":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now."}`
+// The v2 loop on fixture core, as the server returned it against a real engine
+// (2026-11-01, turf-mcp-server v1.2.0-7-g6101c5e27d): a start verb stops at round
+// 1's plan gate, plan plans the round and stops at its approval point, apply
+// applies it and stops at the next round's gate or ends the convergence. The
+// notes are the server's own guidance, verbatim.
 
-// applyRound2 is the apply of round 1: it applied four, planned round 2, and stopped.
-const applyRound2 = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
+// upAwaitingPlan is `up` stopping at round 1's plan gate: nothing planned yet.
+const upAwaitingPlan = `{"convergence_id":"p-9bc1215f","workspace_alias":"default","kind":"up",
+	"outcome":"awaiting_plan","round":1,"expires_at":"2026-11-02T07:31:34Z",
+	"rounds":[{"round":1,"status":"awaiting_plan","planned":0,"deferred":0,"applied":0}],
+	"note":"Round 1 waits at its plan gate: nothing is planned yet. Call plan with convergence_id p-9bc1215f to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). To change course first, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"p-9bc1215f"}}}`
+
+// planRound1 is `plan` planning round 1 and stopping at its approval point: four
+// creates, one resource deferred to round 2 (it reads an id round 1 creates).
+const planRound1 = `{"convergence_id":"p-9bc1215f","workspace_alias":"default","kind":"up",
+	"outcome":"awaiting_approval","round":1,
+	"plan":{"uri":"turf://workspaces/default/convergences/p-9bc1215f/rounds/1/plan",
+		"digest":"sha256:88c4c6dea91a1c0bee8b04e9c7b74ec32c04a50d61d7bc75ef1bce2444b402d4",
+		"add":4,"change":0,"destroy":0,"deferred":1,"outputs":3},
+	"expires_at":"2026-11-02T07:31:41Z",
+	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":5,"deferred":1,"applied":0}],
+	"note":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To decline it, call apply with convergence_id and decline (and a reason): the convergence ends declined. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"apply","args":{"convergence_id":"p-9bc1215f"}}}`
+
+// applyRound1Gate is the apply of round 1: it applied four and stopped at round 2's
+// plan gate.
+const applyRound1Gate = `{"convergence_id":"p-9bc1215f","workspace_alias":"default","kind":"up",
+	"outcome":"awaiting_plan","round":2,"expires_at":"2026-11-02T07:31:46Z",
+	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
+		{"round":2,"status":"awaiting_plan","planned":0,"deferred":0,"applied":0}],
+	"note":"Round 2 waits at its plan gate: nothing is planned yet. Call plan with convergence_id p-9bc1215f to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). To change course first, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"p-9bc1215f"}}}`
+
+// planRound2 is `plan` planning round 2: the two creates round 1 deferred.
+const planRound2 = `{"convergence_id":"p-9bc1215f","workspace_alias":"default","kind":"up",
 	"outcome":"awaiting_approval","round":2,
-	"plan":{"uri":"turf://workspaces/default/convergences/p-5f3d7adf/rounds/2/plan",
-		"digest":"sha256:0badac7182bcbfe386f11b873c546139305dd621e8df846bda54fab498a487fc",
+	"plan":{"uri":"turf://workspaces/default/convergences/p-9bc1215f/rounds/2/plan",
+		"digest":"sha256:caaeb8d58b0bed0a2e549200fa702bd14ab4d657cbdb0913686eb56d4e550ab0",
 		"add":2,"change":0,"destroy":0,"outputs":1},
-	"expires_at":"2026-10-10T23:45:20Z",
+	"expires_at":"2026-11-02T07:31:53Z",
 	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
 		{"round":2,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
-	"next":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now."}`
+	"note":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To decline it, call apply with convergence_id and decline (and a reason): the convergence ends declined. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"apply","args":{"convergence_id":"p-9bc1215f"}}}`
 
 // applyConverged is the apply of round 2: nothing left deferred.
-const applyConverged = `{"convergence_id":"p-5f3d7adf","workspace_alias":"default","kind":"up",
+const applyConverged = `{"convergence_id":"p-9bc1215f","workspace_alias":"default","kind":"up",
 	"outcome":"converged",
 	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":5,"deferred":1,"applied":4},
 		{"round":2,"status":"applied","approval":"asked","planned":6,"deferred":0,"applied":2}],
 	"outputs":{"finalized":["fan","password","pet"]},
-	"next":"Done: nothing is left deferred."}`
+	"note":"Done: nothing is left deferred. Read outputs with output, and state with state_list or show.","ended":true}`
 
-// upNoChange is an up whose single round planned nothing to apply: it converged
-// without pausing.
-const upNoChange = `{"convergence_id":"p-14f188d8","workspace_alias":"default","kind":"up",
+// planNoChange is `plan` on a round with nothing to apply: no approval is needed, so
+// the call runs the round through and the convergence converges.
+const planNoChange = `{"convergence_id":"p-84881d9a","workspace_alias":"default","kind":"up",
 	"outcome":"converged",
 	"rounds":[{"round":1,"status":"applied","approval":"unneeded","planned":6,"deferred":0,"applied":0}],
-	"outputs":{"finalized":["fan","password","pet"]},"next":"Done."}`
+	"outputs":{"finalized":["fan","password","pet"]},
+	"note":"Done: nothing is left deferred. Read outputs with output, and state with state_list or show.","ended":true}`
 
-const destroyRound1 = `{"convergence_id":"d-b75b58b2","workspace_alias":"default","kind":"destroy",
+// planPlanning is a `plan` that returned at the server's deadline (one second,
+// for the recording) with the round still planning: the convergence goes on, and
+// the next plan follows it.
+const planPlanning = `{"convergence_id":"p-f28d0184","workspace_alias":"default","kind":"up",
+	"outcome":"planning","round":1,
+	"rounds":[{"round":1,"status":"planning","planned":0,"deferred":0,"applied":0}],
+	"note":"The convergence is still planning: this call returned at its deadline, and the convergence goes on in the engine. Call plan with convergence_id p-f28d0184 to follow it to its approval point; cancel stops it.",
+	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"p-f28d0184"}}}`
+
+// planReplace is round 1 of an up with prefix v1b: the pet and the marker replaced,
+// three in-place updates.
+const planReplace = `{"convergence_id":"p-8cd5c969","workspace_alias":"default","kind":"up",
 	"outcome":"awaiting_approval","round":1,
-	"plan":{"uri":"turf://workspaces/default/convergences/d-b75b58b2/rounds/1/plan",
-		"digest":"sha256:6a6bd549bc3088b216e54764b10d2166004b4645eb1d6e07ae47cbf9fc1964b1",
-		"add":0,"change":0,"destroy":6,"outputs":3},
-	"expires_at":"2026-10-10T23:46:30Z",
+	"plan":{"uri":"turf://workspaces/default/convergences/p-8cd5c969/rounds/1/plan",
+		"digest":"sha256:e143bb15d964ef9863896d79a2f01d266224cf19f87778561d134fb516c14915",
+		"add":2,"change":3,"destroy":2,"replace":2,"outputs":2},
+	"expires_at":"2026-11-02T07:32:15Z",
 	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
-	"next":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now."}`
+	"note":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To decline it, call apply with convergence_id and decline (and a reason): the convergence ends declined. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"apply","args":{"convergence_id":"p-8cd5c969"}}}`
 
-const destroyConverged = `{"convergence_id":"d-b75b58b2","workspace_alias":"default","kind":"destroy",
+// applyDeclined is that plan declined: nothing applied, the convergence over.
+const applyDeclined = `{"convergence_id":"p-8cd5c969","workspace_alias":"default","kind":"up",
+	"outcome":"declined",
+	"rounds":[{"round":1,"status":"cancelled","approval":"asked","planned":6,"deferred":0,"applied":0,"decline_reason":"the user said no"}],
+	"note":"The convergence's last plan was declined (rounds[].decline_reason says why, when a reason was given); nothing of it was applied. To plan again, run up.","ended":true}`
+
+// cancelAtApproval is `cancel` of a convergence waiting at its approval point.
+const cancelAtApproval = `{"convergence_id":"p-f9f726c9","workspace_alias":"default","kind":"up",
+	"outcome":"cancelled",
+	"rounds":[{"round":1,"status":"cancelled","approval":"asked","planned":6,"deferred":0,"applied":0,"cancel_cause":"the user changed their mind"}],
+	"note":"The convergence ended without applying its last plan (anything in flight finished first). To plan again, run up.","ended":true}`
+
+const destroyAwaitingPlan = `{"convergence_id":"d-4d7663e9","workspace_alias":"default","kind":"destroy",
+	"outcome":"awaiting_plan","round":1,"expires_at":"2026-11-02T07:32:37Z",
+	"rounds":[{"round":1,"status":"awaiting_plan","planned":0,"deferred":0,"applied":0}],
+	"note":"Round 1 waits at its plan gate: nothing is planned yet. Call plan with convergence_id d-4d7663e9 to plan it (refresh false plans against the state as recorded; replace forces a replace of the addresses named — this round's options alone). To change course first, edit the configuration and call destroy again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"plan","args":{"convergence_id":"d-4d7663e9"}}}`
+
+const planDestroy = `{"convergence_id":"d-4d7663e9","workspace_alias":"default","kind":"destroy",
+	"outcome":"awaiting_approval","round":1,
+	"plan":{"uri":"turf://workspaces/default/convergences/d-4d7663e9/rounds/1/plan",
+		"digest":"sha256:3d8070fd65d99dab84f3c8d2184983f9accf27c33922699d2053a938eff9ff1f",
+		"add":0,"change":0,"destroy":6,"outputs":3},
+	"expires_at":"2026-11-02T07:32:42Z",
+	"rounds":[{"round":1,"status":"awaiting_approval","approval":"asked","planned":6,"deferred":0,"applied":0}],
+	"note":"Review the plan with show (plan.uri: OpenTofu's json-format plan, as ` + "`" + `tofu show -json` + "`" + ` prints it, redacted); hand it to a policy tool if you have one. To approve and apply it, call apply with convergence_id and plan.digest. To decline it, call apply with convergence_id and decline (and a reason): the convergence ends declined. To change course, edit the configuration and call up again, which supersedes this convergence; cancel ends it now.",
+	"ended":false,"next":{"tool":"apply","args":{"convergence_id":"d-4d7663e9"}}}`
+
+const applyDestroyConverged = `{"convergence_id":"d-4d7663e9","workspace_alias":"default","kind":"destroy",
 	"outcome":"converged",
 	"rounds":[{"round":1,"status":"applied","approval":"asked","planned":6,"deferred":0,"applied":6}],
-	"next":"The destroy is complete."}`
+	"note":"The destroy is complete.","ended":true}`
 
-func TestConvergence_UpAwaitingApproval(t *testing.T) {
-	compact := plainNorm(renderFor("turf_up", upRound1, hiddenState{}))
-	for _, want := range []string{"Deploy", "p-5f3d7adf", "round 1", "+4", "1 deferred", "3 output change(s)", "awaiting approval"} {
+// openUnfollowed is `open` from a second server while the first holds the
+// workspace at round 1's plan gate; statusHolding is `status` from the first.
+const openUnfollowed = `{"workspace_alias":"default","config_alias":"default","config_path":"/work/core","workspace_name":"default",
+	"backend_type":"local","state_path":"/work/core/terraform.tfstate","lineage":"e3854ed6-9fec-3ae4-5c48-54bf3586025c","serial":1,"resource_count":0,
+	"convergence":{"id":"p-9bc1215f","kind":"up","stage":"awaiting_plan","round":1,"followed":false,
+		"next":{"tool":"plan","args":{"convergence_id":"p-9bc1215f"}},
+		"note":"Its round 1 waits at its plan gate, and this server is not following it. Call plan with convergence_id p-9bc1215f to take it up and plan the round (refresh and replace are the round's options). up supersedes it; cancel ends it."}}`
+
+const statusHolding = `{"workspaces":[{"workspace_alias":"default","config_alias":"default","config_path":"/work/core","workspace_name":"default",
+	"backend_type":"local","state_path":"/work/core/terraform.tfstate","lineage":"e3854ed6-9fec-3ae4-5c48-54bf3586025c","opened_at":"2026-11-01T07:31:32Z",
+	"convergence":{"id":"p-9bc1215f","kind":"up","stage":"awaiting_plan","round":1,"followed":true,
+		"next":{"tool":"plan","args":{"convergence_id":"p-9bc1215f"}}}}]}`
+
+// A start verb stops at round 1's plan gate: nothing is planned, and the line says
+// which call continues.
+func TestConvergence_UpStopsAtThePlanGate(t *testing.T) {
+	compact := plainNorm(renderFor("turf_up", upAwaitingPlan, hiddenState{}))
+	for _, want := range []string{"Deploy", "p-9bc1215f", "round 1", "awaiting plan"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("up compact missing %q: %q", want, compact)
 		}
 	}
-	// The default workspace is noise on a convergence line; the next-step guidance is
-	// the agent's, not the reader's; and an up line is titled by its kind already.
-	for _, absent := range []string{"default", "Review the plan", "deploy"} {
+	// The default workspace is noise on a convergence line; the guidance is the
+	// agent's, not the reader's; an up line is titled by its kind already; and
+	// nothing is planned, so there is no tally and no approval.
+	for _, absent := range []string{"default", "Call plan", "deploy", "+", "awaiting approval"} {
 		if strings.Contains(compact, absent) {
 			t.Fatalf("up compact should not show %q: %q", absent, compact)
 		}
 	}
-
-	shown := plainNorm(renderFor("turf_up", upRound1, service.StaticSessionState{}))
-	for _, want := range []string{
-		"plan:", "turf://workspaces/default/convergences/p-5f3d7adf/rounds/1/plan", "sha256:247f7cef0852", "expires 2026-10-10T23:44:36Z",
-		"rounds:", "round 1 · awaiting approval · 5 planned · 1 deferred",
-	} {
+	shown := plainNorm(renderFor("turf_up", upAwaitingPlan, service.StaticSessionState{}))
+	for _, want := range []string{"rounds:", "round 1 · awaiting plan", "next:", "plan convergence_id=p-9bc1215f", "waits at its plan gate"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("up expanded missing %q:\n%s", want, shown)
 		}
 	}
-	if strings.Contains(shown, "247f7cef0852f871") {
-		t.Fatalf("the digest should be shortened: %s", shown)
+	if strings.Contains(shown, "plan:") {
+		t.Fatalf("no plan is vended at the gate:\n%s", shown)
 	}
 }
 
-func TestConvergence_ApplyPausesAtTheNextRound(t *testing.T) {
-	out := plainNorm(renderFor("turf_apply", applyRound2, service.StaticSessionState{}))
+// plan plans the round and stops at its approval point with the plan vended; the
+// structured next names the apply, never the digest, which is the approver's to add.
+func TestConvergence_PlanAwaitingApproval(t *testing.T) {
+	compact := plainNorm(renderFor("turf_plan", planRound1, hiddenState{}))
+	for _, want := range []string{"Plan", "p-9bc1215f", "deploy", "round 1", "+4", "1 deferred", "3 output change(s)", "awaiting approval"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("plan compact missing %q: %q", want, compact)
+		}
+	}
+	for _, absent := range []string{"default", "Review the plan"} {
+		if strings.Contains(compact, absent) {
+			t.Fatalf("plan compact should not show %q: %q", absent, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_plan", planRound1, service.StaticSessionState{}))
 	for _, want := range []string{
-		"Apply Plan", "p-5f3d7adf · deploy · round 2", "+2", "1 output change(s)", "awaiting approval",
+		"plan:", "turf://workspaces/default/convergences/p-9bc1215f/rounds/1/plan", "sha256:88c4c6dea91a", "expires 2026-11-02T07:31:41Z",
+		"rounds:", "round 1 · awaiting approval · 5 planned · 1 deferred",
+		"next:", "apply convergence_id=p-9bc1215f",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("plan expanded missing %q:\n%s", want, shown)
+		}
+	}
+	if strings.Contains(shown, "88c4c6dea91a1c0b") {
+		t.Fatalf("the digest should be shortened: %s", shown)
+	}
+	if strings.Contains(shown, "plan_digest=") {
+		t.Fatalf("next never carries the digest: %s", shown)
+	}
+	// A replace counts inside both + and -, and is named.
+	replace := plainNorm(renderFor("turf_plan", planReplace, hiddenState{}))
+	for _, want := range []string{"+2", "~3", "-2", "2 replaced", "awaiting approval"} {
+		if !strings.Contains(replace, want) {
+			t.Fatalf("replace plan missing %q: %q", want, replace)
+		}
+	}
+}
+
+// apply applies the round and stops at the next round's plan gate; the next plan
+// plans it.
+func TestConvergence_ApplyStopsAtTheNextGate(t *testing.T) {
+	out := plainNorm(renderFor("turf_apply", applyRound1Gate, service.StaticSessionState{}))
+	for _, want := range []string{
+		"Apply Plan", "p-9bc1215f · deploy · round 2", "awaiting plan",
+		"round 1 · applied · 4 applied · 1 deferred · approved",
+		"round 2 · awaiting plan",
+		"next:", "plan convergence_id=p-9bc1215f",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("apply (to round 2's gate) missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "awaiting approval") {
+		t.Fatalf("nothing awaits approval at a plan gate:\n%s", out)
+	}
+	next := plainNorm(renderFor("turf_plan", planRound2, service.StaticSessionState{}))
+	for _, want := range []string{
+		"Plan", "p-9bc1215f · deploy · round 2", "+2", "1 output change(s)", "awaiting approval",
 		"round 1 · applied · 4 applied · 1 deferred · approved",
 		"round 2 · awaiting approval · 6 planned",
 	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("apply (round 2) missing %q:\n%s", want, out)
+		if !strings.Contains(next, want) {
+			t.Fatalf("plan (round 2) missing %q:\n%s", want, next)
 		}
 	}
 }
 
 func TestConvergence_Converged(t *testing.T) {
 	compact := plainNorm(renderFor("turf_apply", applyConverged, hiddenState{}))
-	for _, want := range []string{"Apply Plan", "p-5f3d7adf", "deploy", "converged", "2 rounds", "6 applied"} {
+	for _, want := range []string{"Apply Plan", "p-9bc1215f", "deploy", "converged", "2 rounds", "6 applied"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("converged compact missing %q: %q", want, compact)
 		}
@@ -694,26 +826,78 @@ func TestConvergence_Converged(t *testing.T) {
 	if !strings.Contains(shown, "finalized fan, password, pet") {
 		t.Fatalf("converged expansion should name the finalized outputs:\n%s", shown)
 	}
+	if strings.Contains(shown, "next:") {
+		t.Fatalf("nothing continues a converged deploy:\n%s", shown)
+	}
 
-	// A deploy with nothing to apply converges in its first call, and says so.
-	none := plainNorm(renderFor("turf_up", upNoChange, service.StaticSessionState{}))
-	for _, want := range []string{"converged", "no changes", "nothing to approve"} {
+	// A round with nothing to apply needs no approval: plan runs it through, and the
+	// convergence converges in that call.
+	none := plainNorm(renderFor("turf_plan", planNoChange, service.StaticSessionState{}))
+	for _, want := range []string{"Plan", "converged", "no changes", "nothing to approve"} {
 		if !strings.Contains(none, want) {
-			t.Fatalf("no-change up missing %q:\n%s", want, none)
+			t.Fatalf("no-change plan missing %q:\n%s", want, none)
 		}
 	}
 }
 
-// A destroy is "done", not "converged": converging is a deploy's word.
+// A call that returns at the server's deadline reports the running stage, not an
+// error: the convergence goes on, and the line names the call that follows it.
+func TestConvergence_PlanningAtTheDeadline(t *testing.T) {
+	compact := plainNorm(renderFor("turf_plan", planPlanning, hiddenState{}))
+	for _, want := range []string{"Plan", "p-f28d0184", "deploy", "round 1", "planning…"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("planning compact missing %q: %q", want, compact)
+		}
+	}
+	shown := plainNorm(renderFor("turf_plan", planPlanning, service.StaticSessionState{}))
+	for _, want := range []string{"round 1 · planning", "next:", "plan convergence_id=p-f28d0184", "returned at its deadline"} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("planning expanded missing %q:\n%s", want, shown)
+		}
+	}
+}
+
+// A declined plan and a cancel are endings, not errors: a neutral word, nothing
+// applied, and the reason under the round.
+func TestConvergence_DeclinedAndCancelled(t *testing.T) {
+	declined := plainNorm(renderFor("turf_apply", applyDeclined, service.StaticSessionState{}))
+	for _, want := range []string{"Apply Plan", "p-8cd5c969", "deploy", "declined", "round 1 · cancelled · 6 planned", "declined: the user said no"} {
+		if !strings.Contains(declined, want) {
+			t.Fatalf("declined missing %q:\n%s", want, declined)
+		}
+	}
+	if strings.Contains(declined, "next:") {
+		t.Fatalf("nothing continues a declined convergence by itself:\n%s", declined)
+	}
+	// No totals on the line: nothing was applied (the note says so in words).
+	if compact := plainNorm(renderFor("turf_apply", applyDeclined, hiddenState{})); strings.Contains(compact, "applied") {
+		t.Fatalf("declined compact should not count anything applied: %q", compact)
+	}
+	cancelled := plainNorm(renderFor("turf_cancel", cancelAtApproval, service.StaticSessionState{}))
+	for _, want := range []string{"Cancel Run", "p-f9f726c9", "deploy", "cancelled", "cancelled: the user changed their mind"} {
+		if !strings.Contains(cancelled, want) {
+			t.Fatalf("cancelled missing %q:\n%s", want, cancelled)
+		}
+	}
+}
+
+// A destroy stops at its plan gate like any start verb, its plan is a destroy's,
+// and it ends "done", not "converged": converging is a deploy's word.
 func TestConvergence_Destroy(t *testing.T) {
-	plan := plainNorm(renderFor("turf_destroy", destroyRound1, hiddenState{}))
-	for _, want := range []string{"Destroy", "d-b75b58b2", "round 1", "-6", "awaiting approval"} {
+	gate := plainNorm(renderFor("turf_destroy", destroyAwaitingPlan, hiddenState{}))
+	for _, want := range []string{"Destroy", "d-4d7663e9", "round 1", "awaiting plan"} {
+		if !strings.Contains(gate, want) {
+			t.Fatalf("destroy at the gate missing %q: %q", want, gate)
+		}
+	}
+	plan := plainNorm(renderFor("turf_plan", planDestroy, hiddenState{}))
+	for _, want := range []string{"Plan", "d-4d7663e9", "destroy", "round 1", "-6", "awaiting approval"} {
 		if !strings.Contains(plan, want) {
 			t.Fatalf("destroy plan missing %q: %q", want, plan)
 		}
 	}
-	done := plainNorm(renderFor("turf_apply", destroyConverged, hiddenState{}))
-	for _, want := range []string{"d-b75b58b2", "destroy", "done", "6 applied"} {
+	done := plainNorm(renderFor("turf_apply", applyDestroyConverged, hiddenState{}))
+	for _, want := range []string{"d-4d7663e9", "destroy", "done", "6 applied"} {
 		if !strings.Contains(done, want) {
 			t.Fatalf("destroy apply missing %q: %q", want, done)
 		}
@@ -1232,6 +1416,17 @@ func TestWorkspaceOpen_ReportsTheHoldingConvergence(t *testing.T) {
 	// slot's name ("default").
 	if strings.Contains(out, "default") {
 		t.Fatalf("the alias should win over the workspace name: %q", out)
+	}
+
+	// A convergence at its plan gate, held by another server (open) or by this one
+	// (status), reads the same way, as the server recorded it.
+	unfollowed := plainNorm(renderFor("turf_open", openUnfollowed, hiddenState{}))
+	if !strings.Contains(unfollowed, "holds p-9bc1215f · deploy · awaiting plan · round 1") {
+		t.Fatalf("turf_open at the gate: %q", unfollowed)
+	}
+	held := plainNorm(renderFor("turf_status", statusHolding, service.StaticSessionState{}))
+	if !strings.Contains(held, "holds p-9bc1215f · deploy · awaiting plan · round 1") {
+		t.Fatalf("turf_status at the gate:\n%s", held)
 	}
 }
 

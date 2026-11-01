@@ -42,6 +42,14 @@ func ended(kind, id, outcome string) string {
 		id, kind, outcome)
 }
 
+// atGate is a result stopped at a round's plan gate (a start verb's, or an apply's
+// when another round is needed): no plan yet.
+func atGate(kind, id string, round int) string {
+	return fmt.Sprintf(`{"convergence_id":%q,"workspace_alias":"default","kind":%q,"outcome":"awaiting_plan","round":%d,
+		"rounds":[{"round":%d,"status":"awaiting_plan"}],"ended":false,"next":{"tool":"plan","args":{"convergence_id":%q}}}`,
+		id, kind, round, round, id)
+}
+
 func TestTitleDigestTitle(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -103,11 +111,24 @@ func TestIngestConvergenceRounds(t *testing.T) {
 	c.digest.label = "core"
 	feed := func(tool, out string) bool { return c.ingest(tool, out) }
 
-	feed("turf_up", awaiting("up", "p-1", 1, 4, 0, 0))
+	// The start verb stops at the gate with no plan: nothing to title yet.
+	if feed("turf_up", atGate("up", "p-1", 1)) || c.digest.title() != "core · init" {
+		t.Fatalf("a round at its plan gate has no counts: %q", c.digest.title())
+	}
+	feed("turf_plan", awaiting("up", "p-1", 1, 4, 0, 0))
 	if got, want := c.digest.title(), "core · plan +4 ~0 -0"; got != want {
 		t.Fatalf("round 1: %q, want %q", got, want)
 	}
-	feed("turf_apply", awaiting("up", "p-1", 2, 1, 1, 1))
+	// The apply stops at round 2's gate; a plan that returned at the deadline is
+	// still planning: neither moves the title.
+	if feed("turf_apply", atGate("up", "p-1", 2)) {
+		t.Error("an apply at the next gate should not retitle")
+	}
+	planning := `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"planning","round":2,"rounds":[],"ended":false}`
+	if feed("turf_plan", planning) || c.digest.title() != "core · plan +4 ~0 -0" {
+		t.Fatalf("a plan still planning should not retitle: %q", c.digest.title())
+	}
+	feed("turf_plan", awaiting("up", "p-1", 2, 1, 1, 1))
 	feed("turf_apply", awaiting("up", "p-1", 2, 1, 1, 1)) // re-vended, same round
 	if got, want := c.digest.title(), "core · plan +1 ~1 -1"; got != want {
 		t.Fatalf("round 2: %q, want %q", got, want)
@@ -126,8 +147,8 @@ func TestIngestConvergenceRounds(t *testing.T) {
 		t.Fatalf("after a failure: %q, want %q", got, want)
 	}
 
-	// An auto-approved run (turf up --yes) converges in one call, so no round's plan
-	// was ever seen: a destroy still knows it deleted what it applied, and a deploy
+	// A convergence taken up after a restart converges with rounds this session never
+	// saw planned: a destroy still knows it deleted what it applied, and a deploy
 	// says how many changes it applied rather than claiming none.
 	autoUp := `{"convergence_id":"p-3","workspace_alias":"default","kind":"up","outcome":"converged",
 		"rounds":[{"round":1,"status":"applied","approval":"auto","planned":4,"deferred":1,"applied":4},
@@ -143,7 +164,7 @@ func TestIngestConvergenceRounds(t *testing.T) {
 		t.Fatalf("auto-approved destroy: %q, want %q", got, want)
 	}
 	// And a deploy that applied nothing really did change nothing.
-	feed("turf_up", upNoChange)
+	feed("turf_plan", planNoChange)
 	if got, want := c.digest.title(), "core · applied no changes"; got != want {
 		t.Fatalf("no-change up: %q, want %q", got, want)
 	}
@@ -261,7 +282,8 @@ func TestIngestTracksTools(t *testing.T) {
 		// slot even when the caller named the workspace. The label must NOT move —
 		// init already set it, which is what the `label == ""` guard is for.
 		{"turf_open", `{"workspace_alias":"prod","workspace_name":"default","config_alias":"app"}`, true},
-		{"turf_up", awaiting("up", "p-1", 1, 3, 1, 0), true},
+		{"turf_up", atGate("up", "p-1", 1), false}, // tracked, but a gate carries no plan
+		{"turf_plan", awaiting("up", "p-1", 1, 3, 1, 0), true},
 		{"turf_apply", ended("up", "p-1", "converged"), true},
 		{"turf_state_list", `{}`, false}, // untracked tool
 	}
@@ -361,8 +383,10 @@ func TestCuratorRetitlesEndToEnd(t *testing.T) {
 
 	feed := func(tool, out string) { c.OnEvent(ctx, sess, respEvent(tool, out)) }
 	feed("turf_init", initOut("/x/core"))
-	feed("turf_up", upRound1)
-	feed("turf_apply", applyRound2)
+	feed("turf_up", upAwaitingPlan)
+	feed("turf_plan", planRound1)
+	feed("turf_apply", applyRound1Gate)
+	feed("turf_plan", planRound2)
 	feed("turf_apply", applyConverged)
 
 	want := []string{
@@ -388,11 +412,15 @@ func TestCuratorTitlesDestroy(t *testing.T) {
 	ctx := context.Background()
 	c.OnRunStart(ctx, sess)
 	c.OnEvent(ctx, sess, respEvent("turf_init", initOut("/x/core")))
-	c.OnEvent(ctx, sess, respEvent("turf_destroy", destroyRound1))
+	c.OnEvent(ctx, sess, respEvent("turf_destroy", destroyAwaitingPlan))
+	if last != "core · init" {
+		t.Errorf("after destroy at its gate, nothing planned: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_plan", planDestroy))
 	if last != "core · planned teardown -6" {
 		t.Errorf("after destroy plan: %q", last)
 	}
-	c.OnEvent(ctx, sess, respEvent("turf_apply", destroyConverged))
+	c.OnEvent(ctx, sess, respEvent("turf_apply", applyDestroyConverged))
 	if last != "core · destroyed -6" {
 		t.Errorf("after destroy apply: %q", last)
 	}

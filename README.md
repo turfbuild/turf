@@ -254,10 +254,12 @@ invoke — is not applied and stays waiting at its approval point, where a later
 interactive `turf` can pick it up. (The agent still approves a low-risk plan —
 only creates and in-place updates — itself, as it does at a terminal.) `--yes`
 answers those questions yes, and approves any other tool call that would ask on
-stdin, so the run proceeds with no human at the keyboard. turf's own tools never
-ask for permission. The same rule holds for `turf up` and `turf destroy` run
-without a terminal (a pipe, CI). Use `--hide-tool-calls` to print only the
-agent's prose.
+stdin, so the run proceeds with no human at the keyboard. Nothing is approved
+up front on the server's side: the agent still plans each round and approves
+each plan by its digest, so a `--yes` destroy is one the agent saw the plan of.
+turf's own tools never ask for permission. The same rule holds for `turf up`
+and `turf destroy` run without a terminal (a pipe, CI). Use
+`--hide-tool-calls` to print only the agent's prose.
 
 > `exec` still launches `turf-mcp-server`, so it must be on `PATH` (see
 > [Install](#install)). For repeatable runs with no cloud credentials or cost,

@@ -978,6 +978,9 @@ type roundView struct {
 	Warnings       []string            `json:"warnings,omitempty"`
 	CheckFailures  []string            `json:"check_failures,omitempty"`
 	CancelCause    string              `json:"cancel_cause,omitempty"`
+	// DeclineReason is why the round's plan was declined at its approval point, in
+	// the words of whoever declined it (the convergence ends declined).
+	DeclineReason string `json:"decline_reason,omitempty"`
 	// StaleReason says how the configuration moved after the round's plan, which
 	// is why its approved plan was never applied (the convergence ends stale).
 	StaleReason string `json:"stale_reason,omitempty"`
@@ -1322,6 +1325,9 @@ func roundLines(r roundView) []string {
 	}
 	if r.CancelCause != "" {
 		out = append(out, "    "+muted("cancelled: "+r.CancelCause))
+	}
+	if r.DeclineReason != "" {
+		out = append(out, "    "+muted("declined: "+r.DeclineReason))
 	}
 	if r.StaleReason != "" {
 		out = append(out, "    "+muted("stale: "+r.StaleReason))
