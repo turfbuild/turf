@@ -42,6 +42,17 @@ func ended(kind, id, outcome string) string {
 		id, kind, outcome)
 }
 
+// plannedRun is a plan-only convergence's ending: the plan vended as at an
+// approval point, the planfile beside it, nothing applied.
+func plannedRun(kind, id string, add, change, destroy int) string {
+	return fmt.Sprintf(`{"convergence_id":%q,"workspace_alias":"default","kind":%q,"outcome":"planned",
+		"plan":{"uri":"turf://workspaces/default/convergences/%s/rounds/1/plan","digest":"sha256:ab","add":%d,"change":%d,"destroy":%d},
+		"planfile":{"ref":%q,"digest":"sha256:ab","expires_at":"2026-11-02T01:00:00Z"},
+		"rounds":[{"round":1,"status":"planned","planned":%d}],"ended":true,
+		"next":{"tool":"apply","args":{"workspace_alias":"default","planfile":%q}}}`,
+		id, kind, id, add, change, destroy, id, add+change+destroy, id)
+}
+
 // atGate is a result stopped at a round's plan gate (a start verb's, or an apply's
 // when another round is needed): no plan yet.
 func atGate(kind, id string, round int) string {
@@ -91,15 +102,50 @@ func TestTitleDigestTitle(t *testing.T) {
 			setup: func(d *titleDigest) {
 				d.label = "myapp"
 				d.stage = stageEnded
-				d.ending = "declined"
+				d.ending, d.endedPlanned = "declined", true
 				d.added, d.changed, d.destroyed = 2, 3, 2
 			},
 			want: "myapp · declined +2 ~3 -2",
 		},
 		{
-			name:  "cancelled with nothing to change",
-			setup: func(d *titleDigest) { d.label = "myapp"; d.stage = stageEnded; d.ending = "cancelled" },
-			want:  "myapp · cancelled no changes",
+			name: "cancelled with nothing to change",
+			setup: func(d *titleDigest) {
+				d.label = "myapp"
+				d.stage = stageEnded
+				d.ending, d.endedPlanned = "cancelled", true
+			},
+			want: "myapp · cancelled no changes",
+		},
+		{
+			name: "cancelled at a later plan gate, after a round applied",
+			setup: func(d *titleDigest) {
+				d.label = "myapp"
+				d.stage = stageEnded
+				d.ending = "cancelled"
+				d.anyPrior, d.prior = true, planCounts{added: 4}
+			},
+			want: "myapp · applied +4 ~0 -0 · cancelled",
+		},
+		{
+			name: "declined at a later approval point, after a round applied",
+			setup: func(d *titleDigest) {
+				d.label = "myapp"
+				d.stage = stageEnded
+				d.ending, d.endedPlanned = "declined", true
+				d.added = 2
+				d.anyPrior, d.prior = true, planCounts{added: 4, changed: 1}
+			},
+			want: "myapp · applied +4 ~1 -0 · declined +2 ~0 -0",
+		},
+		{
+			name: "cancelled after rounds never seen planned",
+			setup: func(d *titleDigest) {
+				d.label = "myapp"
+				d.stage = stageEnded
+				d.ending = "cancelled"
+				d.anyPrior, d.priorOnly = true, 6
+			},
+			want: "myapp · applied 6 change(s) · cancelled",
 		},
 		{
 			name:  "no label yet",
@@ -181,6 +227,32 @@ func TestIngestConvergenceRounds(t *testing.T) {
 	if got, want := c.digest.title(), "core · cancelled +0 ~1 -0"; got != want {
 		t.Fatalf("cancelled: %q, want %q", got, want)
 	}
+	// An ending after rounds that applied names what they applied first: a
+	// cancel at round 2's plan gate, a decline at round 2's approval point.
+	feed("turf_up", atGate("up", "p-7", 1))
+	feed("turf_plan", awaiting("up", "p-7", 1, 4, 0, 0))
+	feed("turf_apply", atGate("up", "p-7", 2))
+	feed("turf_cancel", `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"cancelled",
+		"rounds":[{"round":1,"status":"applied","approval":"user","planned":4,"applied":4},{"round":2,"status":"cancelled"}],"ended":true}`)
+	if got, want := c.digest.title(), "core · applied +4 ~0 -0 · cancelled"; got != want {
+		t.Fatalf("cancelled at round 2's gate: %q, want %q", got, want)
+	}
+	feed("turf_up", atGate("up", "p-8", 1))
+	feed("turf_plan", awaiting("up", "p-8", 1, 4, 0, 0))
+	feed("turf_apply", atGate("up", "p-8", 2))
+	feed("turf_plan", awaiting("up", "p-8", 2, 2, 0, 0))
+	feed("turf_apply", `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"declined",
+		"rounds":[{"round":1,"status":"applied","approval":"user","planned":4,"applied":4},{"round":2,"status":"declined","planned":2}],"ended":true}`)
+	if got, want := c.digest.title(), "core · applied +4 ~0 -0 · declined +2 ~0 -0"; got != want {
+		t.Fatalf("declined at round 2: %q, want %q", got, want)
+	}
+	// Taken up after a restart, round 1 applied before this session saw it
+	// planned: the applied count stands in.
+	feed("turf_apply", `{"convergence_id":"p-9","workspace_alias":"default","kind":"up","outcome":"cancelled",
+		"rounds":[{"round":1,"status":"applied","approval":"user","planned":3,"applied":3},{"round":2,"status":"cancelled"}],"ended":true}`)
+	if got, want := c.digest.title(), "core · applied 3 change(s) · cancelled"; got != want {
+		t.Fatalf("cancelled after an unseen round: %q, want %q", got, want)
+	}
 	// Stalled and exhausted applied what they planned, like converged.
 	feed("turf_up", atGate("up", "p-6", 1))
 	feed("turf_plan", awaiting("up", "p-6", 1, 3, 0, 0))
@@ -234,9 +306,15 @@ func TestAutoTitlePattern(t *testing.T) {
 		{label: "a", stage: stageApplied, added: 2, destroyed: 3},
 		{label: "a", stage: stageApplied, destroyed: 4},
 		{label: "a", stage: stageApplied, appliedOnly: 6},
-		{label: "a", stage: stageEnded, ending: "declined", added: 2, changed: 3, destroyed: 2},
-		{label: "a", stage: stageEnded, ending: "cancelled"},
-		{label: "a", stage: stageEnded, ending: "stale", destroyed: 1},
+		{label: "a", stage: stageEnded, ending: "declined", endedPlanned: true, added: 2, changed: 3, destroyed: 2},
+		{label: "a", stage: stageEnded, ending: "cancelled", endedPlanned: true},
+		{label: "a", stage: stageEnded, ending: "stale", endedPlanned: true, destroyed: 1},
+		{label: "a", stage: stageEnded, ending: "planned", endedPlanned: true, added: 1},
+		{label: "a", stage: stageEnded, ending: "planned", endedPlanned: true, destroyed: 6}, // a plan-only destroy: planned teardown
+		{label: "a", stage: stageEnded, ending: "cancelled", anyPrior: true, prior: planCounts{added: 4}},
+		{label: "a", stage: stageEnded, ending: "declined", endedPlanned: true, added: 2, anyPrior: true, prior: planCounts{added: 4, changed: 1}},
+		{label: "a", stage: stageEnded, ending: "cancelled", anyPrior: true, priorOnly: 6},
+		{label: "a", stage: stageEnded, ending: "stale", anyPrior: true, prior: planCounts{destroyed: 2}},
 	}
 	for _, d := range digests {
 		got := d.title()
@@ -496,6 +574,39 @@ func TestCuratorTitlesADecline(t *testing.T) {
 	c.OnEvent(ctx, sess, respEvent("turf_cancel", cancelAtApproval))
 	if last != "core · declined +2 ~3 -2" {
 		t.Errorf("a cancel of a convergence never planned here retitled: %q", last)
+	}
+}
+
+// TestCuratorTitlesAPlannedRun: a plan-only run ends planned with its plan
+// vended, so the ending titles with the plan's counts, as a decline does; a
+// plan-only destroy reads as a planned teardown.
+func TestCuratorTitlesAPlannedRun(t *testing.T) {
+	c := newSessionTitleCurator(nil)
+	var last string
+	c.setEmitter(func(title string) { last = title })
+
+	sess := session.New()
+	ctx := context.Background()
+	c.OnRunStart(ctx, sess)
+	c.OnEvent(ctx, sess, respEvent("turf_init", initOut("/x/core")))
+	c.OnEvent(ctx, sess, respEvent("turf_up", atGate("up", "p-7", 1)))
+	if last != "core · init" {
+		t.Fatalf("a start verb at its gate titles nothing: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_plan", plannedRun("up", "p-7", 2, 1, 0)))
+	if last != "core · planned +2 ~1 -0" {
+		t.Errorf("after the planned run: %q", last)
+	}
+	c.OnEvent(ctx, sess, respEvent("turf_plan", plannedRun("destroy", "d-8", 0, 0, 6)))
+	if last != "core · planned teardown -6" {
+		t.Errorf("after the planned destroy: %q", last)
+	}
+	// Applying the planfile converges a new convergence whose round the
+	// curator never saw planned: the applied count stands in.
+	c.OnEvent(ctx, sess, respEvent("turf_apply", `{"convergence_id":"p-9","workspace_alias":"default","kind":"destroy","outcome":"converged",
+		"rounds":[{"round":1,"status":"applied","approval":"planfile","planned":6,"applied":6}],"ended":true}`))
+	if last != "core · destroyed -6" {
+		t.Errorf("after the planfile's apply: %q", last)
 	}
 }
 

@@ -992,7 +992,7 @@ func TestConvergence_FailedArrivesAsAnErrorWithItsBody(t *testing.T) {
 // Stalled, exhausted, declined, stale and cancelled are neutral endings that still
 // owe an account: a stall names how much was left deferred.
 func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
-	const content = `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"stalled",
+	const content = `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"stalled","ended":true,
 		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":4,"deferred":2,"applied":2},
 			{"round":2,"status":"applied","approval":"unneeded","planned":2,"deferred":2,"applied":0}],
 		"outputs":{"finalized":["a"],"carried":["b"]},"next":"…"}`
@@ -1008,7 +1008,7 @@ func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
 // after it: a neutral ending, its round cancelled at its gate, approved, saying how
 // the configuration moved.
 func TestConvergence_StaleSaysPlanAgain(t *testing.T) {
-	const content = `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"stale",
+	const content = `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"stale","ended":true,
 		"rounds":[{"round":1,"status":"cancelled","approval":"asked","planned":1,"deferred":0,"applied":0,
 			"stale_reason":"the configuration changed after it was planned"}],
 		"next":"The configuration changed, or no longer loads, after this plan was made (rounds[].stale_reason), so nothing was applied. If it no longer loads, fix what stale_reason names; then run up to plan it again and review the new plan. Don't edit between up and apply."}`
@@ -1066,7 +1066,7 @@ func TestConvergence_AwaitingActions(t *testing.T) {
 // An answer sent to a convergence that already ended is refused with no open request
 // to sit under; the line must still show it, or the misdirected answer vanishes.
 func TestConvergence_RefusedAfterTheEnd(t *testing.T) {
-	const content = `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"converged",
+	const content = `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"converged","ended":true,
 		"refused":{"k9":"convergence p-1 is converged: nothing is waiting on a result"},
 		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":1,"deferred":0,"applied":1}],"next":"…"}`
 	out := plainNorm(renderFor("turf_apply", content, service.StaticSessionState{}))
@@ -1682,5 +1682,77 @@ func TestRenderers_MasksSurviveToTheTimeline(t *testing.T) {
 				t.Fatalf("%s missing %q:\n%s", tc.name, tc.want, out)
 			}
 		})
+	}
+}
+
+// The planfile fixtures: the v2 server's own results on fixture core, recorded
+// against a real engine (turf-mcp-server #208): a plan-only run's planned
+// result, status and open with the planfile listed, the stale apply of a wrong
+// digest, the apply that converged.
+const planPlannedResult = `{"convergence_id":"p-0e49a64f","workspace_alias":"default","kind":"up","outcome":"planned","plan":{"uri":"turf://workspaces/default/convergences/p-0e49a64f/rounds/1/plan","digest":"sha256:3bc99a231f7fc3f827395566250581761ba4cebea55abcb2f6e6fb625f554196","add":1,"change":0,"destroy":0},"planfile":{"ref":"p-0e49a64f","digest":"sha256:3bc99a231f7fc3f827395566250581761ba4cebea55abcb2f6e6fb625f554196","expires_at":"2026-11-02T10:12:56Z"},"rounds":[{"round":1,"status":"planned","planned":1,"deferred":0,"applied":0}],"note":"The plan is sealed as planfile p-0e49a64f and the convergence is over: nothing applied, the workspace free. Review it with show (planfile p-0e49a64f; plan.uri reads the same document) and, where a policy tool is yours, hand it the document. To apply exactly this plan — from this server, or from another that opens the workspace — call apply with workspace_alias, planfile p-0e49a64f and plan_digest, the digest you read (planfile.digest): that call is the approval, and the engine refuses any other digest. It applies only while nothing has moved: an edit to the configuration, a change to the state, or another convergence on the workspace makes it stale. It expires at 2026-11-02T10:12:56Z. To plan again, run up (plan_only for another planfile).","ended":true,"next":{"tool":"apply","args":{"planfile":"p-0e49a64f","workspace_alias":"default"}}}`
+
+const statusWithPlanfile = `{"workspaces":[{"workspace_alias":"default","config_alias":"default","config_path":"/var/folders/1l/g4fb_0m924g88y56p24h2hfm0000gn/T/TestZZRecordPlanfileFixtures593876303/003","workspace_name":"default","backend_type":"local","state_path":"/private/var/folders/1l/g4fb_0m924g88y56p24h2hfm0000gn/T/TestZZRecordPlanfileFixtures593876303/003/terraform.tfstate","lineage":"a64a73da-30da-7c46-63d2-c72f7fe3665d","opened_at":"2026-11-01T10:12:50Z","planfiles":[{"ref":"p-0e49a64f","kind":"up","digest":"sha256:3bc99a231f7fc3f827395566250581761ba4cebea55abcb2f6e6fb625f554196","planned":1,"expires_at":"2026-11-02T10:12:56Z"}]}]}`
+
+const openWithPlanfile = `{"workspace_alias":"default","config_alias":"default","config_path":"/var/folders/1l/g4fb_0m924g88y56p24h2hfm0000gn/T/TestZZRecordPlanfileFixtures593876303/003","workspace_name":"default","backend_type":"local","state_path":"/private/var/folders/1l/g4fb_0m924g88y56p24h2hfm0000gn/T/TestZZRecordPlanfileFixtures593876303/003/terraform.tfstate","lineage":"a64a73da-30da-7c46-63d2-c72f7fe3665d","serial":1,"resource_count":0,"planfiles":[{"ref":"p-0e49a64f","kind":"up","digest":"sha256:3bc99a231f7fc3f827395566250581761ba4cebea55abcb2f6e6fb625f554196","planned":1,"expires_at":"2026-11-02T10:12:56Z"}]}`
+
+const applyPlanfileStale = `{"convergence_id":"p-9b9ca992","workspace_alias":"default","kind":"up","outcome":"stale","rounds":[{"round":1,"status":"cancelled","planned":0,"deferred":0,"applied":0,"stale_reason":"the planfile's plan digest is sha256:3bc99a231f7fc3f827395566250581761ba4cebea55abcb2f6e6fb625f554196, not the sha256:0000 this convergence names: the plan approved is not the plan sealed"}],"note":"The configuration changed, or no longer loads, after this plan was made (rounds[].stale_reason), so nothing was applied. If it no longer loads, fix what stale_reason names; then run up to plan it again and review the new plan. Don't edit between up and apply.","ended":true,"next":{"tool":"up","args":{"workspace_alias":"default"}}}`
+
+const applyPlanfileConverged = `{"convergence_id":"p-fc14679f","workspace_alias":"default","kind":"up","outcome":"converged","rounds":[{"round":1,"status":"applied","approval":"planfile","planned":1,"deferred":0,"applied":1}],"note":"Done: nothing is left deferred. Read outputs with output, and state with state_list or show.","ended":true}`
+
+// A plan-only run ends planned: the line carries the plan's tally and the
+// planfile's short digest with no totals (nothing applied); the expansion adds a
+// planfile: row.
+func TestConvergence_Planned(t *testing.T) {
+	full := plainNorm(renderFor("turf_plan", planPlannedResult, service.StaticSessionState{}))
+	for _, want := range []string{"Plan", "p-0e49a64f", "deploy", "planned", "+1", "planfile sha256:3bc99a231f7f", "planfile:",
+		"expires 2026-11-02T10:12:56Z", "round 1 · planned · 1 planned"} {
+		if !strings.Contains(full, want) {
+			t.Fatalf("planned missing %q:\n%s", want, full)
+		}
+	}
+	if strings.Contains(full, "plan_digest=") {
+		t.Fatalf("the digest is the approver's to read, never pre-filled:\n%s", full)
+	}
+	if compact := plainNorm(renderFor("turf_plan", planPlannedResult, hiddenState{})); strings.Contains(compact, "applied") {
+		t.Fatalf("planned compact should count nothing applied: %q", compact)
+	}
+}
+
+// Applying a planfile: a wrong digest ends the new convergence stale, with the
+// engine's reason under the round; the right one converges with the round
+// approved by the planfile.
+func TestConvergence_PlanfileApply(t *testing.T) {
+	stale := plainNorm(renderFor("turf_apply", applyPlanfileStale, service.StaticSessionState{}))
+	for _, want := range []string{"Apply", "p-9b9ca992", "deploy", "stale", "stale: the planfile's plan digest is",
+		"the plan approved is not the plan sealed"} {
+		if !strings.Contains(stale, want) {
+			t.Fatalf("stale missing %q:\n%s", want, stale)
+		}
+	}
+	done := plainNorm(renderFor("turf_apply", applyPlanfileConverged, service.StaticSessionState{}))
+	for _, want := range []string{"Apply", "p-fc14679f", "deploy", "converged", "1 applied", "approved by planfile"} {
+		if !strings.Contains(done, want) {
+			t.Fatalf("converged missing %q:\n%s", want, done)
+		}
+	}
+}
+
+// open and status list the planfiles a workspace holds; show's head names a
+// planfile it reads.
+func TestWorkspace_ListsPlanfiles(t *testing.T) {
+	const row = "planfile p-0e49a64f · deploy · 1 planned · sha256:3bc99a231f7f · expires 2026-11-02T10:12:56Z"
+	open := plainNorm(renderFor("turf_open", openWithPlanfile, service.StaticSessionState{}))
+	for _, want := range []string{"planfiles:", row} {
+		if !strings.Contains(open, want) {
+			t.Fatalf("open missing %q:\n%s", want, open)
+		}
+	}
+	if status := plainNorm(renderFor("turf_status", statusWithPlanfile, service.StaticSessionState{})); !strings.Contains(status, row) {
+		t.Fatalf("status missing %q:\n%s", row, status)
+	}
+	head := plainNorm(renderWithArgs("turf_show", `{"format_version":"1.2","resource_changes":[]}`,
+		`{"planfile":"p-0e49a64f","show_sensitive":true}`, service.StaticSessionState{}, 0))
+	if !strings.Contains(head, "plan · planfile p-0e49a64f") {
+		t.Fatalf("show's head does not name the planfile: %q", head)
 	}
 }

@@ -152,7 +152,15 @@ func (c *sessionTitleCurator) OnEvent(ctx context.Context, sess *session.Session
 // is gone from the server), but a session titled by an older turf may still carry
 // it, and recognizing it keeps that title curator-owned on resume rather than
 // mistaking it for a human one and freezing it.
-var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan (\+\d+ ~\d+ -\d+|no changes)|planned teardown -\d+|applied (\+\d+ ~\d+ -\d+|no changes|\d+ change\(s\))|destroyed -\d+|(declined|cancelled|stale) (\+\d+ ~\d+ -\d+|no changes)|promoted)$`)
+// The title's building blocks, for autoTitleRe: a plan's tally (planCounts.String)
+// and what a convergence applied (appliedWord).
+const (
+	titleTally   = `(\+\d+ ~\d+ -\d+|no changes)`
+	titleApplied = `(applied ` + titleTally + `|applied \d+ change\(s\)|destroyed -\d+)`
+)
+
+var autoTitleRe = regexp.MustCompile(`^.+ · (init|plan ` + titleTally + `|planned teardown -\d+|` + titleApplied +
+	`|(` + titleApplied + ` · )?(declined|cancelled|stale|planned)( ` + titleTally + `)?|promoted)$`)
 
 // isAutoTitle reports whether s looks like a curator-generated milestone title
 // (so the curator may replace it). The bare-label case is handled separately.
@@ -204,7 +212,9 @@ func (c *sessionTitleCurator) ingest(tool, output string) (handled bool) {
 // could) it shows everything its rounds applied, summed. A convergence that ends
 // with its last plan unapplied — declined, cancelled, stale — titles that ending
 // with the plan's counts, so a session that stopped at "no" does not go on reading
-// as a plan still waiting; one that ends before any plan was seen (a cancel at the
+// as a plan still waiting, and names first what its earlier rounds applied
+// ("applied +4 ~0 -0 · declined +2 ~0 -0"), since that reached the world; one
+// that ends before any plan was seen with nothing applied (a cancel at round 1's
 // plan gate) titles nothing. A new convergence starts the sum over; a failure
 // leaves the title on the last plan, which is what was still pending.
 func (d *titleDigest) ingestConvergence(v convergenceView) bool {
@@ -227,11 +237,38 @@ func (d *titleDigest) ingestConvergence(v convergenceView) bool {
 		d.stage = stagePlan
 		return true
 	case "declined", "cancelled", "stale":
-		last, ok := d.lastPlanned()
-		if !ok {
+		// The round that ended it, and what the rounds before it applied: a
+		// decline at round 2's approval point, or a cancel at its plan gate,
+		// comes after round 1 reached the world.
+		prior, priorOnly, anyPrior := d.appliedBefore(v.Rounds)
+		var ending planCounts
+		planned := false
+		if n := len(v.Rounds); n > 0 {
+			ending, planned = d.rounds[v.Rounds[n-1].Round]
+		} else {
+			// A result that lists no rounds: the last plan seen.
+			ending, planned = d.lastPlanned()
+		}
+		if !planned && !anyPrior {
 			return false
 		}
-		d.setCounts(last)
+		d.setCounts(ending)
+		d.endedPlanned = planned
+		d.prior, d.priorOnly, d.anyPrior = prior, priorOnly, anyPrior
+		d.appliedOnly = 0
+		d.ending = v.Outcome
+		d.stage = stageEnded
+		return true
+	case "planned":
+		// A plan-only run: the plan is kept as a planfile and nothing applies.
+		// The result carries the plan the way an approval point does, so the
+		// ending titles with its counts. The round is not recorded: applying
+		// the planfile is a convergence of its own, which starts the sum over.
+		if v.Plan == nil {
+			return false
+		}
+		d.setCounts(planCounts{added: v.Plan.Add, changed: v.Plan.Change, destroyed: v.Plan.Destroy})
+		d.endedPlanned, d.anyPrior = true, false
 		d.appliedOnly = 0
 		d.ending = v.Outcome
 		d.stage = stageEnded
@@ -314,6 +351,17 @@ type titleDigest struct {
 	// twice when the convergence converges.
 	convergenceID string
 	rounds        map[int]planCounts
+	// endedPlanned, at stageEnded, says the round that ended the convergence had
+	// been planned, so its counts are the title's; false for a cancel at a plan
+	// gate, which planned nothing.
+	endedPlanned bool
+	// prior, at stageEnded, is what the rounds before the ending one applied,
+	// summed as at stageApplied — priorOnly their count of changes when one of
+	// them was never seen planned, so the split is unknown; anyPrior says some
+	// round applied before the end.
+	prior     planCounts
+	priorOnly int
+	anyPrior  bool
 }
 
 // planCounts are a plan's add/change/destroy counts as Terraform's plan summary
@@ -346,6 +394,31 @@ func (d *titleDigest) lastPlanned() (planCounts, bool) {
 		return planCounts{}, false
 	}
 	return d.rounds[best], true
+}
+
+// appliedBefore sums what the applied rounds among rounds planned, as this
+// curator saw them planned (a replace one add and one destroy); only is the
+// changes they applied when one of them was never seen planned, so the split is
+// unknown; any says some round applied a change at all.
+func (d *titleDigest) appliedBefore(rounds []roundView) (total planCounts, only int, any bool) {
+	applied, unseen := 0, false
+	for _, r := range rounds {
+		if r.Status != "applied" {
+			continue
+		}
+		applied += r.Applied
+		if c, ok := d.rounds[r.Round]; ok {
+			total.added += c.added
+			total.changed += c.changed
+			total.destroyed += c.destroyed
+		} else if r.Applied > 0 {
+			unseen = true
+		}
+	}
+	if unseen {
+		return planCounts{}, applied, true
+	}
+	return total, 0, applied > 0
 }
 
 // defaultWorkspaceName is the OpenTofu workspace every configuration has when
@@ -415,8 +488,29 @@ func (d *titleDigest) setCounts(c planCounts) {
 
 // isDestroy reports whether the plan is a pure teardown (only deletes). A mixed
 // plan with adds/changes is a normal apply, not a teardown.
-func (d *titleDigest) isDestroy() bool {
-	return d.destroyed > 0 && d.added == 0 && d.changed == 0
+func (d *titleDigest) isDestroy() bool { return d.planCounts().isDestroy() }
+
+// planCounts are the title's counts as one value.
+func (d *titleDigest) planCounts() planCounts {
+	return planCounts{added: d.added, changed: d.changed, destroyed: d.destroyed}
+}
+
+// isDestroy says the counts are deletes alone.
+func (c planCounts) isDestroy() bool {
+	return c.destroyed > 0 && c.added == 0 && c.changed == 0
+}
+
+// appliedWord is what a convergence applied, in the title's idiom: "destroyed
+// -N" for deletes alone, "applied N change(s)" when the split is unknown,
+// "applied +A ~C -D" otherwise.
+func appliedWord(c planCounts, only int) string {
+	switch {
+	case only > 0:
+		return fmt.Sprintf("applied %d change(s)", only)
+	case c.isDestroy():
+		return "destroyed " + destroyCount(c.destroyed)
+	}
+	return "applied " + c.String()
 }
 
 // title renders the finished session title in the terraform-plan glyph idiom,
@@ -435,15 +529,23 @@ func (d *titleDigest) title() string {
 		}
 		return d.label + " · plan " + d.counts()
 	case stageApplied:
-		if d.isDestroy() {
-			return d.label + " · destroyed " + destroyCount(d.destroyed)
-		}
-		if d.appliedOnly > 0 {
-			return fmt.Sprintf("%s · applied %d change(s)", d.label, d.appliedOnly)
-		}
-		return d.label + " · applied " + d.counts()
+		return d.label + " · " + appliedWord(d.planCounts(), d.appliedOnly)
 	case stageEnded:
-		return d.label + " · " + d.ending + " " + d.counts()
+		if d.ending == "planned" && d.isDestroy() {
+			// A plan-only destroy reads as a planned teardown, as a destroy
+			// plan at its approval point does.
+			return d.label + " · planned teardown " + destroyCount(d.destroyed)
+		}
+		// What the earlier rounds applied comes first — it reached the world —
+		// then the ending, with the counts of the plan it left when one was.
+		end := d.ending
+		if d.endedPlanned {
+			end += " " + d.counts()
+		}
+		if d.anyPrior {
+			return d.label + " · " + appliedWord(d.prior, d.priorOnly) + " · " + end
+		}
+		return d.label + " · " + end
 	default:
 		// Pre-plan: config known, nothing done yet. The " · init" suffix makes it
 		// a regular auto-title shape (matched by isAutoTitle) rather than a bare
@@ -452,13 +554,15 @@ func (d *titleDigest) title() string {
 	}
 }
 
-// counts formats the full add/change/destroy tally as "+A ~C -D" (terraform-plan
+func (d *titleDigest) counts() string { return d.planCounts().String() }
+
+// String formats the full add/change/destroy tally as "+A ~C -D" (terraform-plan
 // always shows all three); "no changes" when every bucket is zero.
-func (d *titleDigest) counts() string {
-	if d.added == 0 && d.changed == 0 && d.destroyed == 0 {
+func (c planCounts) String() string {
+	if c.added == 0 && c.changed == 0 && c.destroyed == 0 {
 		return "no changes"
 	}
-	return fmt.Sprintf("+%d ~%d -%d", d.added, d.changed, d.destroyed)
+	return fmt.Sprintf("+%d ~%d -%d", c.added, c.changed, c.destroyed)
 }
 
 func destroyCount(n int) string {

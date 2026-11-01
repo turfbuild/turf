@@ -61,7 +61,7 @@ type userPromptResponse struct {
 
 // unattendedDeclineReason is what a declined prompt tells the agent, so it can
 // tell the user how the run could be approved.
-const unattendedDeclineReason = "Nobody is at a terminal to answer, and this run was not started with --yes, so nothing that needs the user's yes can be approved. Stop there: say what is waiting for approval, and that re-running with --yes approves it, or that the user can pick it up in an interactive turf."
+const unattendedDeclineReason = "Nobody is at a terminal to answer, and this run was not started with --yes, so nothing that needs the user's yes can be approved. Stop there: say what is waiting for approval, and that re-running with --yes approves it, or that the user can pick it up in an interactive turf. Do not decline the plan (turf_apply with decline): leave it waiting."
 
 func (p unattendedUserPrompt) Instructions() string {
 	if p.approve {
