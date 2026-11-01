@@ -977,7 +977,7 @@ func TestConvergence_FailedArrivesAsAnErrorWithItsBody(t *testing.T) {
 // Stalled, exhausted, declined, stale and cancelled are neutral endings that still
 // owe an account: a stall names how much was left deferred.
 func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
-	const content = `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"stalled",
+	const content = `{"convergence_id":"p-7","workspace_alias":"default","kind":"up","outcome":"stalled","ended":true,
 		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":4,"deferred":2,"applied":2},
 			{"round":2,"status":"applied","approval":"unneeded","planned":2,"deferred":2,"applied":0}],
 		"outputs":{"finalized":["a"],"carried":["b"]},"next":"…"}`
@@ -993,7 +993,7 @@ func TestConvergence_StalledNamesWhatIsLeft(t *testing.T) {
 // after it: a neutral ending, its round cancelled at its gate, approved, saying how
 // the configuration moved.
 func TestConvergence_StaleSaysPlanAgain(t *testing.T) {
-	const content = `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"stale",
+	const content = `{"convergence_id":"p-8","workspace_alias":"default","kind":"up","outcome":"stale","ended":true,
 		"rounds":[{"round":1,"status":"cancelled","approval":"asked","planned":1,"deferred":0,"applied":0,
 			"stale_reason":"the configuration changed after it was planned"}],
 		"next":"The configuration changed, or no longer loads, after this plan was made (rounds[].stale_reason), so nothing was applied. If it no longer loads, fix what stale_reason names; then run up to plan it again and review the new plan. Don't edit between up and apply."}`
@@ -1051,7 +1051,7 @@ func TestConvergence_AwaitingActions(t *testing.T) {
 // An answer sent to a convergence that already ended is refused with no open request
 // to sit under; the line must still show it, or the misdirected answer vanishes.
 func TestConvergence_RefusedAfterTheEnd(t *testing.T) {
-	const content = `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"converged",
+	const content = `{"convergence_id":"p-1","workspace_alias":"default","kind":"up","outcome":"converged","ended":true,
 		"refused":{"k9":"convergence p-1 is converged: nothing is waiting on a result"},
 		"rounds":[{"round":1,"status":"applied","approval":"asked","planned":1,"deferred":0,"applied":1}],"next":"…"}`
 	out := plainNorm(renderFor("turf_apply", content, service.StaticSessionState{}))

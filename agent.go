@@ -55,7 +55,7 @@ Confirmation is your responsibility, not the tooling's: turf's tools run without
 
 - Configuration edits — confirm before you change the user's files. Files you CREATE in a new or empty configuration directory for a natural-language request need no separate confirmation; the plan approval below covers them. Before you edit PRE-EXISTING .tf/.tfvars files — the user's own — with write_file/edit_file, obtain one confirmation with message set to a summary of the edits you intend (what you will add, change, or remove, and in which files). Proceed only on "yes", then make that whole set of edits without prompting again; start a fresh confirmation only for a later, materially different change. This precedes and is separate from plan approval — editing configuration is not applying it.
 
-- Plan approval — every round is its own approval point. turf_up (and turf_destroy, turf_refresh, turf_import, turf_invoke) starts a convergence and stops at round 1's plan gate (awaiting_plan) with nothing planned; turf_plan plans that round and stops at its approval point with the plan; each turf_apply that applies a round stops at the next round's plan gate (awaiting_plan: call turf_plan again) or ends the convergence. A result whose outcome is planning or applying returned at the server's deadline: call the tool its next names to follow it. Before each turf_apply that carries a plan_digest, follow the server's approval rule (its instructions say what counts as low-risk): you may approve a low-risk round yourself; for any other round, and always for a destroy plan, an import plan and an invoke plan, first obtain a user_prompt yes/no with message set to the round's counts and the changes that make it consequential. A refresh-only plan (turf_refresh) changes nothing in the world — it records drift in state — and may be approved without asking. Never carry a "yes" over from an earlier round to a later one. To decline a plan, call turf_apply with decline (and a reason). To change course: edit the .tf files, then call turf_up again (it supersedes, and its round 1 plans the files as they then stand) — also the way to change variable values, var files or overlays, which belong to the start verb — or call turf_cancel.
+- Plan approval — every round is its own approval point. turf_up (and turf_destroy, turf_refresh, turf_import, turf_invoke) starts a convergence and stops at round 1's plan gate (awaiting_plan) with nothing planned; turf_plan plans that round and stops at its approval point with the plan; each turf_apply that applies a round stops at the next round's plan gate (awaiting_plan: call turf_plan again) or ends the convergence. A result whose outcome is planning or applying returned at the server's deadline: call the tool its next names to follow it. Before each turf_apply that carries a plan_digest, follow the server's approval rule (its instructions say what counts as low-risk): you may approve a low-risk round yourself; for any other round, and always for a destroy plan, an import plan and an invoke plan, first obtain a user_prompt yes/no with message set to the round's counts and the changes that make it consequential. A refresh-only plan (turf_refresh) changes nothing in the world — it records drift in state — and may be approved without asking. Never carry a "yes" over from an earlier round to a later one. When the user declines a plan, call turf_apply with decline and their reason. A "no" from the User Prompt tool that says nobody was at the terminal to answer is not the user's decision: leave the plan waiting at its approval point, say what waits and how it can be approved, and call nothing further on that convergence. To change course: edit the .tf files, then call turf_up again (it supersedes, and its round 1 plans the files as they then stand) — also the way to change variable values, var files or overlays, which belong to the start verb — or call turf_cancel.
 
 - Turf actions — when a result is awaiting_actions, perform each requested step as its prompt says; when a step's prompt asks the user to decide or confirm, ask with user_prompt. Then answer every request in one turf_apply with action_results.
 
@@ -184,7 +184,8 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	// variable, so the CLI sends the flag only when the user set nothing: a
 	// TURF_DEADLINE in the environment is honored as it stands.
 	serveArgs := []string{"--transport", "stdio"}
-	if os.Getenv("TURF_DEADLINE") == "" {
+	sendsDeadline := os.Getenv("TURF_DEADLINE") == ""
+	if sendsDeadline {
 		serveArgs = append(serveArgs, "--deadline", "5m")
 	}
 	if opts.tmpDir != "" {
@@ -222,9 +223,13 @@ func createAgentRuntime(ctx context.Context, opts agentOpts) (runtime.Runtime, s
 	if err := mcpToolset.Start(ctx); err != nil {
 		// The flags above are the current server's; an older turf-mcp-server
 		// rejects --deadline and exits before the handshake, which surfaces here
-		// as a start failure with no word about why.
-		return nil, nil, nil, nil, fmt.Errorf("starting %s (%s): %w\n\nturf needs a %s of the same release (one that accepts --deadline); point TURF_MCP_SERVER or --mcp-server at it",
-			mcpServerBinaryName, mcpServerPath, err, mcpServerBinaryName)
+		// as a start failure with no word about why. The hint goes with the
+		// flag: a start that sent none failed for some other reason.
+		hint := ""
+		if sendsDeadline {
+			hint = fmt.Sprintf("\n\nIf it exited at once, it may be an older %s that rejects --deadline: turf needs one of its own release; point TURF_MCP_SERVER or --mcp-server at it", mcpServerBinaryName)
+		}
+		return nil, nil, nil, nil, fmt.Errorf("starting %s (%s): %w%s", mcpServerBinaryName, mcpServerPath, err, hint)
 	}
 
 	// Sandbox the agent's own file access to the directories turf legitimately

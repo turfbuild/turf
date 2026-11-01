@@ -896,34 +896,48 @@ type planfileView struct {
 }
 
 // planfileFactView is a planfile a workspace holds, as turf_open and turf_status
-// list them: what a plan_only run left for turf_apply with planfile.
+// list them: what a plan_only run left for turf_apply with planfile — the
+// planfile as a planned result names it, with the kind of plan, its row counts
+// and whether a convergence is applying it.
 type planfileFactView struct {
-	Ref       string `json:"ref"`
-	Kind      string `json:"kind"`
-	Digest    string `json:"digest"`
-	Planned   int    `json:"planned"`
-	Deferred  int    `json:"deferred,omitempty"`
-	ExpiresAt string `json:"expires_at,omitempty"`
-	Applying  bool   `json:"applying,omitempty"`
+	planfileView
+	Kind     string `json:"kind"`
+	Planned  int    `json:"planned"`
+	Deferred int    `json:"deferred,omitempty"`
+	Applying bool   `json:"applying,omitempty"`
 }
 
-// planfileFactLine renders one held planfile: its ref, the kind of plan, its row
-// counts, its digest and its expiry, and whether a convergence is applying it.
-func planfileFactLine(p planfileFactView) string {
-	out := muted("planfile ") + addr(p.Ref)
-	if w := runKindWord(p.Kind); w != "" {
-		out += dot() + muted(w)
+// row renders the planfile: its ref, then mid (empty segments skipped), then
+// its digest — when withDigest; a planned result's expansion shows it under
+// plan: already — and its expiry. The one shape a planned result's planfile:
+// row and a workspace's listing share.
+func (p planfileView) row(withDigest bool, mid ...string) string {
+	out := addr(p.Ref)
+	for _, m := range mid {
+		if m != "" {
+			out += dot() + m
+		}
 	}
-	out += dot() + muted(fmt.Sprintf("%d planned", p.Planned))
-	if p.Deferred > 0 {
-		out += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d deferred", p.Deferred))
-	}
-	if p.Digest != "" {
+	if withDigest && p.Digest != "" {
 		out += dot() + muted(shortDigest(p.Digest))
 	}
 	if p.ExpiresAt != "" {
 		out += dot() + muted("expires "+p.ExpiresAt)
 	}
+	return out
+}
+
+// planfileFactLine renders one held planfile: its ref, the kind of plan, its row
+// counts, its digest and its expiry, and whether a convergence is applying it.
+func planfileFactLine(p planfileFactView) string {
+	kind, deferred := "", ""
+	if w := runKindWord(p.Kind); w != "" {
+		kind = muted(w)
+	}
+	if p.Deferred > 0 {
+		deferred = styles.WarningStyle.Render(fmt.Sprintf("%d deferred", p.Deferred))
+	}
+	out := muted("planfile ") + p.row(true, kind, muted(fmt.Sprintf("%d planned", p.Planned)), deferred)
 	if p.Applying {
 		out += dot() + bold("applying", styles.Warning)
 	}
@@ -1155,6 +1169,18 @@ func convergenceSummary(msg *types.Message, c convergenceView) string {
 		summary = appendDot(summary, bold(fmt.Sprintf("awaiting %d action(s)", len(c.ActionRequests)), styles.Warning))
 		return summary + refusedSegment(c)
 	}
+	// Past the gates and the running stages named above, the result's own
+	// word on whether the convergence ended decides the shape: a stage this
+	// renderer does not know (a newer server's) is drawn as the convergence
+	// still going, with no totals to claim; an ending with its word and
+	// totals. A failure, an engine error or a lost hold (detached) reads as
+	// the error it is whatever the flag says.
+	if !c.Ended && !slices.Contains([]string{"failed", "error", "detached"}, c.Outcome) {
+		if c.Round > 0 {
+			summary = appendDot(summary, muted(fmt.Sprintf("round %d", c.Round)))
+		}
+		return appendDot(summary, bold(roundStatusWord(c.Outcome)+"…", styles.Warning)) + refusedSegment(c)
+	}
 	word, col := outcomeWord(c.Kind, c.Outcome)
 	summary = appendDot(summary, bold(word, col))
 	t := roundTotals(c.Rounds)
@@ -1230,15 +1256,10 @@ func convergenceDetail(c convergenceView) []string {
 	}
 	if pf := c.Planfile; pf != nil {
 		// What turf_apply with planfile names: the ref, and the digest the
-		// approver reads from the document, never pre-filled in next.
-		row := addr(pf.Ref)
-		if pf.Digest != "" {
-			row += dot() + muted(shortDigest(pf.Digest))
-		}
-		if pf.ExpiresAt != "" {
-			row += dot() + muted("expires "+pf.ExpiresAt)
-		}
-		detail = append(detail, section("planfile"), "  "+row)
+		// approver reads from the document, never pre-filled in next. The
+		// digest is the plan's, already under plan: when the plan is here.
+		withDigest := c.Plan == nil || c.Plan.Digest != pf.Digest
+		detail = append(detail, section("planfile"), "  "+pf.row(withDigest))
 	}
 	if n := len(c.ActionRequests); n > 0 {
 		detail = append(detail, section(fmt.Sprintf("%d action(s) waiting", n)))
