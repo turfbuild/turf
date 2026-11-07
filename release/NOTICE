@@ -8,13 +8,14 @@ Commercial licenses are available from Turf LLC: https://turf.build/licensing
 of HashiCorp, Inc. "OpenTofu" is a trademark of The Linux Foundation. Turf is
 not affiliated with or endorsed by either.
 
-This archive distributes four binaries:
+This archive distributes five binaries:
 
   * turf-mcp-server       — the Turf infrastructure MCP server, under the
     PolyForm Noncommercial License 1.0.0 (see LICENSE).
-  * turf-engine           — the Turf engine, and
-  * turf-builtin-provider — its built-in provider; both under the same license
-    as turf-mcp-server.
+  * turf-engine           — the Turf engine,
+  * turf-builtin-provider — its built-in provider, and
+  * turf-ui               — the Turf console, a read-only web view of the
+    engine; all three under the same license as turf-mcp-server.
   * turf                  — the reference Turf CLI. Open source under the
     Mozilla Public License 2.0 (MPL-2.0); source at
     https://github.com/turfbuild/turf.
@@ -72,6 +73,13 @@ Permissive licenses (MIT, Apache-2.0, BSD)
     to restate-server
       github.com/restatedev/sdk-go  (MIT License)
       Copyright (c) 2024 - Restate Software, Inc., Restate GmbH
+
+  * The Turf console's web application, embedded in turf-ui, bundles:
+      React and ReactDOM  (MIT License)  Copyright (c) Meta Platforms, Inc.
+        and affiliates
+      Lucide (lucide-react)  (ISC License)  Copyright (c) for portions of
+        Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT); all
+        other copyright (c) Lucide Contributors
 
   The binaries also include other components under permissive licenses, including
   but not limited to: github.com/mark3labs/mcp-go (MIT), github.com/zclconf/go-cty,
