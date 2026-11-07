@@ -117,6 +117,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newLicenseCmd())
 	cmd.AddCommand(newTelemetryCmd())
+	cmd.AddCommand(newConsoleCmd())
 	// --version prints the same lines as `turf version`: the version first (the
 	// formula and turf-mcp-server's e2e read it there), then the license
 	// statement and the telemetry setting.
