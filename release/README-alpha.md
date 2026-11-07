@@ -54,11 +54,13 @@ the service, a terminal can run it in the foreground instead:
 
 ```sh
 turf-mcp-server engine status   # where it runs, its console, its logs
-open http://127.0.0.1:8873      # the console: a workspace is /w/<lineage>
+turf-mcp-server engine console  # sign this browser in to the console, once
+                                # (turf console does the same); a workspace is /w/<lineage>
 ```
 
-The console is read-only and listens on loopback alone (`TURF_CONSOLE_ADDR` in
-`turf.env` moves it, or turns it `off`).
+The console is read-only, listens on loopback alone (`TURF_CONSOLE_ADDR` in
+`turf.env` moves it, or turns it `off`), and only you can open it: a browser signs
+in once with `turf console`, and the links an agent hands you open directly after.
 
 Providers run in the engine, with the service's environment. Credentials in
 files (`~/.aws/config`'s default profile, `~/.kube/config`) work as anywhere;
