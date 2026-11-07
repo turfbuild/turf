@@ -32,7 +32,10 @@ func newConsoleCmd() *cobra.Command {
 				argv = append(argv, "--print")
 			}
 			argv = append(argv, args...)
-			c := exec.CommandContext(cmd.Context(), server, argv...)
+			// server is turf-mcp-server, found as every turf command finds it
+			// (--mcp-server, TURF_MCP_SERVER, PATH); argv is fixed apart from
+			// the page, which the server validates.
+			c := exec.CommandContext(cmd.Context(), server, argv...) //nolint:gosec // G204: see above
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, cmd.OutOrStdout(), cmd.ErrOrStderr()
 			// The server says what went wrong on stderr; this only adds that it
 			// did not sign in.
