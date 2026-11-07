@@ -45,15 +45,20 @@ uninstall turf`.
 
 ## The local engine
 
-`brew services start turf` runs this user's engine — a `restate-server` and a
-`turf-engine` in `~/.turf/engine` — and every server (each `turf` command,
-each MCP client) connects to it. It keeps running when they exit, so a rollout
-waiting for your approval is still there next time. Without the service, a
-terminal can run it in the foreground instead: `turf-mcp-server engine run`.
+`brew services start turf` runs this user's engine — a `restate-server`, a
+`turf-engine` and the Turf console in `~/.turf/engine` — and every server (each
+`turf` command, each MCP client) connects to it. It keeps running when they
+exit, so a rollout waiting for your approval is still there next time. Without
+the service, a terminal can run it in the foreground instead:
+`turf-mcp-server engine run`.
 
 ```sh
 turf-mcp-server engine status   # where it runs, its console, its logs
+open http://127.0.0.1:8873      # the console: a workspace is /w/<lineage>
 ```
+
+The console is read-only and listens on loopback alone (`TURF_CONSOLE_ADDR` in
+`turf.env` moves it, or turns it `off`).
 
 Providers run in the engine, with the service's environment. Credentials in
 files (`~/.aws/config`'s default profile, `~/.kube/config`) work as anywhere;
