@@ -880,6 +880,10 @@ type convergenceView struct {
 	Rounds         []roundView             `json:"rounds"`
 	Outputs        *convergenceOutputsView `json:"outputs,omitempty"`
 	Error          string                  `json:"error,omitempty"`
+	// ConsoleURL is the round's page in the Turf console (the workspace's once
+	// the convergence is over), when the server knows a console: the one link
+	// in the result that is the reader's, so the expansion shows it first.
+	ConsoleURL string `json:"console_url,omitempty"`
 	// The result's note and next are not read: they are the server's guidance
 	// to the agent (what to call next, and with what), not the user's to read.
 }
@@ -1206,6 +1210,9 @@ func refusedSegment(c convergenceView) string {
 // actions waiting, each round, and the outputs — the order a reader asks about them.
 func convergenceDetail(c convergenceView) []string {
 	var detail []string
+	if c.ConsoleURL != "" {
+		detail = append(detail, section("console"), "  "+muted(c.ConsoleURL))
+	}
 	if p := c.Plan; p != nil {
 		// The URI on a row of its own: it is long enough to wrap the facts
 		// beside it mid-word.
@@ -2070,7 +2077,10 @@ type workspaceOpenView struct {
 	// workspace name. Empty for backends that key their state some other way.
 	StatePath string `json:"state_path,omitempty"`
 	// Lineage and Serial identify the statefile; absent until one exists.
-	Lineage       string               `json:"lineage,omitempty"`
+	Lineage string `json:"lineage,omitempty"`
+	// ConsoleURL is the workspace's page in the Turf console, when the server
+	// knows a console and a statefile exists.
+	ConsoleURL    string               `json:"console_url,omitempty"`
 	Serial        uint64               `json:"serial,omitempty"`
 	ResourceCount int                  `json:"resource_count"`
 	Convergence   *convergenceFactView `json:"convergence,omitempty"`
@@ -2155,6 +2165,9 @@ func renderWorkspaceOpen(msg *types.Message, s spinner.Spinner, ss service.Sessi
 			row += dot() + muted(fmt.Sprintf("serial %d · lineage %s", w.Serial, w.Lineage))
 		}
 		detail = append(detail, section("state"), row)
+	}
+	if w.ConsoleURL != "" {
+		detail = append(detail, section("console"), "  "+muted(w.ConsoleURL))
 	}
 	if len(w.Planfiles) > 0 {
 		detail = append(detail, section("planfiles"))
