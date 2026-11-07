@@ -273,6 +273,21 @@ and `turf destroy` run without a terminal (a pipe, CI). Use
 > point it at HCL using OpenTofu's credential-free providers (`null`, `local`,
 > `random`, `tls`).
 
+### The console
+
+The Homebrew service also runs the Turf console at http://127.0.0.1:8873: every
+workspace's runs, rounds, plans and approvals, read-only. Every result the MCP
+server hands your agent carries a link into it. Only you can open it, so sign
+this browser in once:
+
+```sh
+turf console                 # opens the console, signed in
+turf console <link>          # lands on the page an agent linked to
+turf console --print         # prints the sign-in link instead (for ssh -L)
+```
+
+The browser keeps a cookie, so links open directly from then on.
+
 ## Model providers
 
 turf runs on any model provider that Docker's [docker-agent] runtime supports —
