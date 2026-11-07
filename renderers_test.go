@@ -1762,13 +1762,13 @@ func TestWorkspace_ListsPlanfiles(t *testing.T) {
 // without one shows no console row.
 func TestConsoleLinkIsShownFirst(t *testing.T) {
 	linked := strings.Replace(planRound1, `"convergence_id"`,
-		`"console_url":"http://127.0.0.1:9081/w/fa47e9cf?round=p-9bc1215f.1","convergence_id"`, 1)
+		`"console_url":"http://127.0.0.1:8873/w/fa47e9cf?round=p-9bc1215f.1","convergence_id"`, 1)
 	shown := plainNorm(renderFor("turf_plan", linked, service.StaticSessionState{}))
 	i, j := strings.Index(shown, "console:"), strings.Index(shown, "plan:")
-	if i < 0 || !strings.Contains(shown, "http://127.0.0.1:9081/w/fa47e9cf?round=p-9bc1215f.1") || j < i {
+	if i < 0 || !strings.Contains(shown, "http://127.0.0.1:8873/w/fa47e9cf?round=p-9bc1215f.1") || j < i {
 		t.Fatalf("plan expanded should lead with the console link:\n%s", shown)
 	}
-	if compact := plainNorm(renderFor("turf_plan", linked, hiddenState{})); strings.Contains(compact, "9081") {
+	if compact := plainNorm(renderFor("turf_plan", linked, hiddenState{})); strings.Contains(compact, "8873") {
 		t.Fatalf("the compact line is not the place for a URL: %q", compact)
 	}
 	if plain := plainNorm(renderFor("turf_plan", planRound1, service.StaticSessionState{})); strings.Contains(plain, "console:") {
@@ -1777,9 +1777,9 @@ func TestConsoleLinkIsShownFirst(t *testing.T) {
 
 	const open = `{"workspace_alias":"default","config_alias":"default","config_path":"/work/v1-run/core",
 		"workspace_name":"default","backend_type":"local","state_path":"/work/v1-run/core/terraform.tfstate",
-		"lineage":"fa47e9cf","console_url":"http://127.0.0.1:9081/w/fa47e9cf","serial":5,"resource_count":6}`
+		"lineage":"fa47e9cf","console_url":"http://127.0.0.1:8873/w/fa47e9cf","serial":5,"resource_count":6}`
 	if shown := plainNorm(renderFor("turf_open", open, service.StaticSessionState{})); !strings.Contains(shown, "console:") ||
-		!strings.Contains(shown, "http://127.0.0.1:9081/w/fa47e9cf") {
+		!strings.Contains(shown, "http://127.0.0.1:8873/w/fa47e9cf") {
 		t.Fatalf("turf_open expansion missing the console link:\n%s", shown)
 	}
 }

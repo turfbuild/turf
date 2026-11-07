@@ -54,7 +54,7 @@ the service, a terminal can run it in the foreground instead:
 
 ```sh
 turf-mcp-server engine status   # where it runs, its console, its logs
-open http://127.0.0.1:9081      # the console: a workspace is /w/<lineage>
+open http://127.0.0.1:8873      # the console: a workspace is /w/<lineage>
 ```
 
 The console is read-only and listens on loopback alone (`TURF_CONSOLE_ADDR` in
