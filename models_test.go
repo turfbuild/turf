@@ -203,3 +203,23 @@ func TestBuildModelSwitcherConfig(t *testing.T) {
 		t.Error("switcher must carry a registry and env provider")
 	}
 }
+
+// Under TURF_OFFLINE the switcher carries a store of its own, and that store
+// answers from the built-in snapshot without a fetch.
+func TestBuildModelSwitcherConfigOffline(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(offlineEnv, "1")
+	msc := buildModelSwitcherConfig(t.Context(), turfConfig{}, providers.NewDefaultRegistry(), "anthropic/claude-sonnet-5")
+	if msc.ModelsStore == nil {
+		t.Fatal("ModelsStore is nil under TURF_OFFLINE: the runtime would build one that fetches models.dev")
+	}
+	db, err := msc.ModelsStore.GetDatabase(t.Context())
+	if err != nil || db == nil {
+		t.Fatalf("GetDatabase = %v, %v; want the snapshot", db, err)
+	}
+
+	t.Setenv(offlineEnv, "0")
+	if msc := buildModelSwitcherConfig(t.Context(), turfConfig{}, providers.NewDefaultRegistry(), "anthropic/claude-sonnet-5"); msc.ModelsStore != nil {
+		t.Error("ModelsStore is set with TURF_OFFLINE=0")
+	}
+}

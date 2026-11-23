@@ -208,7 +208,7 @@ func telemetryStatus(out io.Writer) error {
 		_, _ = fmt.Fprintf(out, "Installation id: %s\n", s.installationID)
 	}
 	_, _ = fmt.Fprintf(out, "Setting:         %s\n", path)
-	for _, v := range []string{"TURF_TELEMETRY", "DO_NOT_TRACK"} {
+	for _, v := range []string{"TURF_TELEMETRY", "DO_NOT_TRACK", offlineEnv} {
 		if val := os.Getenv(v); val != "" {
 			_, _ = fmt.Fprintf(out, "Note:            %s=%s is set in this shell. It applies to an engine started from this "+
 				"shell (turf-mcp-server engine run), not to the Homebrew service, whose environment is turf.env.\n", v, val)
