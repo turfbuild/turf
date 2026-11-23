@@ -20,12 +20,13 @@ way to consume it. Here's the CLI in action:
 
 ### Homebrew (recommended) — macOS and Linux
 
-Installs the `turf` CLI, `turf-mcp-server`, `turf-engine` and `turf-builtin-provider`
-from the latest release, with restate-server from Restate's tap. Homebrew loads a formula
+Installs the `turf` CLI, `turf-mcp-server`, `turf-engine`, `turf-builtin-provider` and
+`turf-ui` from the latest release, with restate-server from Restate's tap. Homebrew loads a formula
 from a third-party tap only when you name it, so the command names both:
 
 ```sh
 brew install restatedev/tap/restate-server turfbuild/tap/turf
+turf license accept               # accept the license terms, once
 brew services start turf          # the engine, now and at every login
 turf-mcp-server engine status     # the health check
 turf --version
@@ -34,8 +35,15 @@ turf --version
 The same command upgrades a 0.x install, where `brew upgrade turf` alone stops at
 restate-server. Later upgrades are `brew upgrade turf`.
 
-> Turf is free for noncommercial use. Commercial use, including a company's
-> internal use, needs a license: see [License](#license) and https://turf.build/licensing.
+`turf license accept` accepts the [Turf license terms](https://turf.build/license/v1/) and
+records it in `~/.turf/license.json`, which every Turf command and the engine service read. Until
+then the service waits, and the first `turf` command in a terminal asks `Type yes to accept: `. In
+CI or a container, set `TURF_ACCEPT_EULA=yes` instead; a variable in your shell does not reach the
+Homebrew service. See [License acceptance](./docs/license-acceptance.md).
+
+> Turf is free for individuals, education and small businesses within the Community limits.
+> Government and larger organizations need a commercial license; anyone may evaluate Turf, not in
+> production, for 30 days. See [License](#license) and https://turf.build/licensing/.
 
 ### From source
 
@@ -154,6 +162,7 @@ deploying with guardrails (`/guide day 2`, `/guide guardrails`, …).
 | `--debug`            | `TURF_DEBUG`            | `false`                     | Log turf's own debug lines to `<TURF_HOME>/turf.debug.log` (warnings and errors always go there)             |
 | `--theme`            | `TURF_THEME`            | `stadium`                   | TUI theme name; overrides the saved choice for this run                                                      |
 | `--lean`             | `TURF_LEAN`             | `false`                     | Run `chat` in the lean TUI (`up`/`destroy` on a terminal always use it)                                      |
+| `--accept-eula`      | `TURF_ACCEPT_EULA`      | `false`                     | Accept the [license terms](./docs/license-acceptance.md) for this run and pass it to the server; the env var accepts only `yes` |
 
 Per command, `up`/`destroy`/`exec` also take `--yes` (alias `--auto-approve`), and `turf`/`chat`/`exec` take `--session <id|-N>` and `--continue`/`-c`.
 
@@ -458,6 +467,11 @@ model from `turf.yaml` or a `provider/model` ref (e.g.
 `anthropic/claude-sonnet-5`, `google/gemini-pro-latest`). Check the prefix
 against the [providers overview].
 
+**Exit status 77, `Turf is proprietary software. To accept the Turf license terms …`** — the
+license terms are not accepted, and turf only asks on a terminal. Run `turf license accept` once,
+or set `TURF_ACCEPT_EULA=yes` (only `yes` accepts) in CI and containers. `turf license status` says
+what it found. See [License acceptance](./docs/license-acceptance.md).
+
 **`turf-mcp-server not found on PATH`** — the CLI launches the server as a
 subprocess and must find it. Install it and put it on `PATH`, or point at it
 explicitly (see [Install](#install)):
@@ -698,21 +712,24 @@ The `turf` CLI — the source in this repository — is the **Covered Software**
 licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. See
 [LICENSE](./LICENSE). Copyright © The Turf Authors.
 
-**Turf as a whole** — this CLI combined with `turf-mcp-server`, `turf-engine` and
-`turf-builtin-provider`, distributed together in every release archive and by the
-Homebrew formula — is the MPL-2.0 **Larger Work**, licensed under the
-[PolyForm Noncommercial License 1.0.0](./release/LICENSE) (SPDX:
-`PolyForm-Noncommercial-1.0.0`). MPL-2.0 expressly permits combining the Covered
-Software into such a Larger Work under other terms.
+**Turf as a whole** — this CLI combined with `turf-mcp-server`, `turf-engine`,
+`turf-builtin-provider` and `turf-ui`, distributed together in every release archive and by
+the Homebrew formula — is the MPL-2.0 **Larger Work**, proprietary software licensed under the
+[Turf Community Edition License 1.0](./release/LICENSE) (https://turf.build/license/v1/), which
+incorporates the Common Paper Software License Agreement
+[Standard Terms 1.1](./release/STANDARD-TERMS.md). MPL-2.0 expressly permits combining the
+Covered Software into such a Larger Work under other terms.
 
-- **Free** for personal use, research, study, and for educational, public
-  research, charitable and government institutions.
-- **Commercial use requires a license**, including use inside a company. Free
-  60-day evaluations and production subscriptions are available; see
-  https://turf.build/licensing or email licensing@turf.build.
+- **Free** for individuals, education and small businesses within the Community limits.
+- **Government and larger organizations need a commercial license**; anyone may evaluate Turf,
+  not in production, for 30 days. See https://turf.build/licensing/ or email
+  licensing@turf.build.
+- **Accept the terms once**: `turf license accept`, or `TURF_ACCEPT_EULA=yes` in CI and
+  containers. [License acceptance](./docs/license-acceptance.md) describes the check.
 
-`turf license` prints the license and the third-party notices
-([NOTICE](./release/NOTICE)); `turf --version` states the license in one line.
+`turf license` prints the license, the Standard Terms and the third-party notices
+([NOTICE](./release/NOTICE)); `turf license status` shows whether the terms are accepted;
+`turf --version` states the license and the acceptance in a few lines.
 
 ## Telemetry
 

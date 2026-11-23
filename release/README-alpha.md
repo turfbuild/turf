@@ -4,20 +4,24 @@ Turf™ is a self-hosted, autonomous infrastructure-as-code tool, built on
 OpenTofu™. It deploys the stack an AI factory runs on and keeps it that way,
 with an agent overseeing.
 
-Turf is free for noncommercial use. Commercial use, including a company's
-internal use, needs a license: https://turf.build/licensing.
+Turf is free for individuals, education and small businesses within the
+Community limits. Government and larger organizations need a commercial
+license: https://turf.build/licensing/. You accept the license terms
+(https://turf.build/license/v1/) once, with `turf license accept`.
 
 Turf runs ordinary Terraform® configurations, with the module registry and every
 provider, driven by an AI agent over the Model Context Protocol. This archive
-contains four binaries:
+contains five binaries:
 
 - **`turf`** — the reference command-line client (open source, MPL-2.0).
 - **`turf-mcp-server`** — the infrastructure MCP server (the core; see `LICENSE`).
 - **`turf-engine`** and **`turf-builtin-provider`** — the Turf engine, which
   plans and applies, and its built-in provider (same license as the server).
+- **`turf-ui`** — the Turf console, a read-only web view of the engine (same
+  license as the server).
 
 The CLI launches the server as a subprocess, and the server connects to the
-engine, which runs on your machine as a service, so all four need to be on
+engine, which runs on your machine as a service, so all five need to be on
 your `PATH`, side by side. The engine runs on **restate-server**, which is not
 in this archive: install it from Restate (`brew install
 restatedev/tap/restate-server`). Homebrew installs everything together.
@@ -29,14 +33,23 @@ brew install restatedev/tap/restate-server turfbuild/tap/turf
 ```
 
 This installs `turf`, `turf-mcp-server`, `turf-engine`, `turf-builtin-provider`,
-and restate-server from Restate's tap. Homebrew loads a formula from a third-party
+`turf-ui`, and restate-server from Restate's tap. Homebrew loads a formula from a third-party
 tap only when you name it, so the command names both. Verify:
 
 ```sh
 turf --version
 which turf-mcp-server turf-engine restate-server
+turf license accept             # accept the license terms, once
 brew services start turf        # the local engine, started at login from now on
 ```
+
+`turf license accept` accepts the Turf license terms
+(https://turf.build/license/v1/; `turf license` prints them) and records it in
+`~/.turf/license.json`, which every Turf command and the engine service read.
+Until then the service waits, and the first `turf` command in a terminal asks
+`Type yes to accept: `. In CI or a container, set `TURF_ACCEPT_EULA=yes` in the
+environment instead; a variable in your shell does not reach the Homebrew
+service. Details: `docs/license-acceptance.md` in the turf repository.
 
 To upgrade later: finish or cancel any rollout waiting for approval, run
 `brew upgrade turf`, then `brew services restart turf` (an upgrade does not
@@ -155,15 +168,20 @@ container-image recipe are in the project's `SECURITY.md`.
 
 ## Licensing
 
-Turf is free for noncommercial use under the PolyForm Noncommercial License
-1.0.0 (`LICENSE`). Companies can evaluate Turf free for 60 days and license it
-for production at https://turf.build/licensing. The `turf` CLI is open source
-under MPL-2.0. Bundled third-party components and their licenses are listed in
-`NOTICE`, and `turf license` prints both files. Questions: licensing@turf.build.
+Turf is proprietary software under the Turf Community Edition License 1.0
+(`LICENSE`, https://turf.build/license/v1/), which incorporates the Common
+Paper Software License Agreement Standard Terms 1.1 (`STANDARD-TERMS.md`).
+It is free for individuals, education and small businesses within the
+Community limits. Government and larger organizations need a commercial
+license: https://turf.build/licensing/. Anyone may evaluate Turf, not in
+production, for 30 days. Accept the terms with `turf license accept` (or
+`TURF_ACCEPT_EULA=yes`). The `turf` CLI is also open source under MPL-2.0.
+Bundled third-party components and their licenses are listed in `NOTICE`, and
+`turf license` prints all three files. Questions: licensing@turf.build.
 
 Turf is the same binary for everyone, with the same features. There is no
-license key and nothing to unlock: a commercial license is a contract and a
-support relationship.
+license key and nothing to unlock: accepting the terms is a single command, and
+a commercial license is a contract and a support relationship.
 
 ## Telemetry
 

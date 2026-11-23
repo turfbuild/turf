@@ -70,6 +70,8 @@ There are three events. Each one is a single JSON `POST` to
 | --- | --- |
 | `restate_version` | The restate-server version the engine runs on |
 | `scopes`, `mise`, `plugin_cache`, `request_identity` | Whether each engine feature is on |
+| `terms_version` | The version of the Turf license terms that were accepted, such as `1.0` ([license acceptance](./license-acceptance.md)) |
+| `terms_accepted_via` | How they were accepted: `env`, `flag`, `command` (`turf license accept`) or `prompt` (the CLI's first-run question) |
 
 **`engine.daily`**, every 24 hours the engine has been running, idle or not:
 

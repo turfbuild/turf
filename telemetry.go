@@ -100,30 +100,43 @@ func writeTelemetrySetting(path string, enabled bool) (telemetrySetting, error) 
 	} else {
 		delete(doc, "installation_id") // not a UUID: never sent, so not kept
 	}
+	if err := writeJSONPrivate(path, doc); err != nil {
+		return telemetrySetting{}, err
+	}
+	return s, nil
+}
+
+// writeJSONPrivate writes doc as indented JSON to path, atomically: a temp
+// file in the same directory, mode 0600, then a rename over path. The
+// directory is created 0700 if missing. turf's own settings in $TURF_HOME
+// (telemetry.json, license.json) are written this way, so a reader never sees
+// half a file.
+func writeJSONPrivate(path string, doc any) error {
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		return telemetrySetting{}, err
+		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return telemetrySetting{}, err
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".telemetry.json.*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
-		return telemetrySetting{}, err
+		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		return telemetrySetting{}, err
+		return err
 	}
 	if _, err := tmp.Write(append(b, '\n')); err != nil {
 		_ = tmp.Close()
-		return telemetrySetting{}, err
+		return err
 	}
 	if err := tmp.Close(); err != nil {
-		return telemetrySetting{}, err
+		return err
 	}
-	return s, os.Rename(tmp.Name(), path)
+	return os.Rename(tmp.Name(), path)
 }
 
 // telemetryVersionLine is the line `turf --version` prints under the license:

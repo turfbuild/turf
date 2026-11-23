@@ -1,8 +1,10 @@
 Turf
 Copyright 2026 Turf LLC. All rights reserved.
 
-Turf is licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
-Commercial licenses are available from Turf LLC: https://turf.build/licensing
+Turf is licensed under the Turf Community Edition License 1.0 (see LICENSE),
+which incorporates the Common Paper Software License Agreement Standard Terms
+1.1 (see STANDARD-TERMS.md). Commercial licenses are available from Turf LLC:
+https://turf.build/licensing
 
 "Turf" and the Turf logo are trademarks of Turf LLC. "Terraform" is a trademark
 of HashiCorp, Inc. "OpenTofu" is a trademark of The Linux Foundation. Turf is
@@ -10,13 +12,14 @@ not affiliated with or endorsed by either.
 
 This archive distributes five binaries:
 
-  * turf-mcp-server       — the Turf infrastructure MCP server, under the
-    PolyForm Noncommercial License 1.0.0 (see LICENSE).
+  * turf-mcp-server       — the Turf infrastructure MCP server,
   * turf-engine           — the Turf engine,
-  * turf-builtin-provider — its built-in provider, and
+  * turf-builtin-provider — its built-in provider,
   * turf-ui               — the Turf console, a read-only web view of the
-    engine; all three under the same license as turf-mcp-server.
-  * turf                  — the reference Turf CLI. Open source under the
+    engine, and
+  * turf                  — the reference Turf CLI;
+    all five under the Turf Community Edition License 1.0 (see LICENSE and
+    STANDARD-TERMS.md). The turf CLI is additionally open source under the
     Mozilla Public License 2.0 (MPL-2.0); source at
     https://github.com/turfbuild/turf.
 

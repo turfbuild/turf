@@ -11,9 +11,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -22,6 +24,19 @@ func main() {
 	defer cancel()
 
 	if err := execute(ctx, os.Args[1:]); err != nil {
+		// An exitError carries its own exit code and complete message (the
+		// licence notice, exit 77): printed as it is, with no "Error:" prefix.
+		var ee *exitError
+		if errors.As(err, &ee) {
+			if ee.msg != "" {
+				fmt.Fprint(os.Stderr, ee.msg)
+				if !strings.HasSuffix(ee.msg, "\n") {
+					fmt.Fprintln(os.Stderr)
+				}
+			}
+			cancel()
+			os.Exit(ee.code)
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
