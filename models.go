@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"strings"
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -12,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/dmr"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
+	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/runtime"
 )
 
@@ -119,7 +123,8 @@ func selectModelConfig(ctx context.Context, cfg turfConfig, pick string, env env
 // named models, the picker auto-adds locally-pulled DMR models and the models.dev
 // catalog filtered by available credentials, so it is useful even when turf.yaml
 // declares no models. ModelsStore is left nil — the runtime builds its own lazy
-// models.dev store on first /model open.
+// models.dev store on first /model open — except under TURF_OFFLINE, where it
+// is a store that never fetches (offlineModelsStore).
 func buildModelSwitcherConfig(ctx context.Context, cfg turfConfig, reg *provider.Registry, pick string) *runtime.ModelSwitcherConfig {
 	env := environment.NewDefaultProvider()
 	// Best-effort: resolve each first_available entry so the picker shows a
@@ -129,7 +134,7 @@ func buildModelSwitcherConfig(ctx context.Context, cfg turfConfig, reg *provider
 	models := cloneModels(cfg.Models)
 	syn := &latest.Config{Models: models, Providers: cfg.Providers}
 	_ = config.ResolveFirstAvailableModels(ctx, syn, cfg.ModelsGateway, env)
-	return &runtime.ModelSwitcherConfig{
+	msc := &runtime.ModelSwitcherConfig{
 		Models:             syn.Models,
 		Providers:          cfg.Providers,
 		ModelsGateway:      cfg.ModelsGateway,
@@ -137,6 +142,43 @@ func buildModelSwitcherConfig(ctx context.Context, cfg turfConfig, reg *provider
 		ProviderRegistry:   reg,
 		AgentDefaultModels: map[string]string{turfAgentName: pick},
 	}
+	if offline(os.Getenv) {
+		// A nil store on error leaves the runtime's own, which fetches: the
+		// catalog is a convenience, and failing to pin it must not stop a run.
+		if store, err := offlineModelsStore(); err == nil {
+			msc.ModelsStore = store
+		}
+	}
+	return msc
+}
+
+// offlineEnv is the air-gap switch, which the MCP server and the engine read
+// too: nothing Turf does on its own account then reaches the internet.
+const offlineEnv = "TURF_OFFLINE"
+
+// offline reports TURF_OFFLINE: any value but empty, 0, false, off or no.
+func offline(getenv func(string) string) bool {
+	switch strings.ToLower(strings.TrimSpace(getenv(offlineEnv))) {
+	case "", "0", "false", "off", "no":
+		return false
+	}
+	return true
+}
+
+var errModelsCatalogOffline = errors.New("the models.dev catalog is not fetched: " + offlineEnv + " is set")
+
+// offlineModelsStore is a models.dev store that never reaches models.dev: a
+// lookup is answered from the on-disk cache when there is one, else from the
+// catalog snapshot built into the binary. Model metadata (context sizes, the
+// /model picker's list) is then as old as that, which a turf.yaml model entry
+// overrides where it matters.
+func offlineModelsStore() (*modelsdev.Store, error) {
+	return modelsdev.NewStore(
+		modelsdev.WithKnownProvider(func(string) bool { return false }),
+		modelsdev.WithFetcher(func(context.Context, string) (*modelsdev.Database, string, error) {
+			return nil, "", errModelsCatalogOffline
+		}),
+	)
 }
 
 // cloneModels returns a shallow copy of a model map so in-place resolution
