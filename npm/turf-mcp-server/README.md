@@ -58,8 +58,9 @@ Set these in the environment the server starts in.
 ## Telemetry
 
 The Turf engine sends anonymous usage telemetry to Turf LLC by default.
-`DO_NOT_TRACK=1` in the environment turns it off, and so does
-`turf telemetry off`. The field list is at https://turf.build/telemetry.
+`DO_NOT_TRACK=1` in the environment turns it off. With the `turf` CLI
+installed, `turf telemetry off` does too. The field list is at
+https://turf.build/telemetry.
 
 Restate's package, `@restatedev/restate-server`, reports anonymous install
 analytics through Scarf at install time. `DO_NOT_TRACK=1` or
@@ -77,6 +78,6 @@ analytics through Scarf at install time. `DO_NOT_TRACK=1` or
 
 See the LICENSE file in this package.
 
-Turf is a trademark of Turf LLC. Terraform is a registered trademark of
-HashiCorp, Inc. (an IBM company). OpenTofu is a registered trademark of LF
-Projects, LLC.
+Turf™ is a trademark of Turf LLC. Terraform® is a registered trademark of
+HashiCorp, Inc. OpenTofu® is a registered trademark of LF Projects, LLC. Turf is
+not affiliated with or endorsed by either.
