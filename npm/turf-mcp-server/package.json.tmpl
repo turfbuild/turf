@@ -1,0 +1,38 @@
+{
+  "name": "@turfbuild/turf-mcp-server",
+  "version": "@VERSION@",
+  "description": "The Turf infrastructure MCP server.",
+  "mcpName": "build.turf/turf",
+  "homepage": "https://turf.build",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/turfbuild/turf.git",
+    "directory": "npm/turf-mcp-server"
+  },
+  "author": "Turf LLC",
+  "license": "SEE LICENSE IN LICENSE",
+  "bin": {
+    "turf-mcp-server": "bin/turf-mcp-server.js"
+  },
+  "files": [
+    "bin/turf-mcp-server.js",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@restatedev/restate-server": "@RESTATE_VERSION@"
+  },
+  "optionalDependencies": {
+    "@turfbuild/turf-mcp-server-darwin-arm64": "@VERSION@",
+    "@turfbuild/turf-mcp-server-darwin-x64": "@VERSION@",
+    "@turfbuild/turf-mcp-server-linux-arm64": "@VERSION@",
+    "@turfbuild/turf-mcp-server-linux-x64": "@VERSION@"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
