@@ -61,6 +61,8 @@ The server alone also installs through npx, with no Homebrew and no `turf` CLI
 (Node 18 or later; macOS or Linux). One command registers it with your agents,
 and its first start downloads it:
 `npx add-mcp@2 @turfbuild/turf-mcp-server --name turf -g`.
+Without the CLI, accept the license terms with
+`npx -y @turfbuild/turf-mcp-server license accept`.
 
 ## The local engine
 

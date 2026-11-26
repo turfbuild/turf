@@ -47,7 +47,10 @@ npx -y @turfbuild/turf-mcp-server license accept
 
 This records your acceptance in `~/.turf/license.json`. Until then the server
 connects and lists its tools, and every call returns the license notice.
-Acceptance is read at the next call, with no restart. `TURF_ACCEPT_EULA=yes`
+Acceptance is read at the next call, with no restart. Whichever npx command
+runs Turf first downloads it: run this line before your agent has started Turf
+and the minute passes here, in the terminal, and the agent's first start is
+quick. `TURF_ACCEPT_EULA=yes`
 in the server entry's `env` is the other way: setting it accepts the terms,
 for that server and the engine it starts.
 
@@ -80,8 +83,11 @@ configuration's `mise.local.toml`.
   first start: reconnect once. Later starts take several seconds.
 - An unpinned entry asks npm at every start, so a new release is installed the
   next time the client starts the server. That start takes about half a minute.
-  The running engine is still the old one: the server says so, the
+  The engine that is running stays the old one until it is stopped: the
   `engine stop` line above ends it, and the next call starts the new one.
+  Across a minor release (1.5 to 1.6) the server refuses the older engine and
+  names that remedy; after a patch release it keeps using the running engine
+  and says nothing.
 - To hold a version, pin it in the entry: `@turfbuild/turf-mcp-server@1.5.0`.
 
 ## What gets installed
@@ -110,14 +116,18 @@ Set these in the environment the server starts in: the server entry's `env`.
 
 ## Telemetry
 
-The Turf engine sends anonymous usage telemetry to Turf LLC by default.
-`DO_NOT_TRACK=1` in the server entry's `env` turns it off, from the engine's
-next start. With the `turf` CLI installed, `turf telemetry off` does too. The
-field list is at https://turf.build/telemetry.
+The Turf engine sends anonymous usage telemetry to Turf LLC by default. To turn
+it off, put `DO_NOT_TRACK=1` in the `env` of the server's entry in each agent
+that has one, reconnect the agent so its server restarts with it, then run the
+`engine stop` line above: the next call starts the engine with telemetry off.
+With the `turf` CLI, which comes with the Homebrew install, `turf telemetry
+off` and the same `engine stop` do it too. The field list is at
+https://turf.build/telemetry.
 
 Restate's package, `@restatedev/restate-server`, reports anonymous install
-analytics through Scarf at install time. `DO_NOT_TRACK=1` or
-`SCARF_ANALYTICS=false` in the environment turns that off.
+analytics through Scarf, where npm installs the package: that may be the shell
+that runs `license accept`. `DO_NOT_TRACK=1` (or `SCARF_ANALYTICS=false`) in
+that shell covers it.
 
 ## Other ways to install
 

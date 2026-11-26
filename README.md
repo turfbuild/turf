@@ -30,7 +30,9 @@ The first line registers `turf-mcp-server` with the agents on this machine: Clau
 Desktop, Cursor, Codex, Gemini CLI and VS Code. It finds the ones you have, lets you pick, and
 writes each entry ([add-mcp](https://github.com/neon-solutions/add-mcp) is Neon's open-source
 installer). The second accepts the [Turf license terms](https://turf.build/license/v1/), once,
-and records it in `~/.turf/license.json`. Then, in your agent: `/turf:guide`.
+and records it in `~/.turf/license.json`. Whichever npx command runs Turf first downloads it: run
+the accept line before your agent has started Turf and the minute passes there, in the terminal,
+and the agent's first start is quick. Then, in your agent: `/turf:guide`.
 
 It needs Node 18 or later, on macOS or Linux, arm64 or x64. The first start takes about a minute
 (npm downloads about 180 MB and unpacks about 550 MB), and a client that waits 30 seconds for a
@@ -60,9 +62,11 @@ provider arguments, or, with [mise](https://mise.jdx.dev) installed, from the co
 `mise.local.toml`. For anything more, run the Homebrew service below.
 
 **Upgrades.** The entry asks npm at every start, so a new release is installed the next time the
-client starts the server (that start takes about half a minute). The running engine is still the
-old one: the server says so, the `engine stop` line above ends it, and the next call starts the
-new one. To hold a version, pin it in the entry: `@turfbuild/turf-mcp-server@1.5.0`.
+client starts the server (that start takes about half a minute). The engine that is running stays
+the old one until it is stopped: the `engine stop` line above ends it, and the next call starts
+the new one. Across a minor release (1.5 to 1.6) the server refuses the older engine and names
+that remedy; after a patch release it keeps using the running engine and says nothing. To hold a
+version, pin it in the entry: `@turfbuild/turf-mcp-server@1.5.0`.
 
 This path installs the server, the engine and the Turf console. The `turf` CLI comes with
 Homebrew.
@@ -363,7 +367,7 @@ turf console --print         # prints the sign-in link instead (for ssh -L)
 ```
 
 The browser keeps a cookie, so links open directly from then on. Without the CLI,
-`turf-mcp-server engine console` signs the browser in the same way.
+`npx -y @turfbuild/turf-mcp-server engine console` signs the browser in the same way.
 
 ## Model providers
 
@@ -814,15 +818,17 @@ send nothing. The field list and the endpoint are in
   the engine: `turf-mcp-server engine stop` (the next request starts it again),
   or `brew services restart turf` if you run the service. `turf telemetry status`
   shows the setting and the installation id.
-- **Without the CLI (npx):** put `DO_NOT_TRACK=1` in the server entry's `env`.
-  An engine a server starts takes it from that server's environment, at the
-  engine's next start: run the `engine stop` line in [Install](#install) if
-  one is running. `TURF_TELEMETRY=off` does the same.
-- **The Homebrew service** reads neither from your shell. Its environment is
-  `turf.env` (`~/.homebrew/services/turf.env`).
+- **Without the CLI (npx):** put `DO_NOT_TRACK=1` in the `env` of the server's
+  entry in each agent that has one (the engine is shared, and the first server
+  to need it starts it). Reconnect the agent, so its server restarts with the
+  new environment. Then run the `engine stop` line in [Install](#install): the
+  next call starts the engine with telemetry off.
+- **The Homebrew service** reads none of that. Its environment is `turf.env`
+  (`~/.homebrew/services/turf.env`), not an entry's `env` and not your shell.
 - Installed through npm, Restate's package `@restatedev/restate-server` reports
-  anonymous install analytics through Scarf at install time. `DO_NOT_TRACK=1`
-  or `SCARF_ANALYTICS=false` in the environment turns that off.
+  anonymous install analytics through Scarf, where npm installs the package:
+  that may be the shell that runs `license accept`. `DO_NOT_TRACK=1` (or
+  `SCARF_ANALYTICS=false`) in that shell covers it.
 - Under CI the engine sends no installation id, so a job on a fresh runner is
   not a new installation, unless `TURF_INSTALLATION_ID` gives it one: a UUID
   kept in a CI variable counts your pipelines as one installation.

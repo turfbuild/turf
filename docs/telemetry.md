@@ -11,14 +11,14 @@ own. The components Turf is built on send nothing either: restate-server's telem
 embedded agent runtime's are always off.
 
 Installed through npm, Restate's package `@restatedev/restate-server` reports anonymous install
-analytics through Scarf at install time. `DO_NOT_TRACK=1` or `SCARF_ANALYTICS=false` in the
-environment turns that off.
+analytics through Scarf, where npm installs the package: that may be the shell that runs
+`license accept`. `DO_NOT_TRACK=1` (or `SCARF_ANALYTICS=false`) in that shell covers it.
 
 ## Turning it off
 
 | Where Turf runs | How |
 | --- | --- |
-| An engine a server started (the npm package, or Homebrew without the service) | `DO_NOT_TRACK=1` or `TURF_TELEMETRY=off` in the server's environment: the `env` of its entry in your MCP client. With the `turf` CLI, `turf telemetry off` does it too. Either takes effect when the engine next starts: `turf-mcp-server engine stop` (`npx -y @turfbuild/turf-mcp-server engine stop` for the npm package), and the next tool call starts it again. |
+| An engine a server started (the npm package, or Homebrew without the service) | Put `DO_NOT_TRACK=1` (or `TURF_TELEMETRY=off`) in the `env` of the server's entry in each agent that has one: the engine is shared, and the first server to need it starts it, with that server's environment. Reconnect the agent, so its server restarts with the new environment. Then stop the engine: `npx -y @turfbuild/turf-mcp-server engine stop` (`turf-mcp-server engine stop` with Homebrew). The next call starts it with telemetry off. With the `turf` CLI, `turf telemetry off` and the same `engine stop` do it without touching an entry. |
 | The Homebrew service | `turf telemetry off`, then `brew services restart turf`. Or put `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in `~/.homebrew/services/turf.env` and restart the service. With Homebrew's analytics off (`brew analytics off` or `HOMEBREW_NO_ANALYTICS`), the service starts with telemetry off. |
 | `turf-mcp-server engine run` in a terminal | `turf telemetry off` before you start it, or `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in that terminal. |
 | A container or CI | `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the environment of `turf-engine` or `turf-mcp-server engine run`, or `turf-engine --telemetry=off`. |

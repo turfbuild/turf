@@ -37,8 +37,8 @@ npx -y @turfbuild/turf-mcp-server license accept
 ```
 
 `turf license status` shows whether the terms are accepted, how, and when; `turf --version` and
-`turf version` show the same in one `Terms:` line. Neither ever fails. `turf-mcp-server license
-status` reports the same without the CLI.
+`turf version` show the same in one `Terms:` line. Neither ever fails. Without the CLI,
+`npx -y @turfbuild/turf-mcp-server license status` reports the same.
 
 ## The notice
 
@@ -63,7 +63,7 @@ then a rename), in a directory of mode 0700, with mode 0600:
   "terms_url": "https://turf.build/license/v1/",
   "accepted_at": "2026-11-23T10:00:00Z",
   "method": "command",
-  "accepted_with": "turf 1.5.0",
+  "accepted_with": "turf v1.5.0",
   "previous": []
 }
 ```
@@ -71,7 +71,7 @@ then a rename), in a directory of mode 0700, with mode 0600:
 It is acceptance only if `terms` is `turf-community-edition`, `terms_version` is `MAJOR.MINOR` and
 not below `1.0`, `accepted_at` is an RFC 3339 time, and `method` is `command` (`turf license
 accept` or `turf-mcp-server license accept`) or `prompt` (the first-run question). `accepted_with`
-names the binary that wrote it (`turf-mcp-server 1.5.0` for the server's command). A file that
+names the binary that wrote it (`turf-mcp-server v1.5.0` for the server's command). A file that
 cannot be read, is not JSON, or fails any of these is not acceptance, and `turf license status` says why. Unknown keys are kept.
 Accepting again moves the earlier record into `previous`.
 
@@ -107,8 +107,8 @@ manifests carry no acceptance. Accepting is yours to do, where Turf runs:
   container. The record file is not read by `turf-engine` or `turf-ui`.
 - **A script:** `turf license accept` once, or `turf --accept-eula …` per run.
 - **An MCP client's server entry:** `TURF_ACCEPT_EULA=yes` in the entry's `env` accepts the terms
-  for that server and the engine it starts. It is yours to set: no entry in Turf's documentation
-  carries it.
+  for that server and the engine it starts. It is yours to set: Turf's documentation never shows
+  it without saying that setting it accepts the terms, and no manifest Turf publishes carries it.
 
 ## An engine the server starts
 
