@@ -111,8 +111,8 @@ jobs:
           done
 
       - name: Assemble tarballs
-        # Each installable unit = turf + the three server-side binaries +
-        # LICENSE/NOTICE/README. The doc is staged as README.md to match the
+        # Each installable unit = turf + the four server-side binaries +
+        # LICENSE/STANDARD-TERMS.md/NOTICE/README. The doc is staged as README.md to match the
         # Homebrew formula's `doc.install "README.md"`. restate-server, which the
         # engine runs on, is BUSL-1.1 and never bundled: the formula depends on
         # Restate's own tap.
@@ -124,10 +124,10 @@ jobs:
             for b in $SERVER_BINARIES; do
               install -m 0755 "dist/${b}-${p}" "$stage/${b}"
             done
-            cp release/LICENSE release/NOTICE "$stage/"
+            cp release/LICENSE release/STANDARD-TERMS.md release/NOTICE "$stage/"
             cp release/README-alpha.md "$stage/README.md"
             tar -C "$stage" -czf "dist/turf_${TAG}_${p}.tar.gz" \
-              turf $SERVER_BINARIES LICENSE NOTICE README.md
+              turf $SERVER_BINARIES LICENSE STANDARD-TERMS.md NOTICE README.md
             rm -rf "$stage"
           done
           ls -l dist/*.tar.gz

@@ -60,6 +60,12 @@ func newRootCmd() *cobra.Command {
 			if err := setupLogging(); err != nil {
 				return err
 			}
+			// The licence acceptance check (eula.go), before anything a gated
+			// command does: on a terminal its first-run question must come
+			// before the TUI takes the screen.
+			if err := requireAcceptance(cmd); err != nil {
+				return err
+			}
 			// The agent runtime's own telemetry (cagent's, to Docker) is always
 			// off: Turf's disclosure names Turf LLC as the only recipient, and
 			// Turf's usage telemetry is the engine's (telemetry.go). cagent's
@@ -101,6 +107,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flagDebug, "debug", os.Getenv("TURF_DEBUG") != "", "Log at debug level to <TURF_HOME>/turf.debug.log (default: warnings and errors only; env: TURF_DEBUG)")
 	cmd.PersistentFlags().BoolVar(&flagLean, "lean", os.Getenv("TURF_LEAN") != "", "Use the simplified lean TUI (no sidebar/tabs/overlays; renders to scrollback; env: TURF_LEAN)")
 	cmd.PersistentFlags().StringArrayVar(&flagAllowPaths, "allow-path", envPathList("TURF_ALLOW_PATH"), "Extra directory the file tools may read/write (and that is auto-approved), beyond the working dir; repeatable. Relative paths resolve against the working dir — prefer absolute (env: TURF_ALLOW_PATH, os.PathList-separated)")
+	cmd.PersistentFlags().BoolVar(&flagAcceptEULA, acceptFlag, false, "Accept the Turf license terms ("+termsURL+") for this run, and pass the acceptance to the server it starts; turf license accept records it once instead (env: "+acceptEnv+"=yes)")
 	addWorktreeFlags(cmd)
 	// Resume flags are local (not persistent) so they cover the bare `turf`
 	// invocation (which runs runChat) but never leak onto up/destroy, where
@@ -120,8 +127,11 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newConsoleCmd())
 	// --version prints the same lines as `turf version`: the version first (the
 	// formula and turf-mcp-server's e2e read it there), then the license
-	// statement and the telemetry setting.
-	cmd.SetVersionTemplate("turf {{.Version}}\n" + licenseLines + telemetryVersionLine())
+	// statement, the acceptance state and the telemetry setting. The
+	// acceptance line is a template function, evaluated when the version is
+	// printed, so it sees --accept-eula.
+	cobra.AddTemplateFunc("turfTermsLine", termsVersionLine)
+	cmd.SetVersionTemplate("turf {{.Version}}\n" + licenseLines + "{{turfTermsLine}}" + telemetryVersionLine())
 
 	return cmd
 }

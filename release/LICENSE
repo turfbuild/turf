@@ -1,90 +1,178 @@
-Turf — License
-Licensor: Turf LLC (https://turf.build)
-Software: Turf, as distributed in this archive: the `turf` CLI, `turf-mcp-server`,
-`turf-engine` and `turf-builtin-provider`.
+# Turf Community Edition License
 
-Turf is licensed under the PolyForm Noncommercial License 1.0.0, reproduced below.
-It is free for noncommercial use. Commercial use, including a company's internal
-use, requires a license from Turf LLC: https://turf.build/licensing.
+Version 1.0 · Last updated 2026-11-23 · Permanent URL https://turf.build/license/v1/
 
-The `turf` CLI is additionally open source under the Mozilla Public License 2.0;
-its source is at https://github.com/turfbuild/turf. Third-party components and
-their licenses are listed in the NOTICE file.
+Copyright Turf LLC (https://turf.build). All rights reserved.
 
---------------------------------------------------------------------------------
+Turf is proprietary software. To accept the Turf license terms (version 1.0,
+https://turf.build/license/v1/), run `turf license accept` or set TURF_ACCEPT_EULA=yes.
+Free for individuals, education and small businesses within the Community limits.
+Government and larger organizations need a commercial license.
 
-Required Notice: Copyright Turf LLC (https://turf.build)
+**If you have a commercial agreement.** If you or your organization has a signed Order Form
+or Pilot Agreement with Turf LLC for the Software, or an order for the Software placed
+through a reseller that Turf LLC has authorized, and it is still in effect, that agreement
+governs your use. These Community Terms do not apply to you.
 
-# PolyForm Noncommercial License 1.0.0
+**Parties.** This Agreement is between Turf LLC, an Oregon limited liability company
+("Provider") and the person or organization that accepts it ("Customer"). If you accept for
+an organization, you confirm that you are authorized to bind it, and "Customer" means that
+organization.
 
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+**How Customer accepts.** Customer accepts this Agreement by running `turf license accept`,
+by answering yes when the Software asks, or by setting TURF_ACCEPT_EULA=yes or an equivalent
+flag or configuration value, or by having a script, tool or AI agent do any of these on its
+behalf. No signature is needed.
 
-## Acceptance
+**What Customer confirms.** By accepting, Customer represents that its use is a Permitted
+Use, and that whoever gave the acceptance had authority to do so. Customer repeats the first
+statement each time it uses the Software under these Community Terms.
 
-In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
+## Order Form
 
-## Copyright License
+**Framework Terms.** These Community Terms incorporate the Common Paper Software License
+Standard Terms Version 1.1, posted at
+https://commonpaper.com/standards/software-license-agreement/1.1, by reference. A copy is in
+the STANDARD-TERMS.md file distributed with the Software. Those Standard Terms and the Key
+Terms below are the Framework Terms. Where this page and the Standard Terms differ, this page
+controls. Capitalized words have the meanings given on this page or in the Standard Terms.
 
-The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose.  However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
+**Software.** Turf Community Edition: Turf as Provider distributes it in executable form,
+namely the `turf`, `turf-mcp-server`, `turf-engine`, `turf-builtin-provider` and `turf-ui`
+programs, the container images that hold them, and any Updates Provider makes available.
 
-## Distribution License
+**Order Date.** The Effective Date.
 
-The licensor grants you an additional copyright license to distribute copies of the software.  Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
+**Subscription Period.** Month to month from the Effective Date, renewing automatically until
+this Agreement ends as described under Changes to the Standard Terms.
 
-## Notices
+**Fees.** None.
 
-You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software.  For example:
+**Permitted Uses.** Customer's own internal purposes, including building and operating
+infrastructure and services that Customer provides to its own customers, and only:
 
-> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+1. while Customer is an Eligible User and stays within the Community Limits; or
+2. for Evaluation.
 
-## Changes and New Works License
+**Eligible User.** Any of the following:
 
-The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
+1. an individual using the Software for personal, non-commercial purposes;
+2. an accredited educational institution, and its students and staff, using the Software for
+   teaching or non-commercial research;
+3. a non-commercial open source project;
+4. a Small Business.
 
-## Patent License
+**Small Business.** An organization that, together with its Affiliates, has fewer than 100
+employees and contractors and had less than US$10,000,000 in revenue in its last fiscal year.
 
-The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
+**Government.** A Government Entity is not an Eligible User at any size, except as an
+educational institution above. A Government Entity is a national, regional or local government
+body or agency, or an organization that a government owns or controls.
 
-## Noncommercial Purposes
+**Community Limits.** Counting all use of the Software by Customer and its Affiliates:
 
-Any noncommercial purpose is a permitted purpose.
+1. no more than 10 Billable Workspaces; and
+2. no more than 32 GPUs in the infrastructure the Software manages, whether in production or
+   not.
 
-## Personal Uses
+A Production Workspace is a workspace that manages production infrastructure. Workspaces used
+only for development, staging, testing or previewing a change are not Production Workspaces
+and are not counted. Billable Workspaces is the greater of (a) the number of Production
+Workspaces and (b) the total number of resources that Production Workspaces manage, divided by
+1,000 and rounded up. Ten Billable Workspaces therefore allows up to 10 Production Workspaces
+managing up to 10,000 resources between them, at any size each.
 
-Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
+**Evaluation.** Any organization, including a Government Entity, may use the Software for
+non-production evaluation for 30 days from its first use.
 
-## Noncommercial Organizations
+**Grace period.** If Customer stops being an Eligible User, or exceeds the Community Limits,
+it may keep using the Software for 90 days while it arranges a commercial license.
 
-Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
+**Use for others.** Running the Software as a contractor, integrator or agent for an
+organization that is not an Eligible User, to manage that organization's infrastructure, is
+not a Permitted Use. Providing Customer's own infrastructure or services to such an
+organization as Customer's customer is permitted.
 
-## Fair Use
+**License Limits.** Customer will not (a) offer the Software itself to others as a hosted or
+managed service; or (b) embed or bundle the Software in a product or service supplied to
+others. Commercial, OEM and redistribution licenses are available from Provider.
 
-You may have "fair use" rights for the software under the law. These terms do not limit them.
+**Warranty Period.** None. Sections 5.2 to 5.4 of the Standard Terms do not apply. The
+Software is provided as is.
 
-## No Other Rights
+**Backups.** Customer is responsible for backing up its infrastructure state, configurations
+and data.
 
-These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the licensor from granting licenses to anyone else.  These terms do not imply any other licenses.
+**Services.** None. No support or maintenance is included.
 
-## Patent Defense
+**Deletion Procedure.** Customer will uninstall and delete the Software and stop using it.
 
-If you make any written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
+**Usage Data.** The Software reports usage data to Provider by default, as described at
+https://turf.build/telemetry/. Customer may turn this off by setting TURF_TELEMETRY=off. The
+Software records Customer's acceptance (the terms version, the time and the method) on
+Customer's system, and reports the terms version and the method to Provider when usage
+reporting is on.
 
-## Violations
+## Key Terms
 
-The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice.  Otherwise, all your licenses end immediately.
+**Provider.** Turf LLC, an Oregon limited liability company.
 
-## No Liability
+**Customer.** The person or organization that accepts this Agreement.
 
-***As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
+**Effective Date.** The date Customer first accepts this Agreement.
 
-## Definitions
+**Governing Law.** The laws of the State of Oregon.
 
-The **licensor** is the individual or entity offering these terms, and the **software** is the software the licensor makes available under these terms.
+**Chosen Courts.** The state courts located in Lincoln County, Oregon, and the United States
+District Court for the District of Oregon.
 
-**You** refers to the individual or entity agreeing to these terms.
+**Covered Claims.** None. Section 8 (Indemnification) of the Standard Terms does not apply.
 
-**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization.  **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise.  Control can be direct or indirect.
+**General Cap Amount.** US$100.
 
-**Your licenses** are all the licenses granted to you for the software under these terms.
+**Notice Address.** For Provider: licensing@turf.build. For Customer: any email address
+Customer has given Provider. If there is none, Provider may give notice by posting at the
+Permanent URL or in the Software.
 
-**Use** means anything you do with the software requiring one of your licenses.
+## Changes to the Standard Terms
+
+1. **Acceptance (Section 10.16 and the definition of Cover Page).** Acceptance as described
+   on this page is electronic acceptance of this Cover Page by Customer. Provider accepts by
+   publishing it.
+2. **Public terms (Section 9 and the definition of Confidential Information).** The existence
+   and content of this page are public and are not Confidential Information.
+3. **New versions (Section 10.2).** Provider may publish new versions of these Community
+   Terms. Each version stays at its own permanent URL. Each release of the Software names the
+   version that governs it, and Customer accepts that version by running the release with
+   acceptance given.
+4. **Updates (Section 1.6).** Provider may make Updates available but is not required to.
+   Customer is not required to install them.
+5. **Copies (Section 2.1).** Customer may make the copies reasonably needed to install, run,
+   back up and internally mirror the Software for its Permitted Uses.
+6. **Agents and contractors (Section 2.1).** Use of the Software by Customer's Users,
+   contractors and AI agents, acting for Customer, is Customer's use. Customer is responsible
+   for it.
+7. **Customer's own customers (Sections 1.1 and 2.1).** Building and operating infrastructure
+   and services that Customer provides to its own customers is use by Customer. It is not
+   allowing others to access or use the Product, as long as those customers do not operate
+   the Software themselves.
+8. **Acceptance check (Section 2.1).** The acceptance check is a mechanism that controls the
+   Software's functionality. Customer will not bypass or disable it except by accepting.
+9. **Reviews and benchmarks (Section 2.1).** Section 2.1(a)(vi) does not apply. Customer may
+   publish reviews, comparisons and benchmark results for the Software.
+10. **Open source (Section 1.5).** The `turf` program's source code is published at
+    https://github.com/turfbuild/turf under the Mozilla Public License 2.0, and that license
+    governs the source code and anything Customer builds from it. Third-party components and
+    their licenses are listed in the NOTICE file distributed with the Software.
+11. **Ending this Agreement (Section 4).** Customer may end this Agreement at any time by
+    following the Deletion Procedure. It ends automatically, with no cure period, if Customer
+    breaches Section 1.1 or 2.1, or uses the Software outside the Permitted Uses after the
+    grace period.
+12. **Payment (Section 3).** Section 3 does not apply.
+13. **Logo rights (Section 10.8).** Section 10.8 does not apply.
+14. **Machine learning (Section 1.4).** Section 1.4 does not apply.
+15. **Consumers.** Nothing in this Agreement limits rights Customer has as a consumer that
+    cannot be waived under Applicable Laws.
+
+**Attribution.** These terms are based on the Common Paper Software License Agreement
+(Version 1.1), which is free to use under CC BY 4.0. This page modifies it as shown above.

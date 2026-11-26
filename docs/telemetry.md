@@ -5,14 +5,20 @@ sends, what it never sends, and how to turn it off. turf.build/telemetry is buil
 
 ## Who sends it
 
-The Turf engine sends it: `turf-engine`, which the `turf` Homebrew service runs. The `turf`
-CLI and `turf-mcp-server` send none of their own. The components Turf is built on send nothing
-either: restate-server's telemetry and the embedded agent runtime's are always off.
+The Turf engine sends it: `turf-engine`, which `turf-mcp-server` starts when a tool first needs
+it, or the `turf` Homebrew service runs. The `turf` CLI and `turf-mcp-server` send none of their
+own. The components Turf is built on send nothing either: restate-server's telemetry and the
+embedded agent runtime's are always off.
+
+Installed through npm, Restate's package `@restatedev/restate-server` reports anonymous install
+analytics through Scarf, where npm installs the package: that may be the shell that runs
+`license accept`. `DO_NOT_TRACK=1` (or `SCARF_ANALYTICS=false`) in that shell covers it.
 
 ## Turning it off
 
 | Where Turf runs | How |
 | --- | --- |
+| An engine a server started (the npm package, or Homebrew without the service) | Put `DO_NOT_TRACK=1` (or `TURF_TELEMETRY=off`) in the `env` of the server's entry in each agent that has one: the engine is shared, and the first server to need it starts it, with that server's environment. Reconnect the agent, so its server restarts with the new environment. Then stop the engine: `npx -y @turfbuild/turf-mcp-server engine stop` (`turf-mcp-server engine stop` with Homebrew). The next call starts it with telemetry off. With the `turf` CLI, `turf telemetry off` and the same `engine stop` do it without touching an entry. |
 | The Homebrew service | `turf telemetry off`, then `brew services restart turf`. Or put `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in `~/.homebrew/services/turf.env` and restart the service. With Homebrew's analytics off (`brew analytics off` or `HOMEBREW_NO_ANALYTICS`), the service starts with telemetry off. |
 | `turf-mcp-server engine run` in a terminal | `turf telemetry off` before you start it, or `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in that terminal. |
 | A container or CI | `TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the environment of `turf-engine` or `turf-mcp-server engine run`, or `turf-engine --telemetry=off`. |
@@ -23,13 +29,14 @@ To install with telemetry off from the start, run the installer with `--no-telem
 engine starts, so the setting covers the Homebrew service too.
 
 `turf telemetry off` writes the setting to `$TURF_HOME/telemetry.json` (`~/.turf` by default).
-`turf-mcp-server engine run`, which the Homebrew service runs, reads it each time it starts the
-engine, so a change takes effect at the next start. A setting that is not valid JSON, or whose
-`enabled` is not `true` or `false`, starts the engine with telemetry off until
-`turf telemetry on` or `off` rewrites it. A `turf-engine` you run yourself, in a container or CI,
-reads no file: use the variables or the flag. `TURF_TELEMETRY` takes precedence over
-`DO_NOT_TRACK`, and both take precedence over the setting. Setting either in your shell does not
-reach the Homebrew service, whose environment is `turf.env`. That file is
+`turf-mcp-server engine run`, which a server starts on demand and the Homebrew service runs,
+reads it each time it starts the engine, so a change takes effect at the next start. A setting
+that is not valid JSON, or whose `enabled` is not `true` or `false`, starts the engine with
+telemetry off until `turf telemetry on` or `off` rewrites it. A `turf-engine` you run yourself, in
+a container or CI, reads no file: use the variables or the flag. `TURF_TELEMETRY` takes precedence
+over `DO_NOT_TRACK`, and both take precedence over the setting. An engine a server started takes
+both from that server's environment. Setting either in your shell does not reach the Homebrew
+service, whose environment is `turf.env`. That file is
 `$XDG_CONFIG_HOME/homebrew/services/turf.env` if you set `XDG_CONFIG_HOME`, and Homebrew skips it
 if it is group- or world-writable.
 
@@ -70,6 +77,8 @@ There are three events. Each one is a single JSON `POST` to
 | --- | --- |
 | `restate_version` | The restate-server version the engine runs on |
 | `scopes`, `mise`, `plugin_cache`, `request_identity` | Whether each engine feature is on |
+| `terms_version` | The version of the Turf license terms that were accepted, such as `1.0` ([license acceptance](./license-acceptance.md)) |
+| `terms_accepted_via` | How they were accepted: `env`, `flag`, `command` (`turf license accept`) or `prompt` (the CLI's first-run question) |
 
 **`engine.daily`**, every 24 hours the engine has been running, idle or not:
 
