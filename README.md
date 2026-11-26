@@ -55,11 +55,26 @@ npx -y @turfbuild/turf-mcp-server engine status
 npx -y @turfbuild/turf-mcp-server engine stop
 ```
 
-Providers run in the engine, in a small fixed environment, not in your agent's session. A
-variable in the server entry's `env` reaches the server and the state backend, not providers.
-Provider credentials come from files (`~/.aws/config`'s default profile, `~/.kube/config`), from
-provider arguments, or, with [mise](https://mise.jdx.dev) installed, from the configuration's
-`mise.local.toml`. For anything more, run the Homebrew service below.
+Providers run in the engine, in a small fixed environment, not in your agent's session.
+Credentials in their usual files (the default AWS profile, `~/.kube/config`, gcloud's
+application-default credentials, the `az` login) work with nothing set. When a provider needs a
+variable, name it in Turf's entry: two lines in its `env`, the variable and `TURF_PROVIDER_ENV`
+naming it.
+
+```json
+"env": {
+  "AWS_PROFILE": "prod",
+  "TURF_PROVIDER_ENV": "AWS_PROFILE"
+}
+```
+
+Restart the agent after a change: the list is read when the server starts. This is the provider
+environment, the variables the server sends by name: it sends them, with their values, when a run
+starts, and `status` shows the names, never a value. `TURF_PROVIDER_ENV` is a comma-separated list
+of `NAME`, `NAME=VALUE` or `PREFIX_*`; `PATH` and the engine's own variables are never sent. A
+configuration's own settings (a profile or a kubeconfig path that belongs to that directory) go in
+its `mise.toml` or `mise.local.toml`, with [mise](https://mise.jdx.dev) installed. What the engine
+itself needs (a proxy, a `PATH` with extra tools) goes to the Homebrew service below.
 
 **Upgrades.** The entry asks npm at every start, so a new release is installed the next time the
 client starts the server (that start takes about half a minute). The engine that is running stays
@@ -95,9 +110,10 @@ service.
 The engine starts when a tool first needs it, as on the npx path; `brew services start turf`
 starts it at login instead, and takes over an engine a server started. The service's environment
 is launchd's plus `~/.homebrew/services/turf.env` (`KEY=value` lines, then
-`brew services restart turf`): the place for a provider variable that is yours and not the
-configuration's. `turf-mcp-server engine status` says where the engine runs and how it was
-started.
+`brew services restart turf`): the place for what the engine itself needs, such as a proxy or a
+`PATH` with extra tools. A variable a provider needs is named in Turf's entry, as on the npx path,
+and reaches the providers under the service too. `turf-mcp-server engine status` says where the
+engine runs and how it was started.
 
 The same `brew install` command upgrades a 0.x install, where `brew upgrade turf` alone stops at
 restate-server. Later upgrades are `brew upgrade turf`, then a restart of the engine, which an
@@ -237,7 +253,9 @@ deploying with guardrails (`/guide day 2`, `/guide guardrails`, …).
 
 Per command, `up`/`destroy`/`exec` also take `--yes` (alias `--auto-approve`), and `turf`/`chat`/`exec` take `--session <id|-N>` and `--continue`/`-c`.
 
-The three `--log-*` flags are pass-throughs to the `turf-mcp-server` subprocess. When unset, the `TF_LOG_*` env vars (matching OpenTofu's convention) reach the server through environment inheritance. Provider plugins also inherit these vars, so `TF_LOG_PROVIDER=DEBUG` enables plugin-side debug logging into the same sink as the server.
+The three `--log-*` flags are pass-throughs to the `turf-mcp-server` subprocess. When unset, the `TF_LOG_*` env vars (matching OpenTofu's convention) reach the server through environment inheritance. Provider plugins run in the engine and do not inherit them.
+
+`TURF_PROVIDER_ENV` reaches the server the same way, so the CLI needs no entry: `TURF_PROVIDER_ENV=AWS_PROFILE turf up` (or an `export` in your shell profile) sends the shell's `AWS_PROFILE` to the providers of that run.
 
 ### Credentials
 

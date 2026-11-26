@@ -88,15 +88,19 @@ it, or turns it `off`), and only you can open it: a browser signs in once with
 `turf console`, and the links an agent hands you open directly after.
 
 Providers run in the engine, with a small fixed environment, not your shell's
-or your agent's: an `AWS_PROFILE` set in either reaches the state backend and
-not the providers. Credentials in files (`~/.aws/config`'s default profile,
+or your agent's. To hand them a variable, name it for the server: in the
+agent's MCP entry for Turf, an `env` block holding `"AWS_PROFILE": "prod"` and
+`"TURF_PROVIDER_ENV": "AWS_PROFILE"` is enough for the AWS provider to plan
+(`TURF_PROVIDER_ENV` is a comma-separated list of `NAME`, `NAME=VALUE` or
+`PREFIX_*`; `PATH` is never sent; restart the agent after a change).
+Credentials in files (`~/.aws/config`'s default profile,
 `~/.kube/config`, gcloud, `az`) work as anywhere, and so do provider arguments.
 With [mise](https://mise.jdx.dev) installed, each configuration's providers
 also get its mise environment (`mise.toml`, and `mise.local.toml` for
 per-machine settings such as `AWS_PROFILE`): run `mise trust` and `mise
 install` in the directory first — trusting a config lets it run its code when
-a plan is made. `TURF_MISE=off` turns that off. For anything else (a proxy,
-say), run the service and put it in `~/.homebrew/services/turf.env`
+a plan is made. `TURF_MISE=off` turns that off. For anything the engine itself
+needs (a proxy, say), run the service and put it in `~/.homebrew/services/turf.env`
 (`KEY=value` lines), followed by `brew services restart turf`. To use an engine
 you run yourself, set `TURF_RESTATE_URL` to its restate-server ingress.
 
