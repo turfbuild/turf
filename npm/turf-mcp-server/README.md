@@ -70,11 +70,26 @@ npx -y @turfbuild/turf-mcp-server engine status
 npx -y @turfbuild/turf-mcp-server engine stop
 ```
 
-Providers run in the engine, in a small fixed environment. A variable in the
-server entry's `env` reaches the server and the state backend, not providers.
-Provider credentials come from files (`~/.aws`, `~/.kube/config`), from
-provider arguments, or, with [mise](https://mise.jdx.dev) installed, from the
-configuration's `mise.local.toml`.
+Providers run in the engine, in a small fixed environment. Credentials in
+their usual files (the default AWS profile, `~/.kube/config`, gcloud's
+application-default credentials, the `az` login) work with nothing set. When a
+provider needs a variable, name it in the server entry's `env`: the variable,
+and `TURF_PROVIDER_ENV` naming it.
+
+```json
+"env": {
+  "AWS_PROFILE": "prod",
+  "TURF_PROVIDER_ENV": "AWS_PROFILE"
+}
+```
+
+Restart the agent after a change: the list is read when the server starts.
+This is the provider environment, the variables the server sends by name: it
+sends them, with their values, when a run starts, and `status` shows the names,
+never a value. `PATH` and the engine's own variables are never sent. A
+configuration's own settings (a profile or a kubeconfig path that belongs to
+that directory) go in its `mise.toml` or `mise.local.toml`, with
+[mise](https://mise.jdx.dev) installed.
 
 ## First start and upgrades
 
@@ -113,6 +128,7 @@ Set these in the environment the server starts in: the server entry's `env`.
 | `TURF_HOME` | Where the local engine keeps its data. Default `~/.turf`. Keep the path short. |
 | `TURF_RESTATE_URL` | Points the server at an engine running elsewhere, instead of a local one. |
 | `TURF_TIER` | Which tools the server offers: `read`, `plan`, `apply` or `full`. Default `full`. |
+| `TURF_PROVIDER_ENV` | The variables the server sends to providers, by name: a comma-separated list of `NAME`, `NAME=VALUE` or `PREFIX_*`. Nothing is sent unless named. |
 
 ## Telemetry
 
