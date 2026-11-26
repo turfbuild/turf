@@ -5,7 +5,16 @@ built on OpenTofu®. It gives an AI agent infrastructure-as-code tools over
 ordinary Terraform® configurations (`.tf` files): plan, apply, destroy and the
 rest of Terraform's commands.
 
-## Run
+## Install
+
+```sh
+npx add-mcp@2 @turfbuild/turf-mcp-server --name turf -g
+# the first start downloads Turf: about a minute
+```
+
+This registers the server with the agents on this machine (Claude Code, Claude
+Desktop, Cursor, Codex, Gemini CLI, VS Code): it finds the ones you have and
+lets you pick. To run the server yourself:
 
 ```sh
 npx -y @turfbuild/turf-mcp-server
@@ -24,10 +33,56 @@ The server speaks MCP over stdio. In an MCP client's configuration:
 }
 ```
 
+## Accept the license
+
+Turf is proprietary software under the Turf Community Edition License 1.0
+(https://turf.build/license/v1/). It is free for individuals, education and
+small businesses within the Community limits. Government and larger
+organizations need a commercial license: https://turf.build/licensing/.
+Accept the terms once:
+
+```sh
+npx -y @turfbuild/turf-mcp-server license accept
+```
+
+This records your acceptance in `~/.turf/license.json`. Until then the server
+connects and lists its tools, and every call returns the license notice.
+Acceptance is read at the next call, with no restart. `TURF_ACCEPT_EULA=yes`
+in the server entry's `env` is the other way: setting it accepts the terms,
+for that server and the engine it starts.
+
 ## Requirements
 
-- macOS or Linux, on arm64 or x64. There is no Windows build.
 - Node.js 18 or later.
+- macOS or Linux, on arm64 or x64.
+
+## The engine
+
+The server starts a local Turf engine for the current user when a tool first
+needs it. The engine keeps running when the client quits, so a rollout waiting
+for approval is still there next time. Its data lives in `~/.turf`.
+
+```sh
+npx -y @turfbuild/turf-mcp-server engine status
+npx -y @turfbuild/turf-mcp-server engine stop
+```
+
+Providers run in the engine, in a small fixed environment. A variable in the
+server entry's `env` reaches the server and the state backend, not providers.
+Provider credentials come from files (`~/.aws`, `~/.kube/config`), from
+provider arguments, or, with [mise](https://mise.jdx.dev) installed, from the
+configuration's `mise.local.toml`.
+
+## First start and upgrades
+
+- The first start takes about a minute: npm downloads about 180 MB and unpacks
+  about 550 MB. A client that waits 30 seconds for a server may give up on that
+  first start: reconnect once. Later starts take several seconds.
+- An unpinned entry asks npm at every start, so a new release is installed the
+  next time the client starts the server. That start takes about half a minute.
+  The running engine is still the old one: the server says so, the
+  `engine stop` line above ends it, and the next call starts the new one.
+- To hold a version, pin it in the entry: `@turfbuild/turf-mcp-server@1.5.0`.
 
 ## What gets installed
 
@@ -40,14 +95,12 @@ The server speaks MCP over stdio. In an MCP client's configuration:
   packages: it comes from Restate's own npm package,
   `@restatedev/restate-server`, installed as a dependency.
 
-The first install downloads roughly 150 MB.
-
-The server runs a local Turf engine for the current user, started the first
-time a tool needs it. The engine's data lives in `~/.turf`.
+The packages are published with npm provenance from the `turfbuild/turf`
+repository's publish workflow, and carry the release's own binaries.
 
 ## Configuration
 
-Set these in the environment the server starts in.
+Set these in the environment the server starts in: the server entry's `env`.
 
 | Variable | What it does |
 |----------|--------------|
@@ -58,9 +111,9 @@ Set these in the environment the server starts in.
 ## Telemetry
 
 The Turf engine sends anonymous usage telemetry to Turf LLC by default.
-`DO_NOT_TRACK=1` in the environment turns it off. With the `turf` CLI
-installed, `turf telemetry off` does too. The field list is at
-https://turf.build/telemetry.
+`DO_NOT_TRACK=1` in the server entry's `env` turns it off, from the engine's
+next start. With the `turf` CLI installed, `turf telemetry off` does too. The
+field list is at https://turf.build/telemetry.
 
 Restate's package, `@restatedev/restate-server`, reports anonymous install
 analytics through Scarf at install time. `DO_NOT_TRACK=1` or
@@ -68,7 +121,8 @@ analytics through Scarf at install time. `DO_NOT_TRACK=1` or
 
 ## Other ways to install
 
-- Homebrew: `brew install restatedev/tap/restate-server turfbuild/tap/turf`
+- Homebrew, which adds the `turf` CLI and an engine that starts at login:
+  `brew install restatedev/tap/restate-server turfbuild/tap/turf`
 - Container image: `ghcr.io/turfbuild/turf-mcp-server`
 
 ## Documentation

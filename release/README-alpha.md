@@ -20,9 +20,9 @@ contains five binaries:
 - **`turf-ui`** — the Turf console, a read-only web view of the engine (same
   license as the server).
 
-The CLI launches the server as a subprocess, and the server connects to the
-engine, which runs on your machine as a service, so all five need to be on
-your `PATH`, side by side. The engine runs on **restate-server**, which is not
+The CLI launches the server as a subprocess, and the server starts the engine
+on your machine the first time it needs it, so all five need to be on your
+`PATH`, side by side. The engine runs on **restate-server**, which is not
 in this archive: install it from Restate (`brew install
 restatedev/tap/restate-server`). Homebrew installs everything together.
 
@@ -40,51 +40,63 @@ tap only when you name it, so the command names both. Verify:
 turf --version
 which turf-mcp-server turf-engine restate-server
 turf license accept             # accept the license terms, once
-brew services start turf        # the local engine, started at login from now on
 ```
 
 `turf license accept` accepts the Turf license terms
 (https://turf.build/license/v1/; `turf license` prints them) and records it in
-`~/.turf/license.json`, which every Turf command and the engine service read.
-Until then the service waits, and the first `turf` command in a terminal asks
-`Type yes to accept: `. In CI or a container, set `TURF_ACCEPT_EULA=yes` in the
+`~/.turf/license.json`, which every Turf command and the engine read. Until
+then no engine starts (the service, if you run it, waits), and the first `turf`
+command in a terminal asks `Type yes to accept: `. In CI or a container, set `TURF_ACCEPT_EULA=yes` in the
 environment instead; a variable in your shell does not reach the Homebrew
 service. Details: `docs/license-acceptance.md` in the turf repository.
 
 To upgrade later: finish or cancel any rollout waiting for approval, run
-`brew upgrade turf`, then `brew services restart turf` (an upgrade does not
-restart a running service). To remove: `brew services stop turf`, then `brew
-uninstall turf`.
+`brew upgrade turf`, then restart the engine, which an upgrade leaves running:
+`turf-mcp-server engine stop` (the next request starts the new one), or `brew
+services restart turf` if you run the service. To remove: `turf-mcp-server
+engine stop` (`brew services stop turf` for the service), then `brew uninstall
+turf`.
+
+The server alone also installs through npx, with no Homebrew and no `turf` CLI
+(Node 18 or later; macOS or Linux). One command registers it with your agents,
+and its first start downloads it:
+`npx add-mcp@2 @turfbuild/turf-mcp-server --name turf -g`.
 
 ## The local engine
 
-`brew services start turf` runs this user's engine — a `restate-server`, a
-`turf-engine` and the Turf console in `~/.turf/engine` — and every server (each
-`turf` command, each MCP client) connects to it. It keeps running when they
-exit, so a rollout waiting for your approval is still there next time. Without
-the service, a terminal can run it in the foreground instead:
-`turf-mcp-server engine run`.
+The first request that needs it starts this user's engine — a `restate-server`,
+a `turf-engine` and the Turf console in `~/.turf/engine` — and every server
+(each `turf` command, each MCP client) shares it. It keeps running when they
+exit, so a rollout waiting for your approval is still there next time.
 
 ```sh
-turf-mcp-server engine status   # where it runs, its console, its logs
+turf-mcp-server engine status   # where it runs, how it was started, its console, its logs
+turf-mcp-server engine stop     # stop it
 turf-mcp-server engine console  # sign this browser in to the console, once
                                 # (turf console does the same); a workspace is /w/<lineage>
+brew services start turf        # optional: start it at login instead
 ```
 
-The console is read-only, listens on loopback alone (`TURF_CONSOLE_ADDR` in
-`turf.env` moves it, or turns it `off`), and only you can open it: a browser signs
-in once with `turf console`, and the links an agent hands you open directly after.
+The service takes over an engine a server started, and a terminal can run it in
+the foreground: `turf-mcp-server engine run`. `TURF_ENGINE_AUTOSTART=off` in a
+server's environment keeps that server from starting it.
 
-Providers run in the engine, with the service's environment. Credentials in
-files (`~/.aws/config`'s default profile, `~/.kube/config`) work as anywhere;
-anything else goes in `~/.homebrew/services/turf.env` (`KEY=value` lines),
-followed by `brew services restart turf`. With [mise](https://mise.jdx.dev)
-installed, each configuration's providers also get its mise environment
-(`mise.toml`, and `mise.local.toml` for per-machine settings such as
-`AWS_PROFILE`): run `mise trust` and `mise install` in the directory first —
-trusting a config lets it run its code when a plan is made. `TURF_MISE=off` in
-`turf.env` turns that off. To use an engine you run yourself, set
-`TURF_RESTATE_URL` to its restate-server ingress.
+The console is read-only, listens on loopback alone (`TURF_CONSOLE_ADDR` moves
+it, or turns it `off`), and only you can open it: a browser signs in once with
+`turf console`, and the links an agent hands you open directly after.
+
+Providers run in the engine, with a small fixed environment, not your shell's
+or your agent's: an `AWS_PROFILE` set in either reaches the state backend and
+not the providers. Credentials in files (`~/.aws/config`'s default profile,
+`~/.kube/config`, gcloud, `az`) work as anywhere, and so do provider arguments.
+With [mise](https://mise.jdx.dev) installed, each configuration's providers
+also get its mise environment (`mise.toml`, and `mise.local.toml` for
+per-machine settings such as `AWS_PROFILE`): run `mise trust` and `mise
+install` in the directory first — trusting a config lets it run its code when
+a plan is made. `TURF_MISE=off` turns that off. For anything else (a proxy,
+say), run the service and put it in `~/.homebrew/services/turf.env`
+(`KEY=value` lines), followed by `brew services restart turf`. To use an engine
+you run yourself, set `TURF_RESTATE_URL` to its restate-server ingress.
 
 ## Quick start: from your agent
 
@@ -191,10 +203,11 @@ installation id. It never sends resource contents, credentials, state,
 variable values or names. The components Turf is built on send nothing.
 
 Turn it off with `turf telemetry off`, then restart the engine
-(`brew services restart turf`, or restart `turf-mcp-server engine run`).
-`TURF_TELEMETRY=off` or `DO_NOT_TRACK=1` in the engine's environment also
-turns it off; for the Homebrew service that environment is `turf.env`, not
-your shell. With Homebrew's analytics off (`brew analytics off` or
+(`turf-mcp-server engine stop`, and the next request starts it again; `brew
+services restart turf` for the service). `TURF_TELEMETRY=off` or
+`DO_NOT_TRACK=1` in the engine's environment also turns it off: an engine a
+server starts takes them from that server's environment; for the Homebrew
+service that environment is `turf.env`, not your shell. With Homebrew's analytics off (`brew analytics off` or
 `HOMEBREW_NO_ANALYTICS`), the service starts with it off. Under CI the engine
 sends no installation id unless `TURF_INSTALLATION_ID` gives it one. The full
 field list and the endpoint are at https://turf.build/telemetry.

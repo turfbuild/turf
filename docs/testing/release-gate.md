@@ -13,11 +13,12 @@ drives the same server through Claude Code.
 | Renderer output for recorded v1 payloads, permission lists, session titles, config merge, the login protocol, model resolution | `go test ./...` in CI |
 | The CLI's lock-step with the server: tool names, destructive annotations, target-arg schemas, titled tools | the live drift tests. **They skip in CI** (no server there), so P.5 runs them against the release's server |
 | What the server's tools do: the approval loop, supersede, cancel, taint, turf actions, durability, redaction | doof's manual MCP suite and `make test-e2e` |
-| **This suite:** the release artifact and its docs; the TUIs in a real terminal; the persona with a real model (when it asks, when it doesn't); the dialogs; `up`/`destroy`/`exec`, attended and headless; sessions and titles across processes; configuration, models, skills, branding; `login`; the Homebrew install | here |
+| **This suite:** the release artifact and its docs; the TUIs in a real terminal; the persona with a real model (when it asks, when it doesn't); the dialogs; `up`/`destroy`/`exec`, attended and headless; sessions and titles across processes; configuration, models, skills, branding; `login`; the Homebrew install and the npm install | here |
 
 **When to run it:** before publishing a release, between steps 7 (verify the signed artifacts)
 and 8 (publish) of doof's release ritual (`doof/.claude/commands/release.md`), against the draft's
-tarball. Suite 12 runs after step 10 (the Homebrew install). The **Gate** tier is the minimum for
+tarball. Suite 12 runs after step 10 (the Homebrew install), and Suite 13 once the `npm-publish`
+workflow has put the release on npm. The **Gate** tier is the minimum for
 every release. Run the **Full** tier for a minor release, or when the release changes the
 CLI's tool layer (renderers, persona, permissions, titles), the docker-agent fork pin, or the
 server's tools, prompts or skills.
@@ -56,6 +57,7 @@ contents check is then skipped.
 | Gate | P, 1–5 | registry access (`hashicorp/random`, `hashicorp/local`), restate-server | Suite 5 | ~1 h |
 | Full | 6–11 | the same, plus git | yes | ~2.5 h |
 | Post-publish | 12 | Homebrew, a user without `~/.turf` (or with it moved aside), Claude Code signed in to a Claude plan, Node 18+ | 12.3b | ~25 min |
+| Post-publish | 13 | the release on npm, Node 18+, a user without `~/.turf` (or with it moved aside) and with no Homebrew Turf on `PATH`, Claude Code signed in to a Claude plan | none | ~20 min |
 
 ### Conventions
 
@@ -299,11 +301,32 @@ move yours aside first: `mv ~/.turf ~/.turf.gate-bak`).
 | # | Do | Expect |
 |---|---|---|
 | 12.1 | `brew uninstall turf` (if installed); `brew install restatedev/tap/restate-server turfbuild/tap/turf`; `which turf turf-mcp-server turf-engine restate-server`; `turf --version` | All four resolve into Homebrew's prefix; `turf version $TAG`, then `Terms: not accepted (turf license accept, or TURF_ACCEPT_EULA=yes)`: `~/.turf` is moved aside and nothing accepts for the user. |
-| 12.2 | `brew services start turf`; `turf-mcp-server engine status`; `turf license accept`; after five seconds, `turf-mcp-server engine status` | First the service is up but awaiting license, with no engine started (the formula carries no acceptance). After `turf license accept` (which writes `~/.turf/license.json`; a `TURF_ACCEPT_EULA` in this shell would not reach the service): running, the server and the engine both at `$TAG`. If this row is run in another order, the first gated `turf` command in a terminal asks `Type yes to accept: ` instead. |
-| 12.3a | `cp -R <core> /tmp/gate-core-agent`; follow the installed README's "Quick start: from your agent" **as written**: `npx add-mcp@2 "$(command -v turf-mcp-server)" --name turf -g`, pick Claude Code; `claude mcp list`; open `claude` in `/tmp/gate-core-agent`; `/turf:up /tmp/gate-core-agent` | add-mcp writes `~/.claude.json` with the absolute path; `claude mcp list` shows turf connected; the deploy converges, its approval shown in Claude Code; none of P.7's credits are spent. |
-| 12.3b | `cp -R <core> /tmp/gate-core; cd /tmp/gate-core`; follow "Quick start: the Turf CLI" **as written** | It works as written; the deploy converges. |
-| 12.4 | `brew services stop turf`; `turf up` | The agent's first engine call fails with the server's message that the local Turf engine is not running and `brew services start turf` starts it. It reads as a sentence, not a stack trace. `brew services start turf` again. |
-| 12.5 | `cd /tmp/gate-core; turf destroy --yes`; `turf -C /tmp/gate-core-agent destroy --yes`; `npx add-mcp@2 remove turf -g -y`; `brew services stop turf`; `rm -rf ~/.turf; mv ~/.turf.gate-bak ~/.turf`; `brew services start turf` | Your own setup restored. |
+| 12.2 | `brew services list`; `turf-mcp-server engine status`; `turf license accept`; `turf-mcp-server engine status` | The install started no service and no engine: `turf` is not `started` in `brew services list`, and `status` says `no local Turf engine has run in ~/.turf/engine`, naming the three ways it starts and that the license terms come first. `turf license accept` writes `~/.turf/license.json` (the formula carries no acceptance); `status` still reports no engine. If this row is run in another order, the first gated `turf` command in a terminal asks `Type yes to accept: ` instead. |
+| 12.3a | `cp -R <core> /tmp/gate-core-agent`; follow the installed README's "Quick start: from your agent" **as written**: `npx add-mcp@2 "$(command -v turf-mcp-server)" --name turf -g`, pick Claude Code; `claude mcp list`; open `claude` in `/tmp/gate-core-agent`; `/turf:up /tmp/gate-core-agent`; then `turf-mcp-server engine status` | add-mcp writes `~/.claude.json` with the absolute path; `claude mcp list` shows turf connected, and connecting starts no engine. The first tool call that needs the engine starts it: no error, and nobody ran `brew services start turf`. The deploy converges, its approval shown in Claude Code; none of P.7's credits are spent. `status`: `supervisor … started on demand by a server`, the server and the engine both at `$TAG`. |
+| 12.3b | `cp -R <core> /tmp/gate-core; cd /tmp/gate-core`; follow "Quick start: the Turf CLI" **as written** | It works as written, on the engine 12.3a started; the deploy converges. |
+| 12.4 | Quit Claude Code and every `turf`; `turf-mcp-server engine status`; `turf-mcp-server engine stop`; `cd /tmp/gate-core; turf up` | The engine outlived its clients: `status` still reports it running. `stop` ends it. The agent's first engine call then starts it again, with no error and no mention of `brew services start turf`; the run finds nothing to change. |
+| 12.4a | `TURF_ENGINE_AUTOSTART=off`: `turf-mcp-server engine stop`; `TURF_ENGINE_AUTOSTART=off turf up` | The agent's first engine call fails with the server's message that the local Turf engine is not running and `TURF_ENGINE_AUTOSTART=off` stops this server from starting it. It reads as a sentence, not a stack trace. |
+| 12.4b | The optional service. `turf up` (an on-demand engine runs again); `brew services start turf`; after ten seconds, `turf-mcp-server engine status`; `turf up` | The service takes the on-demand engine over: `status` reports a supervisor that is no longer `started on demand by a server`, running at `$TAG`. `turf up` works on it. |
+| 12.5 | `cd /tmp/gate-core; turf destroy --yes`; `turf -C /tmp/gate-core-agent destroy --yes`; `npx add-mcp@2 remove turf -g -y`; `brew services stop turf`; `turf-mcp-server engine status`; `rm -rf ~/.turf; mv ~/.turf.gate-bak ~/.turf`; `brew services start turf` if you run the service | No engine left running. Your own setup restored. |
+
+---
+
+## Suite 13: Post-publish, the npm install
+
+After the `npm-publish` workflow has published `$TAG` (`npm view @turfbuild/turf-mcp-server version`
+prints it, without the `v`). The reader of this path has Node and no Homebrew Turf: run it as a
+user without one, or with Homebrew's `turf-mcp-server` off `PATH`. It uses the real `~/.turf`, so
+move yours aside first, as in Suite 12, and stop any engine (`brew services stop turf`).
+
+| # | Do | Expect |
+|---|---|---|
+| 13.1 | A cold cache: `npm cache clean --force; rm -rf ~/.npm/_npx`. Then the lead line **as written**: `npx add-mcp@2 @turfbuild/turf-mcp-server --name turf -g`, pick Claude Code; `claude mcp get turf` | add-mcp asks which of the detected agents to write, and writes one entry named `turf` in `~/.claude.json`: `command` `npx`, `args` `-y`, `@turfbuild/turf-mcp-server`. |
+| 13.2 | The cold first start. `time npx -y @turfbuild/turf-mcp-server --version`; `du -sh ~/.npm/_npx` | The release's version and the two license lines (row 1.1), after about a minute: npm downloads about 180 MB and unpacks about 550 MB. Record both numbers; the README's are these. A second `npx -y @turfbuild/turf-mcp-server --version` answers in several seconds. |
+| 13.3 | Unaccepted. `cp -R <core> /tmp/gate-core-npm`; open `claude` in it; `/mcp`; ask it to list the Turf workspaces | turf is connected and lists its tools (if Claude Code gave up on a slow start, reconnecting once in `/mcp` connects it). The call returns the license notice and a request to ask the user; nothing runs, and `npx -y @turfbuild/turf-mcp-server engine status` says no engine has run. |
+| 13.4 | In a terminal: `npx -y @turfbuild/turf-mcp-server license accept`; `cat ~/.turf/license.json`. Back in the same Claude Code session, with no restart: `/turf:up /tmp/gate-core-npm` | `Accepted the Turf Community Edition License 1.0 (https://turf.build/license/v1/) on <time>; recorded in ~/.turf/license.json.` The record says `method` `command` and `accepted_with` `turf-mcp-server <version>`. The next call is served: the first tool that needs the engine starts it (a call that outlasts 90 seconds says the engine is still starting, and the next one finds it), and the deploy converges. |
+| 13.5 | `npx -y @turfbuild/turf-mcp-server engine status`; quit Claude Code; the same again | Running, `started on demand by a server`, the server and the engine both at the release's version, the console's address. It still runs after the client quit. |
+| 13.6 | An upgrade, from the second npm release on (skip it for the first). `npx -y @turfbuild/turf-mcp-server engine stop`; set the entry's package to the previous release (`@turfbuild/turf-mcp-server@<previous>`), start Claude Code and make one call that needs the engine; quit; set the entry back to `@turfbuild/turf-mcp-server`; start Claude Code and repeat the call. Then `npx -y @turfbuild/turf-mcp-server engine stop`, and the call once more | The unpinned entry installs the new release by itself at that start, which takes about half a minute. The engine still running is the previous release's: the server says so and names `turf-mcp-server engine stop`; it never restarts a running engine itself. After `engine stop`, the next call starts the new engine, and `engine status` shows the release's version on both sides. |
+| 13.7 | In Claude Code: `/turf:destroy /tmp/gate-core-npm`, approve. Then `claude mcp remove turf --scope user`; `npx -y @turfbuild/turf-mcp-server engine stop`; `pgrep -fl 'turf-mcp-server\|turf-engine\|restate-server'`; `rm -rf ~/.turf; mv ~/.turf.gate-bak ~/.turf` | Destroyed; no process of this run's left. Your own setup restored. |
 
 ---
 
