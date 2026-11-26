@@ -1,0 +1,29 @@
+{
+  "name": "@turfbuild/turf-mcp-server-@OS@-@CPU@",
+  "version": "@VERSION@",
+  "description": "The @OS@-@CPU@ binaries of @turfbuild/turf-mcp-server, the MCP server of Turf; install that package, not this one.",
+  "homepage": "https://turf.build",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/turfbuild/turf.git",
+    "directory": "npm/turf-mcp-server"
+  },
+  "author": "Turf LLC",
+  "license": "SEE LICENSE IN LICENSE",
+  "os": [
+    "@OS@"
+  ],
+  "cpu": [
+    "@CPU@"
+  ],
+  "files": [
+    "bin/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "preferUnplugged": true,
+  "publishConfig": {
+    "access": "public"
+  }
+}

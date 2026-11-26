@@ -10,7 +10,7 @@ LDFLAGS := -X 'main.Version=$(VERSION)' \
   -X 'github.com/docker/docker-agent/pkg/feedback.Link=https://turf.build/feedback/' \
   -X 'github.com/docker/docker-agent/pkg/feedback.BugLink=https://github.com/turfbuild/turf/issues/new/choose'
 
-.PHONY: build install test fmt vet tidy clean
+.PHONY: build install test fmt vet tidy clean npm-pack
 
 # The docker-agent (cagent) fork is a git submodule at ./docker-agent, consumed
 # via a `replace => ./docker-agent` in go.mod. A fresh clone leaves that path
@@ -39,3 +39,15 @@ tidy:
 
 clean:
 	rm -rf bin/
+
+# The npm distribution of turf-mcp-server (npm/turf-mcp-server): the launcher
+# package and one package per platform, packed from a release's server-side
+# binaries (<name>-<os>_<arch>) into NPM_OUT_DIR. NPM_VERSION is the release
+# tag; NPM_PLATFORMS packs fewer than the four (Go names), e.g.
+#   make npm-pack NPM_VERSION=v1.5.0 NPM_BIN_DIR=dist NPM_PLATFORMS=darwin/arm64
+NPM_BIN_DIR ?= dist
+NPM_OUT_DIR ?= dist/npm
+
+npm-pack:
+	@test -n "$(NPM_VERSION)" || { echo "set NPM_VERSION (e.g. v1.5.0)" >&2; exit 1; }
+	NPM_PLATFORMS="$(NPM_PLATFORMS)" scripts/npm-pack.sh "$(NPM_VERSION)" "$(NPM_BIN_DIR)" "$(NPM_OUT_DIR)"
