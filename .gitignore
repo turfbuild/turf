@@ -45,3 +45,9 @@ go.work.sum
 
 # scratchpad
 scratchpad/
+
+# The npm launcher lives in a bin/ of its own (npm/turf-mcp-server).
+!/npm/turf-mcp-server/bin/
+
+# Local release artifacts (make npm-pack writes dist/npm).
+/dist/
