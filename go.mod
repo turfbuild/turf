@@ -1,6 +1,6 @@
 module github.com/turfbuild/turf
 
-go 1.26.10
+go 1.26.11
 
 replace github.com/docker/docker-agent => ./docker-agent
 
@@ -99,7 +99,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
-	github.com/junegunn/fzf v0.74.1 // indirect
+	github.com/junegunn/fzf v0.74.5 // indirect
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741 // indirect
 	github.com/k3a/html2text v1.4.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
