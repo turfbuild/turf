@@ -9,7 +9,8 @@
 # <name>-<os>_<arch> for name in turf-mcp-server, turf-engine,
 # turf-builtin-provider, turf-ui.
 #
-# [legal dir] holds the LICENSE (and NOTICE, if any) every package carries; it
+# [legal dir] holds the LICENSE (and STANDARD-TERMS.md and NOTICE, if any) every
+# package carries; it
 # defaults to this checkout's release/. npm-publish.yml passes the copies of the
 # tag being packed, so a package carries the licence of the release it wraps.
 #
@@ -76,6 +77,9 @@ done
 # Common files for a staged package: the legal texts and the README.
 legal() {
   cp "$LEGAL_DIR/LICENSE" "$1/LICENSE"
+  # From 1.5 the LICENSE is a cover page that incorporates STANDARD-TERMS.md,
+  # so a package carries both, as the release archive does.
+  if [[ -f "$LEGAL_DIR/STANDARD-TERMS.md" ]]; then cp "$LEGAL_DIR/STANDARD-TERMS.md" "$1/STANDARD-TERMS.md"; fi
   if [[ -f "$LEGAL_DIR/NOTICE" ]]; then cp "$LEGAL_DIR/NOTICE" "$1/NOTICE"; fi
   cp "$SRC/README.md" "$1/README.md"
 }

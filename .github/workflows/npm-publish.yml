@@ -5,7 +5,7 @@
 # Run by hand, after the release is published. It downloads that release's
 # server-side binaries, checks them against its checksums.txt and their cosign
 # provenance (as release.yml does before bundling them), packs them with the
-# LICENSE and NOTICE of the tag, and publishes. An npm version is immutable
+# LICENSE, STANDARD-TERMS.md and NOTICE of the tag, and publishes. An npm version is immutable
 # (it can be deprecated, never replaced), so with `publish` unticked the run
 # is `npm publish --dry-run` and uploads nothing. Platform packages go first:
 # the launcher names them as optional dependencies at its exact version. A
@@ -85,9 +85,9 @@ jobs:
 
       - uses: actions/checkout@v7 # the default branch: npm/, scripts/npm-pack.sh
         with:
-          fetch-depth: 0 # the tag, for its release/LICENSE and release/NOTICE
+          fetch-depth: 0 # the tag, for its release/LICENSE, STANDARD-TERMS.md and NOTICE
 
-      - name: The tag's LICENSE and NOTICE
+      - name: The tag's LICENSE, STANDARD-TERMS.md and NOTICE
         # What the release's tarballs carry (release.yml copies them from
         # release/ at the tag), so a package carries the licence of the
         # release it wraps.
@@ -95,9 +95,11 @@ jobs:
           set -euo pipefail
           mkdir -p legal
           git show "${TAG}:release/LICENSE" > legal/LICENSE
-          if git cat-file -e "${TAG}:release/NOTICE" 2>/dev/null; then
-            git show "${TAG}:release/NOTICE" > legal/NOTICE
-          fi
+          for f in STANDARD-TERMS.md NOTICE; do
+            if git cat-file -e "${TAG}:release/${f}" 2>/dev/null; then
+              git show "${TAG}:release/${f}" > "legal/${f}"
+            fi
+          done
           ls -l legal
 
       - uses: actions/setup-node@v6
