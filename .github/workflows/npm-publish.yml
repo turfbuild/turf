@@ -1,0 +1,163 @@
+# Publish a released turf-mcp-server to npm as @turfbuild/turf-mcp-server and
+# its four platform packages (npm/turf-mcp-server, scripts/npm-pack.sh), so that
+# `npx -y @turfbuild/turf-mcp-server` runs it.
+#
+# Run by hand, after the release is published. It downloads that release's
+# server-side binaries, checks them against its checksums.txt and their cosign
+# provenance (as release.yml does before bundling them), packs them with the
+# LICENSE and NOTICE of the tag, and publishes. An npm version is immutable
+# (it can be deprecated, never replaced), so with `publish` unticked the run
+# is `npm publish --dry-run` and uploads nothing. Platform packages go first:
+# the launcher names them as optional dependencies at its exact version. A
+# version already on npm is skipped, so a run that failed half way can be run
+# again.
+#
+# Authentication. npm tries trusted publishing (OIDC, this workflow's
+# id-token) first and falls back to the NPM_TOKEN secret.
+#
+#   Once, for each of the five names (@turfbuild/turf-mcp-server and
+#   @turfbuild/turf-mcp-server-{darwin-arm64,darwin-x64,linux-arm64,linux-x64}):
+#   1. Create the package by a first publish. Trusted publishing can only be
+#      configured on a package that already exists on the registry
+#      (docs.npmjs.com/cli/v11/commands/npm-trust). Either store a granular
+#      access token with read and write access to the @turfbuild scope as the
+#      repository secret NPM_TOKEN and run this workflow with `publish`, or
+#      publish the first version's tarballs by hand.
+#   2. Add a trusted publisher on npmjs.com (the package's Settings, Trusted
+#      publishing, GitHub Actions): organization turfbuild, repository turf,
+#      workflow filename npm-publish.yml, no environment. Or, with npm 11.15.0
+#      or later: npm trust github <package> --file npm-publish.yml
+#      --repo turfbuild/turf --allow-publish
+#   3. Then delete the NPM_TOKEN secret, and set each package's publishing
+#      access to require two-factor authentication and disallow tokens.
+#
+# Provenance. Under trusted publishing npm generates it automatically. With a
+# token it needs --provenance, which this workflow always passes (redundant,
+# and harmless, under OIDC). Both need the packages' repository field to match
+# this repository, which npm/turf-mcp-server's templates set, and a public
+# repository. Trusted publishing needs npm 11.5.1 or later and Node 22.14.0 or
+# later (docs.npmjs.com/trusted-publishers).
+
+name: npm-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release to put on npm (e.g. v1.5.0). No release candidates."
+        required: true
+        type: string
+      publish:
+        description: "Publish to npm. Unticked: npm publish --dry-run only."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing and provenance (OIDC)
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: npm (${{ inputs.publish && 'publish' || 'dry run' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.repository == 'turfbuild/turf'
+    env:
+      TAG: ${{ inputs.tag }}
+      PLATFORMS: darwin_arm64 darwin_amd64 linux_amd64 linux_arm64
+      SERVER_BINARIES: turf-mcp-server turf-engine turf-builtin-provider turf-ui
+      # cosign identity of the server binaries (as release.yml verifies them).
+      SERVER_ID: ^https://github.com/turfbuild/turf-mcp-server/
+      OIDC_ISSUER: https://token.actions.githubusercontent.com
+    steps:
+      - name: Check the tag is a final release
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a final release tag (vX.Y.Z)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7 # the default branch: npm/, scripts/npm-pack.sh
+        with:
+          fetch-depth: 0 # the tag, for its release/LICENSE and release/NOTICE
+
+      - name: The tag's LICENSE and NOTICE
+        # What the release's tarballs carry (release.yml copies them from
+        # release/ at the tag), so a package carries the licence of the
+        # release it wraps.
+        run: |
+          set -euo pipefail
+          mkdir -p legal
+          git show "${TAG}:release/LICENSE" > legal/LICENSE
+          if git cat-file -e "${TAG}:release/NOTICE" 2>/dev/null; then
+            git show "${TAG}:release/NOTICE" > legal/NOTICE
+          fi
+          ls -l legal
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: npm for trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Download + verify the release's server-side binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)" != false ]; then
+            echo "::error::release $TAG is a draft; publish it first"
+            exit 1
+          fi
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
+            --pattern 'turf-mcp-server-*' --pattern 'turf-engine-*' \
+            --pattern 'turf-builtin-provider-*' --pattern 'turf-ui-*' \
+            --pattern checksums.txt
+          for p in $PLATFORMS; do
+            for b in $SERVER_BINARIES; do
+              bin="dist/${b}-${p}"
+              ( cd dist && grep -E "  ${b}-${p}\$" checksums.txt | sha256sum -c - )
+              cosign verify-blob-attestation \
+                --type slsaprovenance1 \
+                --bundle "${bin}.provenance.sigstore.json" \
+                --certificate-identity-regexp "$SERVER_ID" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" \
+                "$bin"
+            done
+          done
+
+      - name: Pack
+        run: scripts/npm-pack.sh "$TAG" dist dist/npm legal
+
+      - name: Publish (${{ inputs.publish && 'for real' || 'dry run' }})
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          v="${TAG#v}"
+          dry=--dry-run
+          [ "$PUBLISH" = true ] && dry=
+          for name in darwin-arm64 darwin-x64 linux-arm64 linux-x64 ""; do
+            pkg="@turfbuild/turf-mcp-server${name:+-$name}"
+            # ./ keeps npm from reading a relative path as a GitHub owner/repo.
+            tgz="./dist/npm/turfbuild-turf-mcp-server${name:+-$name}-${v}.tgz"
+            if [ -n "$(npm view "${pkg}@${v}" version 2>/dev/null || true)" ]; then
+              echo "${pkg}@${v} is already on npm; skipped"
+              continue
+            fi
+            npm publish "$tgz" --access public --provenance $dry
+          done
