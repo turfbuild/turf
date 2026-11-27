@@ -112,7 +112,7 @@ jobs:
           npm install -g npm@^11.5.1
           npm --version
 
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.4
 
       - name: Download + verify the release's server-side binaries
         env:
