@@ -34,7 +34,14 @@ func TestTelemetryOffOnRoundTrip(t *testing.T) {
 		t.Errorf("version line with no setting: %q", line)
 	}
 
-	runTelemetry(t, "off")
+	// The engine follows a change only after a restart, and the hint names the
+	// default on-demand engine's way (stop it) as well as the service's.
+	offOut := runTelemetry(t, "off")
+	for _, want := range []string{"turf-mcp-server engine stop", "the next request starts it again", "brew services restart turf"} {
+		if !strings.Contains(offOut, want) {
+			t.Errorf("off does not say %q:\n%s", want, offOut)
+		}
+	}
 	path := filepath.Join(home, "telemetry.json")
 	fi, err := os.Stat(path)
 	if err != nil {
