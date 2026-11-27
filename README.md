@@ -21,22 +21,23 @@ way to consume it. Here's the CLI in action:
 ### npx: the MCP server, in the agent you already use
 
 ```sh
+npx -y @turfbuild/turf-mcp-server license accept   # downloads Turf, about a minute, and accepts the terms
 npx add-mcp@2 @turfbuild/turf-mcp-server --name turf -g
-# the first start downloads Turf: about a minute
-npx -y @turfbuild/turf-mcp-server license accept
 ```
 
-The first line registers `turf-mcp-server` with the agents on this machine: Claude Code, Claude
-Desktop, Cursor, Codex, Gemini CLI and VS Code. It finds the ones you have, lets you pick, and
-writes each entry ([add-mcp](https://github.com/neon-solutions/add-mcp) is Neon's open-source
-installer). The second accepts the [Turf license terms](https://turf.build/license/v1/), once,
-and records it in `~/.turf/license.json`. Whichever npx command runs Turf first downloads it: run
-the accept line before your agent has started Turf and the minute passes there, in the terminal,
-and the agent's first start is quick. Then, in your agent: `/turf:guide`.
+The first line downloads Turf here, in the terminal, and accepts the
+[Turf license terms](https://turf.build/license/v1/) (read them first), once, recording it in
+`~/.turf/license.json`. The second registers `turf-mcp-server` with the agents on this machine:
+Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI and VS Code. It finds the ones you have,
+lets you pick, and writes each entry ([add-mcp](https://github.com/neon-solutions/add-mcp) is
+Neon's open-source installer). The agent's first start is then quick. Then, in your agent:
+`/turf:guide`.
 
 It needs Node 18 or later, on macOS or Linux, arm64 or x64. The first start takes about a minute
-(npm downloads about 180 MB and unpacks about 550 MB), and a client that waits 30 seconds for a
-server may give up on it: reconnect once. Later starts take several seconds.
+(npm downloads about 180 MB and unpacks about 550 MB): let it happen in the terminal, as above,
+not in your agent, where a client may give up on it and npm can leave an interrupted install
+behind. If the agent's first start fails, turn the server off in the agent, run the first line in
+a terminal and let it finish, then turn it back on. Later starts take several seconds.
 
 Until you accept, the server connects and lists its tools, and every call returns the license
 notice. Acceptance is read at the next call, with no restart. See
@@ -561,6 +562,12 @@ against the [providers overview].
 license terms are not accepted, and turf only asks on a terminal. Run `turf license accept` once,
 or set `TURF_ACCEPT_EULA=yes` (only `yes` accepts) in CI and containers. `turf license status` says
 what it found. See [License acceptance](./docs/license-acceptance.md).
+
+**`… is installed without its binary`** (an npx install) — an earlier install was interrupted
+(on 1.5.0, npm failed with `ECOMPROMISED` while writing restate-server) and npx keeps reusing it.
+The message names the npx directory to remove and the steps: stop the engine, turn the server off
+in your agent, remove that directory, run `npx -y @turfbuild/turf-mcp-server engine status` in a
+terminal until the download finishes, then turn the server back on.
 
 **`turf-mcp-server not found on PATH`** — the CLI launches the server as a
 subprocess and must find it. Install it and put it on `PATH`, or point at it
