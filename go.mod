@@ -5,15 +5,15 @@ go 1.26.11
 replace github.com/docker/docker-agent => ./docker-agent
 
 require (
-	charm.land/bubbletea/v2 v2.1.1
-	github.com/charmbracelet/x/ansi v0.11.9
+	charm.land/bubbletea/v2 v2.2.0
+	github.com/charmbracelet/x/ansi v0.12.0
 	github.com/docker/docker-agent v1.118.0-turf.4
 	github.com/goccy/go-yaml v1.19.2
 	github.com/mattn/go-isatty v0.0.24
 	github.com/opentofu/svchost v0.0.0-20250610175836-86c9e5e3d8c8
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/oauth2 v0.37.0
-	golang.org/x/term v0.47.0
+	golang.org/x/oauth2 v0.38.0
+	golang.org/x/term v0.48.0
 )
 
 require (
@@ -149,7 +149,7 @@ require (
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
