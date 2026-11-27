@@ -12,9 +12,17 @@
 // hoisted alike) and handed to the server as TURF_RESTATE_SERVER, unless that is
 // already set. Not finding it is no failure: the server needs restate-server
 // only to run a local engine.
+//
+// An interrupted install is. npx keeps a half-written install and reuses it
+// on every later start (seen on v1.5.0: npm failed with ECOMPROMISED while
+// writing restate-server, leaving its platform package without a binary, and
+// the client's automatic retry ran on). A platform package that is present
+// without its binary is that case: say so, name the npx directory to remove,
+// and do not serve or run an engine on it.
 "use strict";
 
 const { spawn } = require("child_process");
+const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
@@ -29,6 +37,46 @@ function fail(msg) {
 if (!SUPPORTED.includes(key)) {
   fail(`no build for ${key} (supported: ${SUPPORTED.join(", ")})`);
 }
+
+// The npx directory holding a package, or the node_modules root otherwise.
+function installRoot(pkgDir) {
+  const i = pkgDir.lastIndexOf(`${path.sep}node_modules${path.sep}`);
+  return i < 0 ? pkgDir : pkgDir.slice(0, i);
+}
+
+// A package that resolves but whose binary is missing or empty.
+function interrupted(pkg, rel, opts) {
+  let dir;
+  try {
+    dir = path.dirname(require.resolve(`${pkg}/package.json`, opts));
+  } catch (e) {
+    return undefined;
+  }
+  const file = path.join(dir, rel);
+  try {
+    if (fs.statSync(file).size > 0) return undefined;
+  } catch (e) {
+    // missing: interrupted
+  }
+  return { pkg, file, root: installRoot(dir) };
+}
+
+function interruptedMessage(broken) {
+  const root = broken.root;
+  const npx = root.includes(`${path.sep}_npx${path.sep}`);
+  return (
+    `${broken.pkg} is installed without its binary (${broken.file}): an earlier ` +
+    "install was interrupted, and npm reuses it. To repair, " +
+    (broken.canStop ? "stop the engine (npx -y @turfbuild/turf-mcp-server engine stop), " : "") +
+    "turn the server off in your agent, " +
+    (npx ? `remove ${root} (rm -rf '${root}'), ` : "reinstall @turfbuild/turf-mcp-server, ") +
+    "then run `npx -y @turfbuild/turf-mcp-server engine status` in a terminal and let " +
+    "the download finish before turning the server back on."
+  );
+}
+
+const ownBroken = interrupted(`@turfbuild/turf-mcp-server-${key}`, "bin/turf-mcp-server");
+if (ownBroken) fail(interruptedMessage(ownBroken));
 
 let bin;
 try {
@@ -51,8 +99,32 @@ function restateServer() {
 
 const env = { ...process.env };
 if (!env.TURF_RESTATE_SERVER) {
-  const restate = restateServer();
-  if (restate) env.TURF_RESTATE_SERVER = restate;
+  let restateBroken;
+  try {
+    const top = path.dirname(require.resolve("@restatedev/restate-server/package.json"));
+    restateBroken = interrupted(`@restatedev/restate-server-${key}`, "bin/restate-server", {
+      paths: [top],
+    });
+  } catch (e) {
+    restateBroken = undefined;
+  }
+  if (restateBroken) {
+    // Serving MCP or running an engine would fail later and less clearly, or
+    // run another restate-server than the one this package pins. Other
+    // commands (engine stop/status, license, --version) need no restate-server
+    // and are part of the repair, so they run with the warning.
+    const args = process.argv.slice(2);
+    const serving =
+      args.length === 0 ||
+      (args[0].startsWith("-") && !["--version", "--help", "-h"].some((a) => args.includes(a)));
+    const engineRun = args[0] === "engine" && args[1] === "run";
+    restateBroken.canStop = true;
+    if (serving || engineRun) fail(interruptedMessage(restateBroken));
+    process.stderr.write(`turf-mcp-server: warning: ${interruptedMessage(restateBroken)}\n`);
+  } else {
+    const restate = restateServer();
+    if (restate) env.TURF_RESTATE_SERVER = restate;
+  }
 }
 
 const child = spawn(bin, process.argv.slice(2), { stdio: "inherit", env });

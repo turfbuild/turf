@@ -8,13 +8,16 @@ rest of Terraform's commands.
 ## Install
 
 ```sh
+npx -y @turfbuild/turf-mcp-server license accept   # downloads Turf, about a minute, and accepts the terms
 npx add-mcp@2 @turfbuild/turf-mcp-server --name turf -g
-# the first start downloads Turf: about a minute
 ```
 
-This registers the server with the agents on this machine (Claude Code, Claude
+Read the terms first (see [Accept the license](#accept-the-license)). The first
+line downloads Turf here, in the terminal, and records your acceptance once. The
+second registers the server with the agents on this machine (Claude Code, Claude
 Desktop, Cursor, Codex, Gemini CLI, VS Code): it finds the ones you have and
-lets you pick. To run the server yourself:
+lets you pick, and the agent's first start is then quick. To run the server
+yourself:
 
 ```sh
 npx -y @turfbuild/turf-mcp-server
@@ -48,9 +51,8 @@ npx -y @turfbuild/turf-mcp-server license accept
 This records your acceptance in `~/.turf/license.json`. Until then the server
 connects and lists its tools, and every call returns the license notice.
 Acceptance is read at the next call, with no restart. Whichever npx command
-runs Turf first downloads it: run this line before your agent has started Turf
-and the minute passes here, in the terminal, and the agent's first start is
-quick. `TURF_ACCEPT_EULA=yes`
+runs Turf first downloads it, which is why the install runs this line first, in
+a terminal. `TURF_ACCEPT_EULA=yes`
 in the server entry's `env` is the other way: setting it accepts the terms,
 for that server and the engine it starts.
 
@@ -94,8 +96,17 @@ that directory) go in its `mise.toml` or `mise.local.toml`, with
 ## First start and upgrades
 
 - The first start takes about a minute: npm downloads about 180 MB and unpacks
-  about 550 MB. A client that waits 30 seconds for a server may give up on that
-  first start: reconnect once. Later starts take several seconds.
+  about 550 MB. Let it happen in a terminal (the `license accept` line above),
+  not in your agent: a client that waits 30 seconds for a server may give up on
+  it, and npm can leave an interrupted install behind. If the agent's first
+  start fails, turn the server off in the agent, run the `license accept` line
+  in a terminal and let it finish, then turn it back on. Later starts take
+  several seconds.
+- If the server says a package "is installed without its binary", an earlier
+  install was interrupted (on 1.5.0, npm failed with `ECOMPROMISED` while
+  writing restate-server) and npx keeps reusing it. The message names the npx
+  directory to remove and the steps; until it is removed the server does not
+  start.
 - An unpinned entry asks npm at every start, so a new release is installed the
   next time the client starts the server. That start takes about half a minute.
   The engine that is running stays the old one until it is stopped: the
