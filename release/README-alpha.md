@@ -1,7 +1,7 @@
 # Turf
 
 Turf™ is a self-hosted, autonomous infrastructure-as-code tool, built on
-OpenTofu™. It deploys the stack an AI factory runs on and keeps it that way,
+OpenTofu®. It deploys the stack an AI factory runs on and keeps it that way,
 with an agent overseeing.
 
 Turf is free for individuals, education and small businesses within the
@@ -219,5 +219,5 @@ sends no installation id unless `TURF_INSTALLATION_ID` gives it one. The full
 field list and the endpoint are at https://turf.build/telemetry.
 
 Turf™ is a trademark of Turf LLC. Terraform® is a registered trademark of
-HashiCorp, Inc. OpenTofu™ is a trademark of The Linux Foundation. Turf is not
-affiliated with or endorsed by either.
+HashiCorp, Inc. OpenTofu® is a registered trademark of LF Projects, LLC. Turf is
+not affiliated with or endorsed by either.
