@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -227,8 +228,52 @@ func serverTools(t *testing.T) map[string]tools.Tool {
 
 // TestPermissionListsMatchServerAnnotations is an integration drift guard: when
 // turf-mcp-server is resolvable, it starts the server, reads the real tool
-// annotations, and asserts the policy matches reality. It skips (does not fail)
-// when the binary is absent, mirroring examples_test.go. It enforces:
+// annotations, and asserts the policy matches reality (checkPermissionsAgainst).
+// It skips (does not fail) when the binary is absent, mirroring examples_test.go;
+// TestPermissionListsMatchRecordedServer holds the same checks to a recorded tool
+// list, so CI runs them too.
+func TestPermissionListsMatchServerAnnotations(t *testing.T) {
+	checkPermissionsAgainst(t, serverTools(t))
+}
+
+// recordedServerTools is the tool list of the release recorded in
+// testdata/server-tools-<release>.json: each tool's bare name and its
+// readOnlyHint/destructiveHint, as tools/list returned them, keyed by the
+// turf_-prefixed name the CLI sees.
+func recordedServerTools(t *testing.T, release string) map[string]tools.Tool {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/server-tools-" + release + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hints map[string]struct {
+		ReadOnly    bool `json:"readOnlyHint"`
+		Destructive bool `json:"destructiveHint"`
+	}
+	if err := json.Unmarshal(raw, &hints); err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]tools.Tool, len(hints))
+	for bare, h := range hints {
+		name := appName + "_" + bare
+		byName[name] = tools.Tool{Name: name, Annotations: tools.ToolAnnotations{
+			ReadOnlyHint: h.ReadOnly, DestructiveHint: &h.Destructive,
+		}}
+	}
+	return byName
+}
+
+// TestPermissionListsMatchRecordedServer is the offline half of
+// TestPermissionListsMatchServerAnnotations: the same checks against the tool list
+// the v1.5.0 server returned, recorded. CI has no server, so the live test skips
+// there; this one fails CI when the lists fall out of step with the release they
+// ship with. Re-record the file when the server's tool set or annotations change.
+func TestPermissionListsMatchRecordedServer(t *testing.T) {
+	checkPermissionsAgainst(t, recordedServerTools(t, "v1.5.0"))
+}
+
+// checkPermissionsAgainst asserts the permission lists match a server's tool list.
+// It enforces:
 //   - every server tool is pre-approved (fail-safe completeness: a new tool would
 //     otherwise be unclassified — it must be consciously added to Allow);
 //   - every pre-approved / agent-confirm tool actually exists on the server (no
@@ -236,8 +281,8 @@ func serverTools(t *testing.T) map[string]tools.Tool {
 //   - every server-destructive tool is accounted for — either the persona confirms
 //     it (agentConfirmTurfTools) or it is an explicit destructiveNoConfirm carve-out
 //     — so a newly-destructive server tool forces a confirmation decision.
-func TestPermissionListsMatchServerAnnotations(t *testing.T) {
-	byName := serverTools(t)
+func checkPermissionsAgainst(t *testing.T, byName map[string]tools.Tool) {
+	t.Helper()
 	allow := toolSet(preApprovedTurfTools)
 	confirm := toolSet(agentConfirmTurfTools)
 
