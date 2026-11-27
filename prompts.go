@@ -33,10 +33,11 @@ func renderServerPrompt(ctx context.Context, rt runtime.Runtime, name, configPat
 	return text, nil
 }
 
-// serverPromptArgs builds the arguments of the server's "up"/"destroy" prompts,
-// by name: config_path is the directory the CLI runs in, and the user's words
-// go to instructions. The subcommands (renderServerPrompt) and the TUI's /up and
-// /destroy (turfPromptCommands) both build them here, so the two can't drift.
+// serverPromptArgs builds the arguments of the server's "up"/"destroy"/"watch"
+// prompts, by name: config_path is the directory the CLI runs in, and the user's
+// words go to instructions. The subcommands (renderServerPrompt) and the TUI's
+// /up, /destroy and /watch (turfPromptCommands) all build them here, so they
+// can't drift.
 func serverPromptArgs(configPath, instructions string) map[string]string {
 	args := map[string]string{"config_path": configPath}
 	if instructions = strings.TrimSpace(instructions); instructions != "" {
@@ -49,23 +50,28 @@ func serverPromptArgs(configPath, instructions string) map[string]string {
 // taking the same arguments as `turf up` and `turf destroy`: the working
 // directory as config_path and the typed text as instructions. cagent's stock
 // slash command hands the whole text to a prompt's first declared argument,
-// which for these two is config_path, so "/up use env/staging.tfvars" would
-// name a directory that doesn't exist. Every other prompt (/guide's topic,
-// another server's) keeps the stock mapping.
+// which for these is config_path, so "/up use env/staging.tfvars" would name a
+// directory that doesn't exist. /watch declares the same two arguments in the
+// same order, so it is mapped the same way ("/watch for an hour"). Every other
+// prompt (/guide's topic, another server's) keeps the stock mapping.
 func turfPromptCommands(a *app.App, wd string) func(context.Context, tea.Model) []commands.Category {
 	return func(ctx context.Context, _ tea.Model) []commands.Category {
 		return withTurfPromptArgs(commands.BuildCommandCategories(ctx, a), wd)
 	}
 }
 
-// withTurfPromptArgs rewires the up and destroy prompt items of cats in place
-// and returns cats.
+// turfPathPrompts names the server prompts whose arguments are config_path then
+// instructions, as the TUI builds them (serverPromptArgs).
+var turfPathPrompts = map[string]bool{"up": true, "destroy": true, "watch": true}
+
+// withTurfPromptArgs rewires the up, destroy and watch prompt items of cats in
+// place and returns cats.
 func withTurfPromptArgs(cats []commands.Category, wd string) []commands.Category {
 	for ci := range cats {
 		for ii := range cats[ci].Commands {
 			item := &cats[ci].Commands[ii]
 			name, ok := strings.CutPrefix(item.ID, "mcp.prompt.")
-			if !ok || (name != "up" && name != "destroy") {
+			if !ok || !turfPathPrompts[name] {
 				continue
 			}
 			item.Execute = func(arg string) tea.Cmd {

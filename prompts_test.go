@@ -33,6 +33,7 @@ func TestServerPromptArgs(t *testing.T) {
 // F9 (rc.1 acceptance): the stock slash command handed "/destroy staging: use
 // env/staging.tfvars" to config_path. The TUI's /up and /destroy must build the
 // same arguments `turf up` and `turf destroy` do, and leave other prompts alone.
+// The server's /watch (1.5) declares the same two arguments, so it maps the same way.
 func TestWithTurfPromptArgs(t *testing.T) {
 	stock := func(name string) commands.Item {
 		return commands.Item{
@@ -47,7 +48,7 @@ func TestWithTurfPromptArgs(t *testing.T) {
 		{Name: "Session", Commands: []commands.Item{{ID: "session.clear", Execute: func(string) tea.Cmd {
 			return func() tea.Msg { return "clear" }
 		}}}},
-		{Name: "MCP Prompts", Commands: []commands.Item{stock("up"), stock("destroy"), stock("guide")}},
+		{Name: "MCP Prompts", Commands: []commands.Item{stock("up"), stock("destroy"), stock("watch"), stock("guide")}},
 	}, "/work/env")
 
 	run := func(id, arg string) tea.Msg {
@@ -78,6 +79,10 @@ func TestWithTurfPromptArgs(t *testing.T) {
 		{"mcp.prompt.destroy", "only module.staging", messages.MCPPromptMsg{
 			PromptName: "destroy",
 			Arguments:  map[string]string{"config_path": "/work/env", "instructions": "only module.staging"},
+		}},
+		{"mcp.prompt.watch", "wait 10 minutes of quiet before acting", messages.MCPPromptMsg{
+			PromptName: "watch",
+			Arguments:  map[string]string{"config_path": "/work/env", "instructions": "wait 10 minutes of quiet before acting"},
 		}},
 	} {
 		got, ok := run(tc.id, tc.arg).(messages.MCPPromptMsg)

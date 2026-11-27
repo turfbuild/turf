@@ -1535,6 +1535,181 @@ func TestWorkspaceDelete_Summary(t *testing.T) {
 	}
 }
 
+// The drift fixtures: the v1.5.0 server's own drift and watch results, recorded
+// on the wire against a real engine on a one-output configuration (init → open →
+// up → plan → apply, then drift and watch; the server ran with --deadline 8s so
+// a watch would return waiting). A watch that finds drift needs a drifted object,
+// which that run had none of: watchDrift is written as the server's types spell
+// it (internal/tools drift.go driftFact, watch.go watchResult).
+const (
+	driftConfigured = `{"outcome":"configured","workspace_alias":"default","settings":{"settle":30,"sweep":3600},"ended":true,
+		"next":{"tool":"watch","args":{"workspace_alias":"default"}},
+		"note":"Drift detection is on for workspace default, with the settings named; the rest stand. Call watch to wait for drift."}`
+	driftStored = `{"outcome":"stored","workspace_alias":"default","settings":{"settle":30,"sweep":3600},"ended":true,
+		"note":"Drift settings on workspace default are stored as named, but drift detection is off, so nothing watches it: the settings take effect when it is turned on, which is the user's choice. drift({ workspace_alias: \"default\", enabled: true }) turns it on."}`
+	driftDisabled = `{"outcome":"disabled","workspace_alias":"default","settings":{"settle":30,"sweep":3600},"ended":true,
+		"note":"Drift detection is off on workspace default: nothing watches it. Any open drift notices were closed, and an up still running that asked for detection with drift: { … } leaves it off when it converges. The settings stand; drift({ workspace_alias: \"default\", enabled: true }) turns it on."}`
+	driftNoState = `workspace default has no state yet (nothing applied): drift watches applied objects. Converge it with up first, then call drift; or, if the user wants detection from the start, pass drift: { … } to that up, which turns detection on when it converges`
+
+	watchQuiet = `{"outcome":"quiet","workspace_alias":"default","cursor":"w2.eyJ2Ijo1LCJiIjoxNzk1NzQwMDQ3NTk5fQ.","ended":true,
+		"note":"Nothing new drifted on workspace default in the 2s the watch was given."}`
+	watchWaiting = `{"outcome":"waiting","cursor":"w2.eyJ2Ijo1LCJiIjoxNzk1NzQwMDUwOTA3fQ.","ended":false,
+		"next":{"tool":"watch","args":{"cursor":"w2.eyJ2Ijo1LCJiIjoxNzk1NzQwMDUwOTA3fQ.","workspace_alias":"default"}},
+		"note":"Nothing new. One call waits at most 8s on this server; a longer for spans calls."}`
+	watchUnwatchedNeverOn = `{"outcome":"unwatched","workspace_alias":"default","ended":true,
+		"note":"Drift detection has never been turned on for this workspace (its settings stand: settle 30s, sweep cycle 60m), so nothing watches workspace default for drift and watch would never wake: do not call watch on it again. A plan reads every object: up, then plan, is the drift report."}`
+	watchUnwatchedNoState = `{"outcome":"unwatched","workspace_alias":"default","ended":true,
+		"note":"The workspace has no state yet (nothing applied), so nothing watches workspace default for drift and watch would never wake: do not call watch on it again. A plan reads every object: up, then plan, is the drift report."}`
+
+	watchDrift = `{"outcome":"drift","workspace_alias":"prod",
+		"drift":{"counts":{"gone":1,"configured":2},
+			"notices":[
+				{"address":"aws_s3_bucket.logs","class":"gone","source":"sweep","first_seen":"2026-11-26T10:00:00Z","new":true},
+				{"address":"aws_instance.web","class":"configured","paths":["instance_type","tags.Owner"],"source":"sweep","first_seen":"2026-11-26T10:01:00Z","new":true},
+				{"address":"aws_security_group.web","class":"configured","paths":["ingress"],"source":"sweep","first_seen":"2026-11-26T09:00:00Z"}],
+			"coverage":"12 swept (each read within 40m); settle 30s, sweep cycle 1h"},
+		"cursor":"w2.eyJ2Ijo5LCJiIjoxNzk1NzQwMDQ3NTk5fQ.AAAAAQ","ended":true,
+		"next":{"tool":"up","args":{"workspace_alias":"prod"}},
+		"note":"New drift on workspace prod. Call up (next), then, at its plan gate, plan({ convergence_id, refresh_drift: true }), which reads only what drifted and plans every other row from its record. Approve its plan as any plan. Then watch again with this cursor."}`
+)
+
+func TestDriftConfig_Outcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name, content, args, want string
+	}{
+		{"configured", driftConfigured, `{"enabled":true,"sweep":3600}`, "Configure Drift default · detection on · settle 30s · sweep 1h"},
+		{"stored", driftStored, `{"sweep":3600}`, "Configure Drift default · settings stored · detection off · settle 30s · sweep 1h"},
+		{"disabled", driftDisabled, `{"enabled":false}`, "Configure Drift default · detection off · settle 30s · sweep 1h"},
+		{"disabled before any state", `{"outcome":"disabled","workspace_alias":"default","ended":true}`, `{"enabled":false}`, "Configure Drift default · detection off"},
+		{"sweep off, confirm off", `{"outcome":"configured","workspace_alias":"dev","settings":{"settle":45,"sweep":"off","confirm":"off"},"ended":true}`, `{}`, "dev · detection on · settle 45s · sweep off · confirm off"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := plainNorm(renderWithArgs("turf_drift", tc.content, tc.args, hiddenState{}, 1))
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("turf_drift %s: %q, want %q", tc.name, out, tc.want)
+			}
+			if strings.Contains(out, "Call watch") || strings.Contains(out, "turns it on") {
+				t.Fatalf("the note is the agent's, not the timeline's: %q", out)
+			}
+		})
+	}
+
+	// A refusal (no state yet) arrives as an MCP error and leads with the workspace.
+	out := plainNorm(renderErrArgs("turf_drift", driftNoState, `{"workspace_alias":"default","sweep":3600}`, service.StaticSessionState{}))
+	if !strings.Contains(out, "Configure Drift default · workspace default has no state yet") {
+		t.Fatalf("turf_drift refusal: %q", out)
+	}
+}
+
+func TestDriftAndWatch_RunningLines(t *testing.T) {
+	for _, tc := range []struct{ tool, args, want string }{
+		{"turf_drift", `{"workspace_alias":"prod","enabled":true,"sweep":86400}`, "Configure Drift prod · turning detection on…"},
+		{"turf_drift", `{"enabled":false}`, "Configure Drift default · turning detection off…"},
+		{"turf_drift", `{"settle":60}`, "Configure Drift default · changing settings…"},
+		{"turf_watch", `{"workspace_alias":"prod","cursor":"now"}`, "Watch for Drift prod · watching…"},
+	} {
+		msg := &types.Message{
+			ToolStatus: types.ToolStatusRunning,
+			ToolCall:   tools.ToolCall{Function: tools.FunctionCall{Name: tc.tool, Arguments: tc.args}},
+		}
+		b := turfToolRenderers()[tc.tool](animation.NewRuntime(), msg, hiddenState{})
+		b.SetSize(120, 1)
+		if out := plainNorm(b.View()); !strings.Contains(out, tc.want) {
+			t.Errorf("running %s %s: %q, want %q", tc.tool, tc.args, out, tc.want)
+		}
+	}
+}
+
+func TestWatch_Outcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name, content, args, want string
+	}{
+		{"quiet", watchQuiet, `{"cursor":"now","for":2}`, "Watch for Drift default · quiet · nothing new in 2s"},
+		{"waiting carries no alias", watchWaiting, `{}`, "Watch for Drift default · nothing new yet · still watching"},
+		{"waiting on a named workspace", watchWaiting, `{"workspace_alias":"prod"}`, "prod · nothing new yet"},
+		{"unwatched", watchUnwatchedNeverOn, `{}`, "Watch for Drift default · not watched"},
+		{"drift", watchDrift, `{"workspace_alias":"prod","cursor":"now"}`, "Watch for Drift prod · 2 new drift notice(s) · 1 gone · 2 configured"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := plainNorm(renderWithArgs("turf_watch", tc.content, tc.args, hiddenState{}, 1))
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("turf_watch %s: %q, want %q", tc.name, out, tc.want)
+			}
+			if strings.Contains(out, "w2.") || strings.Contains(out, "watch again") || strings.Contains(out, "do not call") {
+				t.Fatalf("cursor and guidance are the agent's, not the timeline's: %q", out)
+			}
+		})
+	}
+}
+
+func TestWatch_DriftListsNotices(t *testing.T) {
+	shown := plainNorm(renderWithArgs("turf_watch", watchDrift, `{"workspace_alias":"prod"}`, service.StaticSessionState{}, 10))
+	for _, want := range []string{
+		"new aws_s3_bucket.logs · gone · via sweep · first seen 2026-11-26T10:00:00Z",
+		"new aws_instance.web · configured · instance_type, tags.Owner · via sweep",
+		"aws_security_group.web · configured · ingress",
+		"coverage: 12 swept (each read within 40m); settle 30s, sweep cycle 1h",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("turf_watch drift missing %q:\n%s", want, shown)
+		}
+	}
+	if strings.Contains(shown, "new aws_security_group.web") {
+		t.Fatalf("a notice the cursor had reported is not new:\n%s", shown)
+	}
+	if strings.Contains(shown, "refresh_drift") {
+		t.Fatalf("the note is the agent's:\n%s", shown)
+	}
+}
+
+func TestWatch_UnwatchedSaysWhy(t *testing.T) {
+	for content, want := range map[string]string{
+		watchUnwatchedNeverOn: "Drift detection has never been turned on for this workspace (its settings stand: settle 30s, sweep cycle 60m)",
+		watchUnwatchedNoState: "The workspace has no state yet (nothing applied)",
+	} {
+		shown := plainNorm(renderWithArgs("turf_watch", content, `{}`, service.StaticSessionState{}, 4))
+		if !strings.Contains(shown, want) || strings.Contains(shown, "would never wake") {
+			t.Errorf("turf_watch unwatched: %q, want the reason %q alone", shown, want)
+		}
+	}
+}
+
+// status's drift block (internal/tools workspace.go: workspaceShowEntry.Drift) is
+// the same driftFact a watch carries, written as the server's types spell it.
+func TestWorkspaceShow_Drift(t *testing.T) {
+	const content = `{"workspaces":[{"workspace_alias":"prod","config_path":"infra/web","workspace_name":"default","opened_at":"2026-11-26T09:00:00Z",
+		"drift":{"counts":{"configured":1,"unconfirmed":1},
+			"notices":[{"address":"aws_instance.web","class":"configured","paths":["instance_type"],"source":"sweep"},
+				{"address":"aws_s3_bucket.logs","class":"unconfirmed","source":"sweep"}],
+			"omitted":3,"coverage":"12 swept","next":{"tool":"up","args":{"workspace_alias":"prod"}},"note":"Drift notices: …"}},
+		{"workspace_alias":"dev","workspace_name":"dev","opened_at":"t","drift":{"coverage":"4 swept (first cycle at 1/4)"}}]}`
+	shown := plainNorm(renderFor("turf_status", content, service.StaticSessionState{}))
+	for _, want := range []string{
+		"drift: 1 configured · 1 unconfirmed",
+		"aws_instance.web · configured · instance_type · via sweep",
+		"aws_s3_bucket.logs · unconfirmed · via sweep",
+		"…(+3 more)",
+		"coverage: 12 swept",
+		"drift: nothing open",
+		"coverage: 4 swept (first cycle at 1/4)",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("turf_status drift missing %q:\n%s", want, shown)
+		}
+	}
+	if strings.Contains(shown, "Drift notices:") {
+		t.Fatalf("the drift note is the agent's:\n%s", shown)
+	}
+}
+
+func TestSecondsWords(t *testing.T) {
+	for in, want := range map[float64]string{0: "0s", 30: "30s", 90: "90s", 300: "5m", 3600: "1h", 5400: "90m", 86400: "1d", 0.5: "0.5s"} {
+		if got := secondsWords(in); got != want {
+			t.Errorf("secondsWords(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // outputCore is output's result for fixture core, recorded.
 const outputCore = `{"outputs":{"fan":{"sensitive":false,"type":["tuple",["string","string"]],"value":["v1-happy-buffalo-0","v1-happy-buffalo-1"]},
 	"password":{"sensitive":true,"type":"string","value":"__cty_sensitive__"},

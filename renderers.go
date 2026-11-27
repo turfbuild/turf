@@ -111,6 +111,8 @@ func turfToolRenderers() map[string]tool.Builder {
 		"turf_list":              builder(renderWorkspaceList),
 		"turf_status":            builder(renderWorkspaceShow),
 		"turf_delete":            builder(renderWorkspaceDelete),
+		"turf_drift":             builder(renderDriftConfig),
+		"turf_watch":             builder(renderWatch),
 		"turf_up":                builder(renderConvergence),
 		"turf_destroy":           builder(renderConvergence),
 		"turf_refresh":           builder(renderConvergence),
@@ -2254,6 +2256,7 @@ type workspaceShowView struct {
 		OpenedAt       string               `json:"opened_at"`
 		Convergence    *convergenceFactView `json:"convergence,omitempty"`
 		Planfiles      []planfileFactView   `json:"planfiles,omitempty"`
+		Drift          *driftBlockView      `json:"drift,omitempty"`
 		Warning        string               `json:"warning,omitempty"`
 	} `json:"workspaces"`
 }
@@ -2302,6 +2305,10 @@ func renderWorkspaceShow(msg *types.Message, s spinner.Spinner, ss service.Sessi
 		}
 		for _, p := range w.Planfiles {
 			detail = append(detail, "  "+planfileFactLine(p))
+		}
+		if d := driftBlockLine(w.Drift); d != "" {
+			detail = append(detail, "  "+d)
+			detail = append(detail, driftNoticeLines(w.Drift, "    ")...)
 		}
 		if w.Warning != "" {
 			detail = append(detail, "  "+styles.WarningStyle.Render("⚠ "+w.Warning))
@@ -2711,6 +2718,307 @@ func renderWorkspaceDelete(msg *types.Message, s spinner.Spinner, ss service.Ses
 		summary += dot() + styles.WarningStyle.Render(fmt.Sprintf("%d orphaned resource(s)", w.ResourceCount))
 	}
 	return line(msg, s, summary, width)
+}
+
+// --- turf_drift / turf_watch ------------------------------------------------
+//
+// Drift detection is the engine watching a workspace between convergences for
+// changes made outside Turf. drift turns it on or off and changes its settings;
+// watch waits for the drift notices it raises. Both lines lead with the workspace
+// and say where detection stands; a watch that found drift lists each notice
+// (address, class, changed attribute paths — never a value) on expand, the same
+// rows status shows for a workspace's open drift. Like a convergence's note and
+// next, the results' note and next are the agent's guidance and are not drawn,
+// except for the one reason an unwatched workspace gives, which nothing else says.
+
+// driftSettingsView is the settings as a drift result shows them: settle in
+// seconds, the sweep's cycle in seconds or "off", confirm only when off.
+type driftSettingsView struct {
+	Settle  float64 `json:"settle"`
+	Sweep   any     `json:"sweep"`
+	Confirm string  `json:"confirm,omitempty"`
+}
+
+type driftConfigView struct {
+	Outcome        string             `json:"outcome"`
+	WorkspaceAlias string             `json:"workspace_alias"`
+	Settings       *driftSettingsView `json:"settings,omitempty"`
+}
+
+// driftNoticeView is one open drift notice: an address, its class and the changed
+// attribute paths, as the engine capped and redacted them.
+type driftNoticeView struct {
+	Address   string   `json:"address"`
+	Class     string   `json:"class"`
+	Paths     []string `json:"paths,omitempty"`
+	Source    string   `json:"source,omitempty"`
+	FirstSeen string   `json:"first_seen,omitempty"`
+	New       bool     `json:"new,omitempty"`
+}
+
+// driftBlockView is a workspace's open drift as status and watch report it: the
+// count per class, the notices (most severe first, capped, the rest in omitted),
+// and the coverage in a line.
+type driftBlockView struct {
+	Counts   map[string]int    `json:"counts,omitempty"`
+	Notices  []driftNoticeView `json:"notices,omitempty"`
+	Omitted  int               `json:"omitted,omitempty"`
+	Coverage string            `json:"coverage,omitempty"`
+}
+
+type watchView struct {
+	Outcome        string          `json:"outcome"`
+	WorkspaceAlias string          `json:"workspace_alias,omitempty"`
+	Drift          *driftBlockView `json:"drift,omitempty"`
+	Note           string          `json:"note,omitempty"`
+}
+
+// driftClasses is the notice classes in the server's severity order, each with the
+// color its count and rows take: gone is red (the object is not there), a change
+// the configuration makes or reads is a warning, and a signal nothing has read yet
+// is neutral.
+var driftClasses = []struct {
+	name string
+	c    color.Color
+}{
+	{"gone", styles.Error},
+	{"configured", styles.Warning},
+	{"referenced", styles.Warning},
+	{"contended", styles.Warning},
+	{"unconfirmed", styles.TextMuted},
+	{"uncovered", styles.TextMuted},
+}
+
+func driftClassColor(class string) color.Color {
+	for _, k := range driftClasses {
+		if k.name == class {
+			return k.c
+		}
+	}
+	return styles.TextMuted
+}
+
+// driftCountsTally renders the per-class counts in severity order ("1 gone · 2
+// configured"); a class the CLI does not know (a newer server's) follows, neutral.
+func driftCountsTally(counts map[string]int) string {
+	var parts []string
+	known := map[string]bool{}
+	for _, k := range driftClasses {
+		known[k.name] = true
+		if n := counts[k.name]; n > 0 {
+			parts = append(parts, colored(fmt.Sprintf("%d %s", n, k.name), k.c))
+		}
+	}
+	var rest []string
+	for class, n := range counts {
+		if !known[class] && n > 0 {
+			rest = append(rest, fmt.Sprintf("%d %s", n, class))
+		}
+	}
+	sort.Strings(rest)
+	for _, r := range rest {
+		parts = append(parts, muted(r))
+	}
+	return strings.Join(parts, dot())
+}
+
+// driftNoticeLines renders a drift block's notices, one row each, then the count
+// left out and the coverage.
+func driftNoticeLines(b *driftBlockView, indent string) []string {
+	if b == nil {
+		return nil
+	}
+	var out []string
+	for _, n := range b.Notices {
+		row := indent
+		if n.New {
+			row += keyword("new") + " "
+		}
+		row += addr(n.Address) + dot() + colored(n.Class, driftClassColor(n.Class))
+		if len(n.Paths) > 0 {
+			row += dot() + muted(strings.Join(n.Paths, ", "))
+		}
+		if n.Source != "" {
+			row += dot() + muted("via "+n.Source)
+		}
+		if n.FirstSeen != "" {
+			row += dot() + muted("first seen "+n.FirstSeen)
+		}
+		out = append(out, row)
+	}
+	if b.Omitted > 0 {
+		out = append(out, indent+muted(fmt.Sprintf("…(+%d more)", b.Omitted)))
+	}
+	if b.Coverage != "" {
+		out = append(out, indent+muted("coverage: "+b.Coverage))
+	}
+	return out
+}
+
+// driftBlockLine is a drift block as one segment: the counts, or the coverage
+// alone when nothing is open.
+func driftBlockLine(b *driftBlockView) string {
+	if b == nil {
+		return ""
+	}
+	if t := driftCountsTally(b.Counts); t != "" {
+		return section("drift") + " " + t
+	}
+	if b.Coverage != "" {
+		return section("drift") + " " + muted("nothing open")
+	}
+	return ""
+}
+
+// secondsWords is a drift setting in seconds as a short duration: 30s, 5m, 2h, 1d,
+// exact where it is whole, else in seconds.
+func secondsWords(sec float64) string {
+	s := int64(sec)
+	switch {
+	case float64(s) != sec:
+		return strconv.FormatFloat(sec, 'f', -1, 64) + "s"
+	case s >= 86400 && s%86400 == 0:
+		return fmt.Sprintf("%dd", s/86400)
+	case s >= 3600 && s%3600 == 0:
+		return fmt.Sprintf("%dh", s/3600)
+	case s >= 60 && s%60 == 0:
+		return fmt.Sprintf("%dm", s/60)
+	default:
+		return fmt.Sprintf("%ds", s)
+	}
+}
+
+// driftSettingsWords renders the settings: "settle 30s · sweep 1h", confirm only
+// when it is off (why every notice stays unconfirmed).
+func driftSettingsWords(st *driftSettingsView) string {
+	if st == nil {
+		return ""
+	}
+	out := muted("settle " + secondsWords(st.Settle))
+	switch v := st.Sweep.(type) {
+	case float64:
+		out += dot() + muted("sweep "+secondsWords(v))
+	case string:
+		out += dot() + muted("sweep "+v)
+	}
+	if st.Confirm != "" {
+		out += dot() + muted("confirm "+st.Confirm)
+	}
+	return out
+}
+
+// workspaceOrDefault is the workspace a drift or watch call acted on: the result's
+// alias, else the request's, else the default workspace (both tools default to it).
+func workspaceOrDefault(msg *types.Message, alias string) string {
+	if alias != "" {
+		return alias
+	}
+	if a := argString(msg, "workspace_alias"); a != "" {
+		return a
+	}
+	return defaultWorkspaceName
+}
+
+// driftRunningWord says what a drift call in flight is doing, from its request.
+func driftRunningWord(msg *types.Message) string {
+	var m map[string]any
+	_ = json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &m)
+	switch m["enabled"] {
+	case true:
+		return "turning detection on…"
+	case false:
+		return "turning detection off…"
+	}
+	return "changing settings…"
+}
+
+func renderDriftConfig(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, addr(workspaceOrDefault(msg, ""))+dot()+muted(driftRunningWord(msg)), width)
+	}
+	var d driftConfigView
+	if !parseContent(msg, &d) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	summary := addr(workspaceOrDefault(msg, d.WorkspaceAlias))
+	switch d.Outcome {
+	case "configured":
+		summary += dot() + bold("detection on", styles.Success)
+	case "stored":
+		summary += dot() + bold("settings stored", styles.Warning) + dot() + muted("detection off")
+	case "disabled":
+		summary += dot() + bold("detection off", styles.TextMuted)
+	case "":
+	default:
+		summary += dot() + bold(d.Outcome, styles.TextMuted)
+	}
+	if w := driftSettingsWords(d.Settings); w != "" {
+		summary += dot() + w
+	}
+	return line(msg, s, summary, width)
+}
+
+// unwatchedReason is why nothing watches a workspace, cut from an unwatched
+// result's note ("Drift detection has never been turned on for this workspace,
+// so nothing watches …"); "" when the note does not read that way.
+func unwatchedReason(note string) string {
+	reason, _, ok := strings.Cut(note, ", so nothing watches")
+	if !ok {
+		return ""
+	}
+	return reason
+}
+
+func renderWatch(msg *types.Message, s spinner.Spinner, ss service.SessionStateReader, width, _ int) string {
+	if running(msg) {
+		return line(msg, s, addr(workspaceOrDefault(msg, ""))+dot()+muted("watching…"), width)
+	}
+	var w watchView
+	if !parseContent(msg, &w) {
+		return fallbackLine(msg, s, ss, width)
+	}
+	summary := addr(workspaceOrDefault(msg, w.WorkspaceAlias))
+	var detail []string
+	switch w.Outcome {
+	case "drift":
+		fresh := 0
+		if w.Drift != nil {
+			for _, n := range w.Drift.Notices {
+				if n.New {
+					fresh++
+				}
+			}
+		}
+		word := "drift"
+		if fresh > 0 {
+			word = fmt.Sprintf("%d new drift notice(s)", fresh)
+		}
+		summary += dot() + bold(word, styles.Warning)
+		if w.Drift != nil {
+			if t := driftCountsTally(w.Drift.Counts); t != "" {
+				summary += dot() + t
+			}
+		}
+		detail = driftNoticeLines(w.Drift, "")
+	case "waiting":
+		summary += dot() + muted("nothing new yet · still watching")
+	case "quiet":
+		summary += dot() + bold("quiet", styles.Success)
+		if f := argInt(msg, "for"); f > 0 {
+			summary += dot() + muted("nothing new in "+secondsWords(float64(f)))
+		} else {
+			summary += dot() + muted("nothing new")
+		}
+	case "unwatched":
+		summary += dot() + bold("not watched", styles.TextMuted)
+		if r := unwatchedReason(w.Note); r != "" {
+			detail = append(detail, muted(r))
+		}
+	case "":
+	default:
+		summary += dot() + bold(w.Outcome, styles.TextMuted)
+	}
+	return lineWithDetail(msg, s, ss, summary, detail, width)
 }
 
 // --- turf_init --------------------------------------------------------------
