@@ -104,7 +104,7 @@ There are three events. Each one is a single JSON `POST` to
 | `actions`, `actions_failed`, `turf_actions` | How many actions ran, failed, and were Turf's own |
 | `providers`, `modules` | The most providers and module instances any round's plan used. Never which. |
 | `managed_resources`, `data_sources` | How many the workspace holds afterwards |
-| `backend` | The state backend's type, such as `local` or `s3`, one of the backends built into OpenTofu™; any other is `other` |
+| `backend` | The state backend's type, such as `local` or `s3`, one of the backends built into OpenTofu®; any other is `other` |
 | `duration_s`, `plan_s`, `apply_s`, `wait_s` | Seconds the run took, spent planning (a round's wait at its plan gate included), applying, and waiting for approval |
 | `changes_bucket`, `managed_bucket`, `duration_bucket` | The same numbers in ranges, such as `6-25` or `1-5m`; `duration_bucket` is `unknown` for a run that failed before its plan was ready |
 
@@ -129,5 +129,5 @@ what it receives for its own purposes, such as running and improving its service
 ([section 4](https://about.scarf.sh/terms-of-use/#4-data)). Turf LLC uses events to understand
 how Turf is used, to see which installations are active, and to size commercial licenses.
 
-Terraform® is a registered trademark of HashiCorp, Inc. OpenTofu™ is a trademark of The Linux
-Foundation. Turf is not affiliated with or endorsed by either.
+Terraform® is a trademark of HashiCorp. OpenTofu® is a registered trademark of LF Projects, LLC.
+Turf is not affiliated with or endorsed by either.
