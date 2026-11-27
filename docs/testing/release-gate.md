@@ -50,6 +50,14 @@ saved theme, your sessions or your dev engine. Use a second terminal for the eng
 `make build` here, `make build engine-bins` in doof, and `PATH=$PWD/bin:$D/bin:$PATH`. P.1's
 contents check is then skipped.
 
+**Before tagging, P.5's live tests run against the server about to ship.** On the draft tarball
+P.5 comes after both tags are cut, so a disagreement it finds there costs a new tag (1.5.0's
+`drift` and `watch` were found that way). So before the CLI is tagged: build the server at the
+commit its release will tag (`make build` in doof, `D=<that checkout>`), check out the commit
+this release will tag here, and run P.5's `go test` line with only that server on `PATH`:
+`P5PATH="$D/bin:$(go env GOROOT)/bin:/usr/bin:/bin"`, the rest as P.5. Every test runs and
+passes, or the CLI is fixed before either tag is cut.
+
 ### Tiers
 
 | Tier | Suites | Needs | Model credits | Time |
