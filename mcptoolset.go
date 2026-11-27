@@ -17,7 +17,7 @@ import (
 //     "turf · apply", …; see turfToolInfo) instead of the flat "turf" heading —
 //     the dialog's Tools section groups by Category, and cagent's own guidance is
 //     that a Category is a functional bucket, not the toolset name. This breaks the
-//     26-tool wall into scannable groups (replacing the generic "mcp" bucket the
+//     27-tool wall into scannable groups (replacing the generic "mcp" bucket the
 //     MCP toolset hardcodes onto every tool).
 //   - Tools() also strips the redundant "turf_" prefix for display by setting each
 //     tool's Annotations.Title to a friendly name ("Apply" rather than
@@ -91,6 +91,10 @@ var turfToolInfo = map[string]struct {
 	"list":   {"workspace", "List Workspaces"},
 	"close":  {"workspace", "Close Workspace"},
 	"delete": {"workspace", "Delete Workspace"},
+	// drift — the engine watching a workspace between convergences: turning
+	// detection on or off, and waiting for what it finds
+	"drift": {"drift", "Configure Drift"},
+	"watch": {"drift", "Watch for Drift"},
 	// run — the calls that start a convergence and stop at round 1's plan gate.
 	"up":      {"run", "Up"},
 	"destroy": {"run", "Destroy"},

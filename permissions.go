@@ -77,6 +77,13 @@ var preApprovedTurfTools = []string{
 	"turf_status",
 	"turf_close",
 	"turf_delete",
+	// Drift. watch only observes: it waits for drift notices and never changes a
+	// setting (server-annotated read-only). drift turns the engine's drift
+	// detection on or off and changes its settings; it changes no infrastructure
+	// and no state, so it is not destructive, and the server's own description
+	// keeps it to the user's words.
+	"turf_watch",
+	"turf_drift",
 	// Runs. up, destroy, refresh, import and invoke each start a convergence and
 	// stop at round 1's plan gate: they submit, and plan and apply nothing. No
 	// start verb approves anything up front. The server marks destroy

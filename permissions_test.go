@@ -141,7 +141,7 @@ func TestPreApprovedToolsChecker(t *testing.T) {
 	checker := permissions.NewChecker(&latest.PermissionsConfig{Allow: preApprovedTools()})
 
 	allowed := []string{
-		"turf_up", "turf_apply", "turf_delete",
+		"turf_up", "turf_apply", "turf_delete", "turf_watch", "turf_drift",
 		"add_memory", "update_memory", "delete_memory",
 		"write_file", "edit_file", "create_directory", "remove_directory",
 		"create_todo", "update_todos",
