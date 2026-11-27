@@ -30,9 +30,13 @@ import (
 const telemetryURL = "https://turf.build/telemetry"
 
 // telemetryRestartHint is what a change to the setting needs before the
-// running engine follows it.
-const telemetryRestartHint = "Takes effect when the engine restarts: brew services restart turf " +
-	"(or restart turf-mcp-server engine run)."
+// running engine follows it. The CLI does not know how the engine was started,
+// so it names each way, the default first: an engine a server started on
+// demand is stopped and the next request starts it again; the Homebrew service
+// and a foreground `engine run` are restarted.
+const telemetryRestartHint = "Takes effect when the engine restarts: turf-mcp-server engine stop " +
+	"(the next request starts it again), or brew services restart turf if you run the service, " +
+	"or restart turf-mcp-server engine run if you run it yourself."
 
 func telemetryPath() string { return filepath.Join(turfHome(), "telemetry.json") }
 
