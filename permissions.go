@@ -19,7 +19,8 @@ package main
 //   - each round's plan is approved by apply, under the server's own rule: the
 //     agent approves a low-risk round itself and consults the user for anything
 //     else, always for a destroy plan, and always for an import or invoke plan;
-//   - turf_delete is a standalone, irreversible op confirmed per call.
+//   - turf_delete is a standalone, irreversible op confirmed per call, and so is
+//     turf_open with force_unlock (or lock_id).
 // This trades the deterministic per-tool permission gate for agent-driven
 // confirmation, on purpose — a gate on apply would double-prompt right after the
 // user had already approved a plan, which is friction on the tool that is the heart
@@ -65,8 +66,12 @@ var preApprovedTurfTools = []string{
 	// Workspace lifecycle. turf_delete is server-annotated destructive and
 	// irreversible; it is pre-approved like the rest but the persona must obtain an
 	// explicit, irreversibility-warning user_prompt before calling it (see
-	// agentConfirmTurfTools). turf_close only stops following the workspace —
-	// a convergence holding it goes on in the engine — so it is not destructive.
+	// agentConfirmTurfTools). turf_open is server-annotated destructive for its
+	// worst case alone, force_unlock (or lock_id), which releases a state lock
+	// another process may hold; the persona confirms that call the same way, and
+	// an ordinary open needs nothing. turf_close only stops following the
+	// workspace — a convergence holding it goes on in the engine — so it is not
+	// destructive.
 	"turf_open",
 	"turf_list",
 	"turf_status",
@@ -74,7 +79,11 @@ var preApprovedTurfTools = []string{
 	"turf_delete",
 	// Runs. up, destroy, refresh, import and invoke each start a convergence and
 	// stop at round 1's plan gate: they submit, and plan and apply nothing. No
-	// start verb approves anything up front, so none is destructive.
+	// start verb approves anything up front. The server marks destroy
+	// destructive all the same, so that a client approving tool calls one by one
+	// sees the intent to destroy at the call; here the persona confirms every
+	// destroy plan before turf_apply instead (see destructiveNoConfirm in
+	// permissions_test.go).
 	"turf_up",
 	"turf_destroy",
 	"turf_refresh",
@@ -187,16 +196,17 @@ func preApprovedTools() []string {
 // permission layer (a subset of preApprovedTurfTools) — this list is documentation
 // plus a drift guard (permissions_test.go), not a permission list. It is turf's
 // own confirm-policy, deliberately NOT a mirror of the server's destructiveHint:
-// cancel, taint and untaint are destructive yet authorize no new change, and up
-// and destroy stop at an approval point unless the user pre-approved (see
-// destructiveNoConfirm in permissions_test.go). Two confirmation shapes, spelled out
-// in the persona (see agent.go):
+// cancel, taint and untaint are destructive yet authorize no new change, and
+// destroy stops at its plan gate, its destroy plan always confirmed at apply (see
+// destructiveNoConfirm in permissions_test.go). Two confirmation shapes, spelled
+// out in the persona (see agent.go):
 //   - apply is the approval point of every round. The persona follows the server's
 //     rule: it approves a low-risk round itself, and consults the user for anything
 //     else — always for a destroy plan, and always for an import or invoke plan.
-//   - turf_delete is a standalone op confirmed with its own targeted
-//     user_prompt.
+//   - turf_delete, and turf_open with force_unlock or lock_id, are standalone ops
+//     confirmed with their own targeted user_prompt.
 var agentConfirmTurfTools = []string{
 	"turf_apply",  // applies a round's plan to real infrastructure
 	"turf_delete", // irreversible state deletion — warn it cannot be undone
+	"turf_open",   // only with force_unlock/lock_id: releases a lock another process may hold
 }

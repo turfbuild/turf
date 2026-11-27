@@ -40,6 +40,7 @@ var destructiveNoConfirm = map[string]struct{}{
 	"turf_cancel":  {}, // ends a convergence: in-flight work finishes, the rest is abandoned
 	"turf_taint":   {}, // marks for replacement; the replace is in the next plan, which is approved
 	"turf_untaint": {}, // lifts that mark; likewise applies nothing by itself
+	"turf_destroy": {}, // stops at its plan gate; the persona confirms every destroy plan before turf_apply
 }
 
 // TestPermissionListsConsistent checks the curated lists are internally coherent,
